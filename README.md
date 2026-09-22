@@ -72,7 +72,7 @@ cd E:\可视化编辑器\web-editor ; npm run build
 
 | 提交 | 内容 |
 |---|---|
-| `f3a3cbc` | 迁移后的基线快照（两个编辑器 + 工具 + 证据，迁移后未改动）。**A4 编辑器原有的 3 个 `_bak_*.html` 备份只存在于这个提交里**，需要时 `git show f3a3cbc:"A4编辑器/_bak_editor_pre_split.html" > 文件名` 取回 |
-| 后续提交 | 文档描述修正、过时文件清理、A4 组件与三段式页码合入 web-editor（见 `git log`） |
+| `f3a3cbc` | 迁移后的基线快照（两个编辑器 + 工具 + 证据，迁移后未改动）。**A4 编辑器原有的 3 个 `_bak_*.html` 备份只存在于这个提交里**，需要时 `git show f3a3cbc:"A4编辑器/_bak_editor_pre_split.html" > 文件名` 取回。⚠ 该提交的作者是迁移时的占位身份 `DSH local <dsh@localhost>`（当时仓库身份尚未配置），其后提交为 `Sxdok <Sxdok@outlook.com>` |
+| 后续提交 | ① 删除过时文件 ② 合入 A4 组件与三段式页码 ③ 文档描述修正（见 `git log`） |
 
 回滚点从"散落的 `_bak_*.html` 文件"改成了 git 历史。
