@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { mmToPx } from '../../utils/units';
-import { parseCellStyles, parseTableData, type CellStyle } from '../../registry/components/common/tableKit';
+import { parseCellStyles, parseTableData, shiftCellKeys, type CellStyle } from '../../registry/components/common/tableKit';
 import type { ControlProps } from './index';
 
 const MAX_ROWS = 200;
@@ -44,26 +44,6 @@ function rangeOf(cells: string[]): Range | null {
     c0: Math.min(...pts.map((p) => p[1])),
     c1: Math.max(...pts.map((p) => p[1])),
   };
-}
-
-/** 插入/删除行后，把单元格格式的行列键一起平移（删掉的行列其格式一并移除） */
-function shiftStyles(styles: Record<string, CellStyle>, axis: 'row' | 'col', at: number, count: number): Record<string, CellStyle> {
-  const out: Record<string, CellStyle> = {};
-  for (const [k, v] of Object.entries(styles)) {
-    const [r, c] = k.split(',').map((n) => Number(n));
-    const idx = axis === 'row' ? r : c;
-    const other = axis === 'row' ? c : r;
-    if (count < 0) {
-      const del = -count;
-      if (idx >= at && idx < at + del) continue; // 落在删除范围内 → 格式一起删掉
-      const ni = idx >= at + del ? idx - del : idx;
-      out[axis === 'row' ? `${ni},${other}` : `${other},${ni}`] = v;
-    } else {
-      const ni = idx >= at ? idx + count : idx;
-      out[axis === 'row' ? `${ni},${other}` : `${other},${ni}`] = v;
-    }
-  }
-  return out;
 }
 
 export function TableSizeControl({ nodeId }: ControlProps) {
@@ -130,14 +110,14 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     const n = range.r1 - range.r0 + 1;
     const next = [...rows];
     for (let i = 0; i < n; i++) next.splice(range.r0, 0, Array.from({ length: dim.cols }, () => ''));
-    write(next, shiftStyles(parseCellStyles(node?.props.cellStyles), 'row', range.r0, n));
+    write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'row', range.r0, n));
   };
   const deleteRowsAt = () => {
     if (!nodeId || !range) return;
     const n = range.r1 - range.r0 + 1;
     if (dim.rows - n < 1) return; // 至少留一行
     const next = rows.filter((_, i) => i < range.r0 || i > range.r1);
-    write(next, shiftStyles(parseCellStyles(node?.props.cellStyles), 'row', range.r0, -n));
+    write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'row', range.r0, -n));
   };
   const insertColsAt = () => {
     if (!nodeId || !range) return;
@@ -148,7 +128,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     const pct = currentPct(dim.cols);
     for (let i = 0; i < n; i++) pct.splice(range.c0, 0, (pct[range.c0] ?? 100 / dim.cols) / 2);
     const sum = pct.reduce((a, b) => a + b, 0);
-    write(next, shiftStyles(parseCellStyles(node?.props.cellStyles), 'col', range.c0, n), pct.map((p) => (p / sum) * 100));
+    write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'col', range.c0, n), pct.map((p) => (p / sum) * 100));
   };
   const deleteColsAt = () => {
     if (!nodeId || !range) return;
@@ -159,7 +139,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     const next = rows.map((r) => order.map((c) => r[c] ?? ''));
     const pct0 = currentPct(dim.cols).filter((_, c) => keep(c));
     const sum = pct0.reduce((a, b) => a + b, 0) || 1;
-    write(next, shiftStyles(parseCellStyles(node?.props.cellStyles), 'col', range.c0, -n), pct0.map((p) => (p / sum) * 100));
+    write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'col', range.c0, -n), pct0.map((p) => (p / sum) * 100));
   };
 
   const clamp = (v: string, fallback: number, max: number) => {

@@ -76,6 +76,11 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
   const { short } = splitLabel(item.label);
   const tip = tipOf(item);
   const cls = `prop-row${flash ? ' prop-row-flash' : ''}`;
+  // 控件本体气泡（规格 §7）：控件类型 + 当前值。包装元素类名必须与原布局一致，否则会改变排版
+  const controlTip: TipContent = {
+    name: `控件：${item.control}`,
+    detail: [`当前值：${typeof value === 'object' ? JSON.stringify(value ?? null) : String(value ?? '—')}`],
+  };
 
   if (wide) {
     return (
@@ -85,7 +90,9 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
             <span className="cursor-help truncate text-[12px] text-[#374151]">{short}</span>
           </Tooltip>
         </div>
-        {children}
+        <Tooltip content={controlTip} wrapClassName="block w-full">
+          {children}
+        </Tooltip>
       </div>
     );
   }
@@ -101,7 +108,9 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
           {short}
         </span>
       </Tooltip>
-      <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
+      <Tooltip content={controlTip} wrapClassName="flex min-w-0 flex-1 items-center gap-1">
+        {children}
+      </Tooltip>
     </div>
   );
 }

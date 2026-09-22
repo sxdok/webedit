@@ -786,9 +786,14 @@ async function interactionChecks(): Promise<Result[]> {
       /* Excel 式单元格格式：改哪项就作用到**选中的格**，同表其它格不受影响 */
       const cell2 = document.querySelector(`[data-node-id="${tRef}"] tbody tr td:nth-child(2)`) as HTMLElement | null;
       const ta2Before = cell2 ? getComputedStyle(cell2).textAlign : '';
-      (document.querySelector('[data-cell-bold="1"]') as HTMLButtonElement | null)?.click();
+      const weightSel = document.querySelector('[data-cell-weight="1"]') as HTMLSelectElement | null;
+      const nativeSel = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      if (weightSel && nativeSel) {
+        nativeSel.call(weightSel, '700');
+        weightSel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
       (document.querySelector('[data-cell-align="center"]') as HTMLButtonElement | null)?.click();
-      await wait(280);
+      await wait(300);
       const fw = getComputedStyle(td).fontWeight;
       const ta = getComputedStyle(td).textAlign;
       const ta2 = cell2 ? getComputedStyle(cell2).textAlign : '';
@@ -796,6 +801,16 @@ async function interactionChecks(): Promise<Result[]> {
         '单元格格式只作用于选中格（加粗/居中，不是整表）',
         fw === '700' && ta === 'center' && ta2 === ta2Before,
         `选中格 字重=${fw} 对齐=${ta}；同表另一格 对齐=${ta2}（改前 ${ta2Before}）`,
+      );
+
+      // ★A1 记法：键必须是 "B2" 这种，而不是旧的 "1,0"
+      const keys = Object.keys(
+        (S().doc.document.components.find((n) => n.id === tRef)?.props.cellStyles ?? {}) as Record<string, unknown>,
+      );
+      add(
+        '单元格格式用 Excel A1 记法（如 B2），不再是 "行,列"',
+        keys.length > 0 && keys.every((k) => /^[A-Z]+\d+(:[A-Z]+\d+)?$/.test(k)),
+        `键：${keys.join(' ') || '（空）'}`,
       );
 
       // 底色：走面板上的真实颜色控件（原生 setter + input 事件 → React onChange）
@@ -958,9 +973,60 @@ async function interactionChecks(): Promise<Result[]> {
     const listCount = document.querySelectorAll('[data-prop-list="1"]').length;
     add(
       '属性分组默认折叠（表格组件只展开「表格」组）',
-      groupEls.length >= 3 && openNames.length === 1 && openNames[0] === '表格' && listCount === 1,
+      groupEls.length >= 2 && openNames.length === 1 && openNames[0] === '表格' && listCount === 1,
       `${groupEls.length} 个分组，展开「${openNames.join('/') || '无'}」，渲染的属性列表 ${listCount} 个`,
     );
+
+    /* ── 抽屉式分区（规格 §2）：通用属性 / 专有属性 / 状态 三抽屉，且可折叠 ── */
+    {
+      const drawers = [...document.querySelectorAll('[data-drawer="1"]')] as HTMLElement[];
+      const names = drawers.map((d) => d.dataset.drawerName ?? '');
+      const opened = drawers.filter((d) => d.dataset.drawerOpen === '1').length;
+      // 通用属性抽屉必须装上下边距（从专有分组里抽出来），专有抽屉里不应再有它
+      const universalText = document.querySelector('[data-drawer-name="通用属性"]')?.textContent ?? '';
+      const ownText = document.querySelector('[data-drawer-name="专有属性"]')?.textContent ?? '';
+      const movedOut = universalText.includes('上边距') && universalText.includes('下边距') && !ownText.includes('上边距');
+      add(
+        '属性面板按「通用属性 / 专有属性 / 状态」三抽屉组织（可折叠，上下边距归通用）',
+        names.length === 3 &&
+          names.includes('通用属性') &&
+          names.includes('专有属性') &&
+          names.includes('状态') &&
+          opened === 3 &&
+          movedOut,
+        `抽屉 [${names.join(' / ')}]，默认展开 ${opened}/3；上下边距在通用抽屉=${movedOut}`,
+      );
+      // 状态抽屉要有只读信息（规格 §4.3）
+      const statusKeys = [...document.querySelectorAll('[data-status-row]')].map((e) => (e as HTMLElement).dataset.statusRow);
+      add(
+        '状态抽屉含只读信息（类型 / ID / 父容器 / 同级序号 / 数据来源）',
+        ['组件类型', '组件 ID', '父容器', '同级顺序', '数据来源'].every((k) => statusKeys.includes(k)),
+        `只读行：${statusKeys.join(' / ')}`,
+      );
+    }
+
+    /* ── 多选面板（规格 §2）：选中多个组件时只显示可批量修改的属性 ── */
+    {
+      S().setMode('web');
+      S().clearAll();
+      const a = S().addComponent('button');
+      const b = S().addComponent('input');
+      if (a && b) {
+        S().selectComponent([a, b]);
+        await wait(300);
+        const panel = document.querySelector('[data-multi-select="1"]') as HTMLElement | null;
+        const txt = panel?.textContent ?? '';
+        add(
+          '多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除）',
+          !!panel && txt.includes('批量修改') && txt.includes('位置与尺寸') && txt.includes('层级'),
+          panel ? `面板文本：${txt.slice(0, 40).replace(/\s+/g, ' ')}…` : '未渲染多选面板',
+        );
+      } else {
+        add('多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除）', false, '插入两个组件失败');
+      }
+      S().setMode('document');
+      await wait(160);
+    }
 
     /* ── 非表格组件也必须有一个默认展开的分组（否则选中后看不到任何属性）── */
     {
@@ -975,18 +1041,24 @@ async function interactionChecks(): Promise<Result[]> {
         `${gs.length} 个分组，展开「${open.join('/') || '无'}」`,
       );
     }
-    const target = '[data-prop-group="1"][data-group-name="尺寸"]';
+    const target = '[data-prop-group="1"][data-group-name="单元格"]';
     let expandWorks = false;
+    // ★自带一张表并选中：前一段（多选）结尾 setMode 会清空选中，面板会退回"页面属性"，
+    //   那时根本没有分组可点。
+    S().setMode('document');
+    S().clearAll();
+    S().addComponent('table');
+    await wait(380);
     const head = document.querySelector(target) as HTMLElement | null;
     if (head) {
       (head.querySelector('button') as HTMLButtonElement).click();
-      await wait(200);
+      await wait(220);
       expandWorks = !!document.querySelector(`${target} [data-prop-list="1"]`);
-      // 折回去，保持"只有内容展开"的初始状态
+      // 折回去，保持"只有默认组展开"的初始状态
       (document.querySelector(`${target} button`) as HTMLButtonElement).click();
       await wait(140);
     }
-    add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「尺寸」后展开=${expandWorks}`);
+    add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「单元格」后展开=${expandWorks}`);
 
     /* ── 表格行 / 列数量：输入（回车提交）与 ＋/− 按钮都要真改数据 ──
        （自带一张 3×3 表并选中，保证面板里确实有行列数量控件） */
@@ -1080,7 +1152,8 @@ async function interactionChecks(): Promise<Result[]> {
       const shiftedStyle = (() => {
         const n = S().doc.document.components.find((x) => x.id === curId);
         const st = (n?.props.cellStyles ?? {}) as Record<string, unknown>;
-        return !!st['1,1'] && !st['1,0'];
+        // A1 记法：给 A2（1,0）上色后左边插一列 → 键应变成 B2（1,1）
+        return !!st['B2'] && !st['A2'];
       })();
       const movedCell = document.querySelector(`[data-node-id="${curId}"] [data-cell="1,1"]`) as HTMLElement | null;
       add(
@@ -1143,6 +1216,62 @@ async function interactionChecks(): Promise<Result[]> {
         !getComponent('caption') && !getComponent('richtext'),
         `getComponent('caption')=${String(getComponent('caption'))}、getComponent('richtext')=${String(getComponent('richtext'))}`,
       );
+
+      /* ── 合并 / 拆分（规格 §8.3）：范围键 + colSpan/rowSpan 渲染 ──
+         ★自带一张 3×3 表并选中：前面的行/列增删用例会 clearAll，tRef 那时已不存在。 */
+      {
+        S().setMode('document');
+        S().clearAll();
+        const tMerge = S().addComponent('table');
+        if (tMerge) {
+          S().updateProps(tMerge, {
+            data: 'h1 | h2 | h3\na | b | c\nd | e | f',
+            headerRow: true,
+            colWidths: '',
+            cellStyles: {},
+          });
+        }
+        await wait(420);
+        const c1 = document.querySelector(`[data-node-id="${tMerge}"] [data-cell="1,0"]`) as HTMLElement | null;
+        if (tMerge && c1) {
+          c1.scrollIntoView({ block: 'center' });
+          await wait(240);
+          // 选区直接用 store 设定（拖选交互已有独立断言，这里专注验证"合并写入 + 渲染"）
+          S().selectTableCells(tMerge, ['1,0', '1,1', '2,0', '2,1']);
+          await wait(320);
+          const mergeBtn = document.querySelector('[data-cell-merge="1"]') as HTMLButtonElement | null;
+          mergeBtn?.click();
+          await wait(360);
+          const props = (S().doc.document.components.find((n) => n.id === tMerge)?.props ?? {}) as Record<string, unknown>;
+          const cs = (props.cellStyles ?? {}) as Record<string, unknown>;
+          const anchor = document.querySelector(`[data-node-id="${tMerge}"] [data-cell="1,0"]`) as HTMLElement | null;
+          const coveredCell = document.querySelector(`[data-node-id="${tMerge}"] [data-cell="1,1"]`);
+          const selNow = S().ui.tableCells;
+          add(
+            '合并单元格（写范围键 B2:C3 + 锚点 colSpan/rowSpan，被覆盖的格子不渲染）',
+            Object.keys(cs).some((k) => k.includes(':')) &&
+              !!anchor &&
+              (anchor.getAttribute('colspan') ?? '1') === '2' &&
+              (anchor.getAttribute('rowspan') ?? '1') === '2' &&
+              !coveredCell,
+            `范围键=${Object.keys(cs).find((k) => k.includes(':')) ?? '无'}；锚点 colSpan=${anchor?.getAttribute('colspan')} rowSpan=${anchor?.getAttribute('rowspan')}；被覆盖格仍在=${!!coveredCell}；` +
+              `诊断：合并按钮存在=${!!mergeBtn}、禁用=${mergeBtn?.disabled}、当前选区=${selNow ? `${selNow.nodeId === tMerge ? '本表' : '别的表'}(${selNow.cells.join(' ')})` : '无'}`,
+          );
+
+          (document.querySelector('[data-cell-split="1"]') as HTMLButtonElement | null)?.click();
+          await wait(340);
+          const after = (S().doc.document.components.find((n) => n.id === tMerge)?.props ?? {}) as Record<string, unknown>;
+          const cs2 = (after.cellStyles ?? {}) as Record<string, unknown>;
+          add(
+            '拆分单元格（去掉范围键，被覆盖的格子重新渲染）',
+            !Object.keys(cs2).some((k) => k.includes(':')) && !!document.querySelector(`[data-node-id="${tMerge}"] [data-cell="1,1"]`),
+            `剩余键：${Object.keys(cs2).join(' ') || '（空）'}`,
+          );
+        } else {
+          add('合并单元格（写范围键 B2:C3 + 锚点 colSpan/rowSpan，被覆盖的格子不渲染）', false, '插入表格或找不到目标单元格');
+          add('拆分单元格（去掉范围键，被覆盖的格子重新渲染）', false, '插入表格或找不到目标单元格');
+        }
+      }
     } else {
       add('表格行数可改（输入 5 + 回车 → 数据与渲染同步）', false, '找不到行/列数量输入框');
       add('表格列数可改（输入 4 + 回车 → 每行补到 4 列）', false, '找不到行/列数量输入框');
@@ -1194,7 +1323,11 @@ async function interactionChecks(): Promise<Result[]> {
        往父节点派发事件不会冒泡到子节点，所以必须打在包装元素上。
        规格：延迟 400ms 弹出、深色底 rgba(0,0,0,.82)、内容含 中文名 + key + 默认值。 */
     {
-      const label = document.querySelector('[data-prop-label="1"]') as HTMLElement | null;
+      // 定位到「专有属性」抽屉里的第一个属性行（表格组件此时是「数据」行）——
+      // 通用属性抽屉在它之上，直接取全局第一个会拿到"上边距"
+      const label =
+        (document.querySelector('[data-drawer-name="专有属性"] [data-prop-label="1"]') as HTMLElement | null) ??
+        (document.querySelector('[data-prop-label="1"]') as HTMLElement | null);
       const trigger = (label?.querySelector('[data-tip="1"]') as HTMLElement | null) ?? label;
       const txt = (label?.textContent ?? '').trim();
       const hidden = !!label && !txt.includes('（') && !txt.includes('每行一条');

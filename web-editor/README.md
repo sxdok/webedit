@@ -595,10 +595,10 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 一 | `panels/Tooltip` + `panels/PropertyRow` + `panels/PropertyGroup` + `PropertyPanel` 骨架（用 heading 的 8 项验证） | ✅ **完成**（`?check=1` 91/91；截图核对 heading：内容 2 展开、排版 3 / 外观 1 / 尺寸 2 折叠 = 8 项） |
-| 二 | 18 种控件**每个一个文件**（现在：6 个文件，`index.tsx` 里混装 16 种） + 各控件交互细化（number 滚轮/微调、color 自研取色器、edge 联动锁、children 拖动排序、image 缩略图…） | ⏳ 待做 |
-| 三 | `PropertyDrawer`（通用 / 专有 / 状态三抽屉）+ `groupStrategy.ts`（按类别差异化分组）+ 多选面板 `MultiSelectPanel` | ⏳ 待做 |
-| 四 | 表格专项：`cells` 控件补齐（范围 A1 记法、垂直对齐、单元格边框、**合并/拆分**、应用到整行/整列）、`tableSize` 补「末尾插入/清空表格/删除二次确认」、表格组 18 项**按规格重排 + 分区分割线** | ⏳ 待做 |
+| 一 | `panels/Tooltip` + `panels/PropertyRow` + `panels/PropertyGroup` + `PropertyPanel` 骨架（用 heading 的 8 项验证） | ✅ **完成**（`?check=1` 97/97；截图核对 heading：内容 2 展开、排版 3 / 外观 1 / 尺寸 2 折叠 = 8 项） |
+| 二 | 18 种控件**每个一个文件** + 交互细化 | ✅ **基本完成**：18 个控件全部独立成文件（`controlStyles.ts` 统一高度/圆角/边框/聚焦）；细化已做：number 右对齐+滚轮±step+↑↓(Shift×10)+越界红框不写入、slider 带可输入数值框、**color 自研取色器**（色板+最近使用+吸管 EyeDropper）、font 字体预览、**switch 做成开关**、**edge 联动锁**、**image 缩略图**、frame 带旋转角、textarea 自动增高+Ctrl+Enter、text Enter 提交。**未做**：children 拖动排序（现为上移/下移按钮） |
+| 三 | `PropertyDrawer`（通用 / 专有 / 状态三抽屉）+ `groupStrategy.ts` + 多选面板 | ✅ **完成**：三抽屉可折叠（断言：3/3 默认展开、上下边距已从专有组**移到通用抽屉**）；`groupStrategy.ts` 按类别给分组顺序/默认展开/专属文案（Word / PPT / Excel 表格 / Web 控件 / Web 容器 五套）；`MultiSelectPanel`（位置尺寸批量、对齐、层级、删除）；**可见/锁定**两项落在通用抽屉（锁定为编辑器态 `ui.lockedIds`） |
+| 四 | 表格专项 | ✅ **主体完成**：`cellStyles` 改用 **Excel A1 记法 + 范围键**（旧 `"行,列"` 键兼容读取；插入/删除行列时**按 A1 平移**，断言 A2→B2）；`cells` 控件补齐 垂直对齐、字体边框（四边+色）、**合并/拆分**（范围键 + colSpan/rowSpan，被覆盖格不渲染）、应用到整行/整列、清除；范围显示为 `B2:C3`。**未做**：表格组 18 项按 §8.1 重排 + 分区分割线；`tableSize` 的「末尾插入/清空表格/删除二次确认」 |
 | 五 | 行级/面板级 memo、快捷键（Tab/Enter/Esc/Ctrl+C/[ ]/F2/↑↓）、面板宽度拖拽 240–480px、**折叠状态持久化** | ⏳ 待做 |
 | 六 | 按验收标准 1–10 自测并修复 | ⏳ 待做 |
 

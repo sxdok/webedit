@@ -37,11 +37,14 @@ export function Tooltip({
   content,
   children,
   side = 'cursor',
+  wrapClassName = 'inline-flex min-w-0',
 }: {
   content?: TipContent;
   children: ReactNode;
   /** cursor=跟随鼠标（属性名用）；right=贴着触发元素右侧（分组标题用） */
   side?: 'cursor' | 'right';
+  /** 包装元素的类名：**必须与它替换掉的原元素一致**，否则会改变布局 */
+  wrapClassName?: string;
 }) {
   const wrapRef = useRef<HTMLSpanElement>(null);
   const timer = useRef<number | null>(null);
@@ -100,7 +103,7 @@ export function Tooltip({
     <span
       ref={wrapRef}
       data-tip="1"
-      className="inline-flex min-w-0"
+      className={wrapClassName}
       onMouseEnter={onEnter}
       onMouseMove={onMove}
       onMouseLeave={clear}

@@ -67,6 +67,8 @@ export interface UIState {
    * 用于「单元格背景色」按单元格填充 —— 颜色写进表格的 cellFills 属性（那是文档数据）。
    */
   tableCells: { nodeId: string; cells: string[] } | null;
+  /** 锁定的组件 id（编辑器态：不进文档、不导出；锁定时画布不可拖拽） */
+  lockedIds: string[];
 }
 
 const initialUI: UIState = {
@@ -83,6 +85,7 @@ const initialUI: UIState = {
   theme: 'light',
   docPageCount: 1,
   tableCells: null,
+  lockedIds: [],
 };
 
 /* ══════════════ 初始文档 ══════════════ */
@@ -123,6 +126,8 @@ export interface EditorStore {
   /* 组件操作（自动路由到当前模式的数据） */
   addComponent(type: string, parentId?: string | null, index?: number): string | null;
   updateProps(id: string, patch: Record<string, unknown>): void;
+  setNodeHidden(id: string, hidden: boolean): void;
+  toggleLocked(id: string): void;
   updateFrame(id: string, frame: Partial<Frame>): void;
   removeComponent(id: string): void;
   moveComponent(id: string, newParentId: string | null, index: number): void;
@@ -275,6 +280,26 @@ export const useEditorStore = create<EditorStore>()(
             mapNode(doc, id, (node) => ({ ...node, props: { ...node.props, ...patch } })),
           { mergeKey: `props:${id}`, label: 'updateProps' },
         ),
+
+      /** 显示 / 隐藏（文档数据：隐藏的节点画布不渲染、导出仍保留） */
+      setNodeHidden: (id, hidden) => {
+        log.action('setNodeHidden', { id, hidden });
+        commit(set, get, (doc) => mapNode(doc, id, (node) => ({ ...node, hidden })), { label: 'setNodeHidden' });
+      },
+
+      /** 锁定 / 解锁：**编辑器态**（存 ui.lockedIds，不进文档、不入导出），锁定时画布不可拖拽 */
+      toggleLocked: (id) => {
+        set((s) => {
+          const has = s.ui.lockedIds.includes(id);
+          log.debug('store', 'toggleLocked', { id, locked: !has });
+          return {
+            ui: {
+              ...s.ui,
+              lockedIds: has ? s.ui.lockedIds.filter((x) => x !== id) : [...s.ui.lockedIds, id],
+            },
+          };
+        });
+      },
 
       updateFrame: (id, frame) =>
         commit(

@@ -1,64 +1,98 @@
 /**
- * 职责：cells 属性控件 —— **Excel 式的单元格格式**。
+ * 职责：cells 属性控件 —— **Excel 式单元格格式**（规格 §8.3）。
  *
- * 分工（这条很关键）：
- *   · **选中了哪些单元格** = 编辑器态，存在 store.ui.tableCells 里，**不写进文档、不进导出、打印不显示**；
- *   · **单元格格式** = 文档数据，写进表格的 cellStyles 属性（`{ "行,列": { 覆盖项 } }`），会导出、会打印。
+ * 分工：
+ *   · **选中了哪些单元格** = 编辑器态（store.ui.tableCells，键是 "行,列"），**不写进文档、不进导出、打印不显示**；
+ *   · **单元格格式** = 文档数据（props.cellStyles），键用 **Excel A1 记法**（`B2` / 合并区 `B2:C3`），
+ *     会导出、会打印；旧版 `"行,列"` 键读进来会自动换算。
  *
- * 交互与 Excel 一致：在画布上点选单元格（可拖选一片）→ 直接点这里的格式按钮，
- * **立刻作用到选中的格子上**（不需要"应用"按钮）；没被覆盖的项继续沿用「表格」组的默认值。
- * （「列宽自适应」属整表操作，已移到同组的「行 / 列数量与增删」控件里，本控件只管单元格。）
+ * 交互：画布上点选/拖选 → 这里改哪一项**立刻作用到选中的格子**（Excel 逻辑，无"应用"按钮）；
+ * 未覆盖的项沿用「表格」组的默认值。范围选择写入的是**多个单格键**；合并才写**范围键**。
  */
-import { AlignCenter, AlignLeft, AlignRight, Bold, Paintbrush, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowDownToLine, ArrowRightToLine, Combine, Paintbrush, Split, Trash2 } from 'lucide-react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { asNumber, asString } from '../../utils/id';
-import { parseCellStyles, type CellStyle } from '../../registry/components/common/tableKit';
+import {
+  a1,
+  a1Key,
+  cellStyleKeyAt,
+  parseA1,
+  parseCellStyles,
+  type CellStyle,
+} from '../../registry/components/common/tableKit';
+import { btnCls } from './controlStyles';
 import type { ControlProps } from './index';
 
-/** "行,列" → 人话（行列都从 0 起，含表头时第 0 行是表头行） */
-function cellLabel(key: string): string {
-  const [r, c] = key.split(',').map((n) => Number(n));
-  return `第 ${r + 1} 行第 ${c + 1} 列`;
+type Sel = { r0: number; c0: number; r1: number; c1: number };
+
+function selRange(cells: string[]): Sel | null {
+  const pts = cells
+    .map((k) => k.split(',').map((n) => Number(n)))
+    .filter((p) => p.length === 2 && p.every((n) => Number.isFinite(n)));
+  if (!pts.length) return null;
+  return {
+    r0: Math.min(...pts.map((p) => p[0])),
+    r1: Math.max(...pts.map((p) => p[0])),
+    c0: Math.min(...pts.map((p) => p[1])),
+    c1: Math.max(...pts.map((p) => p[1])),
+  };
 }
 
-const btn = 'flex h-6 items-center justify-center rounded border border-line px-1.5 text-2xs hover:border-primary hover:text-primary disabled:opacity-40';
+/** 范围 → Excel 记法：B2 / B2:C3 */
+function rangeLabel(s: Sel): string {
+  return a1Key(s.r0, s.c0, s.r1, s.c1);
+}
 
-export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
+export function TableCellsControl({ value, nodeId }: ControlProps) {
+  const doc = useEditorStore((s) => s.doc);
   const sel = useEditorStore((s) => s.ui.tableCells);
-  const forest = useEditorStore((s) => s.doc);
   const updateProps = useEditorStore((s) => s.updateProps);
-
-  const node = nodeId ? findNode(getForest(forest), nodeId) : null;
-  const tableProps = node?.props ?? {};
+  const node = nodeId ? findNode(getForest(doc), nodeId) : null;
   const styles = parseCellStyles(value);
-  // 兼容旧数据：早期只有"按格填背景"（cellFills）
-  const legacy = (tableProps.cellFills && typeof tableProps.cellFills === 'object' ? tableProps.cellFills : {}) as Record<string, unknown>;
-  for (const [k, v] of Object.entries(legacy)) {
-    const c = String(v ?? '').trim();
-    if (/^\d+,\d+$/.test(k) && c && !styles[k]?.background) styles[k] = { ...(styles[k] ?? {}), background: c };
-  }
+  const range = sel && sel.nodeId === nodeId ? selRange(sel.cells) : null;
 
-  const cells = sel && sel.nodeId === nodeId ? sel.cells : [];
-  // 控件显示值：取第一个选中格的覆盖值；没有覆盖就显示表格级默认（与 Excel 一致）
-  const first: CellStyle = cells.length ? (styles[cells[0]] ?? {}) : {};
-  const alignValue = first.align ?? (asString(tableProps.cellAlign, 'left') as CellStyle['align']);
-  const fontSizeValue = first.fontSize ?? asNumber(tableProps.fontSize, 10.5);
-  const paddingValue = first.padding ?? asNumber(tableProps.cellPadding, 6);
+  // 显示值取"选中区左上角"那格的覆盖值；没有覆盖就显示表格级默认
+  const probeKey = range ? cellStyleKeyAt(styles, range.r0, range.c0) : null;
+  const first: CellStyle = (probeKey ? styles[probeKey] : undefined) ?? {};
+  const tp = node?.props ?? {};
+  const alignValue = first.align ?? (asString(tp.cellAlign, 'left') as CellStyle['align']);
+  const valignValue = first.valign ?? 'middle';
+  const weightValue = first.fontWeight ?? (first.bold ? 700 : 400);
+  const fontSizeValue = first.fontSize ?? asNumber(tp.fontSize, 10.5);
+  const paddingValue = first.padding ?? asNumber(tp.cellPadding, 6);
   const bgValue = first.background ?? '#fff2cc';
-  const colorValue = first.color ?? '#1f2329';
+  const fgValue = first.color ?? '#1f2329';
+  const border = first.border ?? {};
+  const borderColor = border.color ?? '#c9d6e2';
   const filled = Object.keys(styles).length;
 
-  /** 把格式变更写进选中的每一个格（空值 = 删掉这一项覆盖，回落到表格默认）
-   *  ★基线从 store **实时读**，不用 render 时的闭包：连续快速点两下（加粗→居中）时，
-   *    第二次点击时组件还没重渲染，用旧闭包会把第一次的改动覆盖掉。 */
-  const apply = (patch: CellStyle & { __clear?: boolean }) => {
-    if (!cells.length || !nodeId) return;
+  /** 目标键集合：范围里每个格一个**单格 A1 键** */
+  const keysOf = (s: Sel): string[] => {
+    const out: string[] = [];
+    for (let r = s.r0; r <= s.r1; r += 1) for (let c = s.c0; c <= s.c1; c += 1) out.push(a1(r, c));
+    return out;
+  };
+  const rowKeys = (s: Sel): string[] => {
+    const out: string[] = [];
+    for (let c = 0; c <= s.c1; c += 1) out.push(a1(s.r0, c));
+    return out;
+  };
+  const colKeys = (s: Sel): string[] => {
+    const out: string[] = [];
+    for (let r = 0; r <= s.r1; r += 1) out.push(a1(r, s.c0));
+    return out;
+  };
+
+  /** 写入（基线从 store 实时读，避免连续点击时用旧闭包覆盖前一次改动） */
+  const apply = (patch: CellStyle & { __clear?: boolean }, target?: string[]) => {
+    if (!nodeId || !range) return;
     const live = useEditorStore.getState();
     const liveNode = findNode(getForest(live.doc), nodeId);
-    const base: Record<string, CellStyle> = parseCellStyles(liveNode?.props.cellStyles);
+    const base = parseCellStyles(liveNode?.props.cellStyles);
     const next: Record<string, CellStyle> = { ...base };
-    for (const k of cells) {
+    for (const k of target ?? keysOf(range)) {
       if (patch.__clear) {
         delete next[k];
         continue;
@@ -70,32 +104,58 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
       if (Object.keys(merged).length) next[k] = merged as CellStyle;
       else delete next[k];
     }
-    onChange(next);
-    // 旧键清掉，避免两份数据并存
-    if (liveNode?.props.cellFills) updateProps(nodeId, { cellFills: null });
+    updateProps(nodeId, { cellStyles: next });
   };
 
-  const disabled = !cells.length;
+  /** 合并选中区（写范围键）；拆分把范围里所有键去掉 */
+  const merge = () => {
+    if (!nodeId || !range) return;
+    if (range.r0 === range.r1 && range.c0 === range.c1) return;
+    const live = useEditorStore.getState();
+    const liveNode = findNode(getForest(live.doc), nodeId);
+    const next: Record<string, CellStyle> = { ...parseCellStyles(liveNode?.props.cellStyles) };
+    for (const k of keysOf(range)) delete next[k];
+    next[a1Key(range.r0, range.c0, range.r1, range.c1)] = { merged: true };
+    updateProps(nodeId, { cellStyles: next });
+  };
+  const split = () => {
+    if (!nodeId || !range) return;
+    const live = useEditorStore.getState();
+    const liveNode = findNode(getForest(live.doc), nodeId);
+    const next: Record<string, CellStyle> = { ...parseCellStyles(liveNode?.props.cellStyles) };
+    for (const k of Object.keys(next)) {
+      const p = parseA1(k);
+      if (!p) continue;
+      if (p.r0 >= range.r0 && p.r1 <= range.r1 && p.c0 >= range.c0 && p.c1 <= range.c1) delete next[k];
+    }
+    updateProps(nodeId, { cellStyles: next });
+  };
+
+  const [showBorder, setShowBorder] = useState(false);
+  const disabled = !range;
 
   return (
     <div className="space-y-1" data-cell-format="1">
-      <div className="text-2xs text-gray-500">
-        {cells.length ? (
+      <div className="flex flex-wrap items-center gap-1 text-2xs text-gray-500">
+        {range ? (
           <>
-            已选 <span className="text-primary">{cells.length}</span> 个：
-            {cells.slice(0, 3).map(cellLabel).join('、')}
-            {cells.length > 3 ? ' …' : ''}
+            <span>
+              当前选中：<b className="font-mono text-primary">{rangeLabel(range)}</b>（
+              {range.r1 - range.r0 + 1} 行 × {range.c1 - range.c0 + 1} 列）
+            </span>
+            <button type="button" data-cell-clear="1" className={`${btnCls} ml-auto`} onClick={() => apply({ __clear: true })}>
+              <Trash2 className="mr-0.5 h-3 w-3" />
+              清除选中
+            </button>
           </>
         ) : (
-          <span className="text-gray-400">在画布上点表格单元格即可选中（Shift 多选）</span>
+          <span className="text-gray-400">在画布上点表格单元格即可选中（可拖选一片）</span>
         )}
       </div>
 
-      {/* 单元格格式：改哪一项就立刻作用到选中的格（Excel 逻辑） */}
-      <div className="flex items-center gap-1">
-        <span className="w-6 shrink-0 text-2xs text-gray-400" title="单元格底色">
-          底色
-        </span>
+      {/* 填充 / 文字色 / 字号 / 字重 */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="w-8 shrink-0 text-2xs text-gray-400">填充</span>
         <input
           type="color"
           data-cell-bg="1"
@@ -104,15 +164,13 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
           value={bgValue}
           onChange={(e) => apply({ background: e.target.value })}
         />
-        <span className="ml-1 w-6 shrink-0 text-2xs text-gray-400" title="单元格文字颜色">
-          字色
-        </span>
+        <span className="ml-1 w-10 shrink-0 text-2xs text-gray-400">文字色</span>
         <input
           type="color"
           data-cell-fg="1"
           disabled={disabled}
           className="h-6 w-7 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5 disabled:opacity-40"
-          value={colorValue}
+          value={fgValue}
           onChange={(e) => apply({ color: e.target.value })}
         />
         <span className="ml-1 shrink-0 text-2xs text-gray-400">字号</span>
@@ -123,39 +181,62 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
           step={0.5}
           min={6}
           max={36}
-          className="h-6 w-12 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
+          className="h-6 w-11 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
           value={fontSizeValue}
           onChange={(e) => {
             const v = Number(e.target.value);
             if (Number.isFinite(v) && v > 0) apply({ fontSize: v });
           }}
         />
+        <select
+          data-cell-weight="1"
+          disabled={disabled}
+          className="h-6 shrink-0 rounded border border-line bg-white px-0.5 text-2xs disabled:opacity-40"
+          value={String(weightValue)}
+          onChange={(e) => apply({ fontWeight: Number(e.target.value) })}
+          title="字重"
+        >
+          <option value="400">常规</option>
+          <option value="600">中粗</option>
+          <option value="700">加粗</option>
+        </select>
       </div>
 
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          data-cell-bold="1"
-          disabled={disabled}
-          className={`${btn} w-7 ${first.bold ? 'border-primary bg-primary/10 text-primary' : ''}`}
-          title="加粗（仅选中格）"
-          onClick={() => apply({ bold: first.bold ? undefined : true })}
-        >
-          <Bold className="h-3.5 w-3.5" />
-        </button>
-        {([['left', AlignLeft], ['center', AlignCenter], ['right', AlignRight]] as const).map(([v, Icon]) => (
+      {/* 水平 / 垂直对齐 */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="w-8 shrink-0 text-2xs text-gray-400">对齐</span>
+        {(
+          [
+            ['left', AlignLeft],
+            ['center', AlignCenter],
+            ['right', AlignRight],
+            ['justify', AlignJustify],
+          ] as const
+        ).map(([v, Icon]) => (
           <button
             key={v}
             type="button"
             data-cell-align={v}
             disabled={disabled}
-            className={`${btn} w-7 ${alignValue === v ? 'border-primary bg-primary/10 text-primary' : ''}`}
-            title={`对齐：${v}`}
+            className={`${btnCls} ${alignValue === v ? 'border-primary bg-primary/10 text-primary' : ''} w-6 px-0`}
+            title={`水平对齐：${v}`}
             onClick={() => apply({ align: v })}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="h-3 w-3" />
           </button>
         ))}
+        <span className="ml-1 shrink-0 text-2xs text-gray-400">垂直</span>
+        <select
+          data-cell-valign="1"
+          disabled={disabled}
+          className="h-6 shrink-0 rounded border border-line bg-white px-0.5 text-2xs disabled:opacity-40"
+          value={valignValue}
+          onChange={(e) => apply({ valign: e.target.value as NonNullable<CellStyle['valign']> })}
+        >
+          <option value="top">顶部</option>
+          <option value="middle">居中</option>
+          <option value="bottom">底部</option>
+        </select>
         <span className="ml-1 shrink-0 text-2xs text-gray-400">内边距</span>
         <input
           type="number"
@@ -163,7 +244,7 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
           disabled={disabled}
           min={0}
           max={24}
-          className="h-6 w-10 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
+          className="h-6 w-9 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
           value={paddingValue}
           onChange={(e) => {
             const v = Number(e.target.value);
@@ -172,12 +253,82 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
         />
       </div>
 
-      <div className="flex items-center gap-1">
-        <button type="button" data-cell-clear="1" disabled={disabled} className={btn} onClick={() => apply({ __clear: true })}>
-          <Trash2 className="mr-0.5 h-3 w-3" />
-          清除选中格式
+      {/* 边框（折叠，避免占满面板） */}
+      <div className="flex flex-wrap items-center gap-1">
+        <button type="button" className={btnCls} onClick={() => setShowBorder((v) => !v)} title="单元格边框">
+          边框{showBorder ? ' ▲' : ' ▼'}
         </button>
-        <button type="button" disabled={!filled} className={btn} onClick={() => onChange({})}>
+        {showBorder &&
+          (['top', 'right', 'bottom', 'left'] as const).map((side) => (
+            <label key={side} className="flex shrink-0 items-center gap-0.5">
+              <span className="text-2xs text-gray-400">{{ top: '上', right: '右', bottom: '下', left: '左' }[side]}</span>
+              <input
+                type="number"
+                data-cell-border={side}
+                disabled={disabled}
+                min={0}
+                max={6}
+                className="h-6 w-8 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
+                value={border[side] ?? 0}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) apply({ border: { ...border, [side]: v, color: borderColor } });
+                }}
+              />
+            </label>
+          ))}
+        {showBorder && (
+          <input
+            type="color"
+            data-cell-border-color="1"
+            disabled={disabled}
+            className="h-6 w-7 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5"
+            value={borderColor}
+            onChange={(e) => apply({ border: { ...border, color: e.target.value } })}
+          />
+        )}
+      </div>
+
+      {/* 合并 / 拆分 + 区域操作 */}
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          data-cell-merge="1"
+          className={btnCls}
+          disabled={disabled || (range ? range.r0 === range.r1 && range.c0 === range.c1 : true)}
+          title="合并选中的单元格"
+          onClick={merge}
+        >
+          <Combine className="mr-0.5 h-3 w-3" />
+          合并单元格
+        </button>
+        <button type="button" data-cell-split="1" className={btnCls} disabled={disabled} title="拆分（去掉合并与格式）" onClick={split}>
+          <Split className="mr-0.5 h-3 w-3" />
+          拆分
+        </button>
+        <button
+          type="button"
+          data-cell-apply-row="1"
+          className={btnCls}
+          disabled={disabled}
+          title="把左上角那格的格式复制到整行"
+          onClick={() => apply({ ...first }, range ? rowKeys(range) : undefined)}
+        >
+          <ArrowRightToLine className="mr-0.5 h-3 w-3" />
+          整行
+        </button>
+        <button
+          type="button"
+          data-cell-apply-col="1"
+          className={btnCls}
+          disabled={disabled}
+          title="把左上角那格的格式复制到整列"
+          onClick={() => apply({ ...first }, range ? colKeys(range) : undefined)}
+        >
+          <ArrowDownToLine className="mr-0.5 h-3 w-3" />
+          整列
+        </button>
+        <button type="button" disabled={!filled} className={btnCls} onClick={() => updateProps(nodeId ?? '', { cellStyles: {} })}>
           <Paintbrush className="mr-0.5 h-3 w-3" />
           清空全部
         </button>
