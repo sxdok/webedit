@@ -290,12 +290,13 @@ export const useEditorStore = create<EditorStore>()(
       /** 锁定 / 解锁：**编辑器态**（存 ui.lockedIds，不进文档、不入导出），锁定时画布不可拖拽 */
       toggleLocked: (id) => {
         set((s) => {
-          const has = s.ui.lockedIds.includes(id);
+          const locked = s.ui.lockedIds ?? []; // 旧持久化数据可能没有这个字段（见下方 persist.merge）
+          const has = locked.includes(id);
           log.debug('store', 'toggleLocked', { id, locked: !has });
           return {
             ui: {
               ...s.ui,
-              lockedIds: has ? s.ui.lockedIds.filter((x) => x !== id) : [...s.ui.lockedIds, id],
+              lockedIds: has ? locked.filter((x) => x !== id) : [...locked, id],
             },
           };
         });
@@ -643,6 +644,46 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
           // 诊断面板属于临时弹层，不持久化（否则刷新后会自动弹出）
           ui: { ...s.ui, showDiagnostics: false },
         }) as unknown as EditorStore,
+      /**
+       * ★恢复时**深合并**，而不是默认的顶层浅合并。
+       *
+       * 默认 merge 是 `{...current, ...persisted}`：持久化里的 `ui` 会整体替换默认 ui，
+       * 于是**新加的 ui 字段**（如 `lockedIds`、`tableCells`）在旧数据里就是 undefined ——
+       * 一读 `.includes` 就崩。真实现场：旧 localStorage + 选中组件 →
+       * 属性面板 `TypeError: Cannot read properties of undefined (reading 'includes')`。
+       * 这里把 ui 与新字段默认值合并、并把嵌套的纸张/画布配置也合到默认值上，
+       * 以后再加字段不会再让老数据崩。
+       */
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<EditorStore>;
+        const pDoc = p.doc as EditorDocument | undefined;
+        return {
+          ...current,
+          ...p,
+          doc: pDoc
+            ? {
+                ...current.doc,
+                ...pDoc,
+                document: {
+                  ...current.doc.document,
+                  ...pDoc.document,
+                  page: { ...current.doc.document.page, ...(pDoc.document?.page ?? {}) },
+                },
+                web: {
+                  ...current.doc.web,
+                  ...pDoc.web,
+                  canvas: { ...current.doc.web.canvas, ...(pDoc.web?.canvas ?? {}) },
+                },
+                selectedIds: pDoc.selectedIds ?? [],
+              }
+            : current.doc,
+          // ★关键：旧数据缺的新字段一律回落到默认值
+          ui: { ...initialUI, ...(p.ui ?? {}), showDiagnostics: false },
+          // 撤销栈不持久化（partialize 里也没存）；这里显式清空，避免将来加字段时
+          // 把一份指向已不存在节点的旧历史合并进来。
+          history: emptyHistory(),
+        };
+      },
     },
   ),
 );

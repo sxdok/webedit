@@ -96,7 +96,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
   const updateFrame = useEditorStore((s) => s.updateFrame);
   const setNodeHidden = useEditorStore((s) => s.setNodeHidden);
   const toggleLocked = useEditorStore((s) => s.toggleLocked);
-  const lockedIds = useEditorStore((s) => s.ui.lockedIds);
+  const lockedIds = useEditorStore((s) => s.ui.lockedIds) ?? [];
   const page = useEditorStore((s) => s.doc.document.page);
   const canvas = useEditorStore((s) => s.doc.web.canvas);
   const doc = useEditorStore((s) => s.doc);

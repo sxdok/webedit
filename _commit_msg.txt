@@ -1,0 +1,39 @@
+修复：旧持久化数据缺少新增 ui 字段时，右侧属性面板崩溃
+
+现象（用户报告，http://127.0.0.1:5180 页面）
+- 右侧属性面板整块报错，控制台 TypeError: Cannot read properties of undefined
+  (reading 'includes')，栈位置在 div > div > aside（属性面板）。
+
+根因（交叉确认，不是单点猜测）
+- 枚举属性面板链路上全部 .includes( 调用点：
+  ComponentPanel 116-118（label/type 字符串）、ComponentTree 83（selectedIds）、
+  PropertyPanel 133（字符串）、172（getLiveTypes() 返回值）、297 与
+  groupStrategy.ts 108（strategyFor().defaultOpen，恒为数组）、
+  PropertyPanel 276/277（s.ui.lockedIds）。
+- 唯一可能为 undefined 的是 ui.lockedIds —— 本轮新增的编辑器态字段。
+- zustand persist 默认 merge 是 {...current, ...persisted} 顶层浅合并：旧
+  localStorage 里的 ui 会整体替换默认 ui，于是新增字段是 undefined；选中任意
+  组件渲染属性面板即 lockedIds.includes 抛错 —— 与报错位置（面板 aside 渲染期
+  读 .includes）一致。
+- 已排除：strategyFor 有 FALLBACK_STRATEGY 兜底（defaultOpen 恒为数组）；
+  selectedIds / getLiveTypes() 均返回数组。
+
+修复
+- editorStore：persist.merge 改为深合并 —— ui 与新字段默认值合并
+  （{...initialUI, ...persisted.ui}），document.page / web.canvas 也合到默认值，
+  selectedIds 回落 []，撤销栈显式清空（本就不持久化）。以后再加 ui 字段，
+  老数据也不会崩。
+- PropertyPanel / toggleLocked：读取处加 ?? [] 兜底。
+
+验证
+- tsc -b 通过（exit 0）；vite build 通过；产物 dist/assets/index-CwJN4_fS.js。
+- ?check=1 端到端自检 98/98 全部通过，含新增断言「旧版持久化数据缺少新增 ui
+  字段时不会崩」：在真实页面里造一份删掉 ui.lockedIds / ui.tableCells 的旧存档，
+  await useEditorStore.persist.rehydrate() 后断言 lockedIds 是数组、tableCells
+  有默认值、属性面板仍能渲染，最后还原存档。
+- 证据：docs/验证证据/_persist_fix_check.pdf；报告正文见
+  web-editor/logs/check-2026-09-23.log 的 03:13:17 段。
+
+用户侧说明
+- 报错页面加载的是旧产物 index-DtS2m1p0.js（现已不存在）；5179 与 5180 目前
+  返回同一份新产物，刷新（必要时 Ctrl+Shift+R）即可，旧 localStorage 无需清理。

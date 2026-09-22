@@ -1284,6 +1284,48 @@ async function interactionChecks(): Promise<Result[]> {
       add('去重：独立「题注」「富文本」组件已移除（能力分别由 image/table 的 caption 属性与 paragraph 承载）', false, '前置失败');
     }
 
+    /* ── 旧版持久化数据（缺少后来新增的 ui 字段）不能崩 ──
+       真实现场：旧 localStorage 里的 ui 没有 lockedIds（本轮新增），
+       zustand persist 默认只做顶层浅合并 → ui.lockedIds 是 undefined →
+       属性面板一选中组件就读 .includes → TypeError。修法是 persist 里深合并 ui 默认值。 */
+    {
+      const KEY = 'visual-editor-v1';
+      const backup = localStorage.getItem(KEY);
+      const backupDoc = S().exportJSON();
+      try {
+        // 造一份"旧版"存档：ui 里去掉 lockedIds / tableCells
+        const raw = JSON.parse(backup ?? '{"state":{}}') as { state?: Record<string, unknown>; version?: number };
+        const st = (raw.state ?? {}) as Record<string, unknown>;
+        const oldUi = { ...((st.ui ?? {}) as Record<string, unknown>) };
+        delete oldUi.lockedIds;
+        delete oldUi.tableCells;
+        localStorage.setItem(KEY, JSON.stringify({ state: { ...st, ui: oldUi }, version: 1 }));
+        await useEditorStore.persist.rehydrate();
+        await wait(160);
+        const ui = S().ui as unknown as Record<string, unknown>;
+        const lockedOk = Array.isArray(ui.lockedIds);
+        const cellsOk = ui.tableCells === null || typeof ui.tableCells === 'object';
+        // 面板仍要能渲染（旧版数据缺字段时若不崩，这里能查到属性面板的抽屉/行容器）
+        S().clearAll();
+        const pid = S().addComponent('paragraph');
+        await wait(320);
+        const panelAlive = !!document.querySelector('[data-props-panel="1"]') && !!pid;
+        add(
+          '旧版持久化数据缺少新增 ui 字段时不会崩（persist 深合并回落默认值）',
+          lockedOk && cellsOk && panelAlive,
+          `旧存档（无 lockedIds/tableCells）恢复后：lockedIds 是数组=${lockedOk}、tableCells 有默认=${cellsOk}、属性面板仍渲染=${panelAlive}`,
+        );
+      } catch (e) {
+        add('旧版持久化数据缺少新增 ui 字段时不会崩（persist 深合并回落默认值）', false, `恢复旧存档出错：${String(e)}`);
+      } finally {
+        // 还原现场
+        if (backup != null) localStorage.setItem(KEY, backup);
+        else localStorage.removeItem(KEY);
+        S().importJSON(backupDoc);
+        await wait(200);
+      }
+    }
+
     /* ── 除通用属性（上/下边距，注册表统一补）外，每个组件都必须有自己的配置属性 ── */
     {
       const UNIVERSAL = new Set(['marginTop', 'marginBottom']);
