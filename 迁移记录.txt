@@ -1,0 +1,30 @@
+迁移前 A4编辑器           0.4 MB /    70 文件
+迁移前 web-editor    103.0 MB /  7523 文件
+已建目标结构：E:\可视化编辑器
+已移动 A4编辑器      → E:\可视化编辑器\A4编辑器  (0.0s)  迁移后      0.4 MB /    70 文件  一致=True
+已移动 web-editor → E:\可视化编辑器\web-editor  (0.6s)  迁移后    103.0 MB /  7523 文件  一致=True
+工具/脚本/证据：tools 1 个、legacy-scripts 41 个、验证证据 41 个
+
+目标总规模：121.1 MB / 7676 文件
+源目录是否已清空：A4编辑器=True web-editor=True
+
+── 迁移后验证（新位置实测）──
+web-editor：构建 OK（npm run build，新位置）；HTTP 200；/__components 3 个组件；?check=1 自检 50/50 通过
+A4编辑器：HTTP 200（29041 字节）；/__components 43 个组件；?selftest=1 自检 37/37 通过
+tools/check_print.py：端到端通过（打印 2 页、A4 595.0×841.9pt、内容起点 left=89.8/top=71.6、无界面残留、无空白页、主色图元 9 个）
+
+── 入口文件指纹（SHA256，便于日后核对是否被改动）──
+087D173DE58623FF2831DB993FE736789529F3868DE40CEC353A9578F5544616  A4编辑器\a4_editor.html
+40C152F0CEF05862AD7801FBE018720EDC91BB1C6126F52433172E56C4FDDE44  A4编辑器\启动编辑器.py
+48FD91794102AC60A534970508EC69E0E704A8B352700C400641432FDBDAC1D2  web-editor\启动编辑器.py
+8F7E7226B98369F175892B5C002AD208DE480D47C2CFF155048F67E7AD4C851E  web-editor\package.json
+E4491B3C53EC4951933FAF2E5D094DDDEFB51919D1F36DE0615ED0AC29DB02D7  tools\check_print.py
+AB5B24771F9B4BB7351374344B047F4B23C822CB983383660A1C7B45D3E7B32B  README.md
+
+── 迁移后目录清单 ──
+  A4编辑器
+  docs
+  tools
+  web-editor
+  迁移记录.txt
+  README.md

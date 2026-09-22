@@ -1,0 +1,323 @@
+# Web 可视化编辑器（文档模式 + Web 模式）
+
+布局与交互参照 **Qt Designer** 的四区结构，支持两种编辑模式，**两套内容独立保存、切换零丢失**：
+
+| 模式 | 画布 | 布局方式 | 组件 |
+|---|---|---|---|
+| `document` 文档模式 | 真实物理尺寸纸张（默认 A4 210×297mm @96DPI = 794×1123px） | 文档流（纵向数组） | 通用 + 文档专用 |
+| `web` Web 模式 | 设备画布（Desktop/Laptop/Tablet/Mobile/自定义） | 绝对定位 `frame{x,y,w,h,rotation}` + 容器嵌套 | 通用 + Web 控件/容器/展示 |
+
+技术栈：**React 18 + TypeScript（strict）+ Tailwind CSS 3 + Zustand 5 + Vite 6**，图标用 `lucide-react`，
+不引入任何重型 UI 库；拖拽用原生 Pointer/HTML5（不引入 dnd-kit/react-dnd）。
+
+---
+
+## 一、运行
+
+```powershell
+# ① 日常使用：先构建，再用启动脚本托管（推荐，静态服务不需要子进程权限）
+cd E:\可视化编辑器\web-editor
+python 启动编辑器.py            # 托管 dist/，默认 5179，自动开浏览器
+python 启动编辑器.py -p 8080    # 指定端口
+python 启动编辑器.py -b         # 先 npm run build 再启动
+python 启动编辑器.py -q         # 不开浏览器
+python 启动编辑器.py -c         # 带 ?check=1 打开（跑自检）
+
+# ② 开发：
+npm run dev        # 开发服务器 http://127.0.0.1:5178（需要 esbuild 子进程权限）
+npm run build      # 类型检查(tsc -b) + 打包到 dist/
+npm run typecheck  # 只做类型检查
+```
+
+### URL 参数（可组合）
+
+| 参数 | 作用 |
+|---|---|
+| `?check=1` | 运行自检（数据层 + 渲染层），结果写入标题、console 与右下角浮层 |
+| `?diag=1` | 启动后打开诊断面板（日志 / 状态 / 环境） |
+| `?demo=1` | 灌入示例文档（两种模式各一份样例内容） |
+| `?mode=web` / `?mode=document` | 启动后切到指定模式 |
+| `?log=debug|info|warn|error` | 控制台输出级别（内存缓冲始终全量记录） |
+| `?theme=monokai` / `?theme=light` | 指定编辑器主题（也会记住在本地） |
+| `?scroll=N` | 启动后把画布滚动 N px（调试吸顶/滚动类问题） |
+
+> **本机沙箱注意**：`vite dev` / `vite preview` / `npm install` 都依赖 esbuild 启动子进程，
+> 在 DSH 的受限文件沙箱下会报 `spawn EPERM`（沙箱边界，不是代码问题）。两种做法：
+> ① 放宽权限运行（本会话已验证可行）；② 只用静态服务托管已构建的 `dist/`：
+> `python -m http.server 5179 --bind 127.0.0.1 --directory dist`（无子进程，受限沙箱可用）。
+
+打开 `http://127.0.0.1:5179/?check=1` 会跑一遍**数据层自检**：结果写入 `document.title`、
+打印到 console，并渲染成右下角浮层（便于无头截图核对）。
+
+---
+
+## 二、目录结构（当前实际文件）
+
+```
+web-editor/
+├─ index.html
+├─ vite.config.ts / tailwind.config.js / postcss.config.js
+├─ tsconfig.json / tsconfig.app.json / tsconfig.node.json
+└─ src/
+   ├─ main.tsx                      入口（挂载 + ?check=1 触发自检）
+   ├─ App.tsx                       ★四区布局外壳（菜单栏/工具栏/左中右/状态栏）
+   ├─ index.css                     Tailwind 入口 + 全局/面板/画布/打印样式
+   ├─ registry/
+   │   ├─ types.ts                  ★全部类型与常量（PAGE_SIZES / DEVICE_PRESETS / ComponentNode / PropSchemaItem / ComponentDefinition / RenderContext …）
+   │   ├─ index.ts                  ★组件注册表：registerComponent / getComponentsByMode / getCategoriesByMode
+   │   └─ components/index.ts       组件注册清单（阶段四填充）
+   ├─ store/
+   │   ├─ editorStore.ts            ★中央状态（zustand + persist）：双模式数据、全部 action、历史、导入导出
+   │   ├─ treeUtils.ts              ★树纯函数（查找/插入/删除/移动/层级/复制）+ getForest/setForest 两模式统一入口
+   │   ├─ history.ts                历史栈（上限 50）+ 300ms 防抖合并闸门
+   │   └─ selfCheck.ts              数据层自检（?check=1）
+   ├─ utils/
+   │   ├─ units.ts                  mm/pt/px/% 换算（96DPI、1pt=96/72px）
+   │   ├─ id.ts                     ID 生成 + 属性取值守卫（asString/asNumber/asEnum…，避免 any）
+   │   └─ download.ts               下载/选文件/打印窗口
+   └─ components/
+       ├─ layout/                   MenuBar / ToolBar / StatusBar / ModeSwitcher / useShortcuts
+       ├─ panels/                   ComponentPanel / PropertyPanel / PagePropertyPanel / CanvasPropertyPanel / ComponentTree
+       ├─ canvas/                   Canvas（分派+缩放外壳）/ PaperCanvas / WebCanvas / NodeView / Ruler / fitZoom
+       ├─ property-controls/        Schema 驱动的控件集（text/textarea/number/slider/color/select/switch/align/unit/font/edge/frame/image）
+       └─ ui/                       Menu（下拉原语）/ Modal / ToolButton
+```
+
+---
+
+## 三、关键设计
+
+**1. 双模式零丢失**：`EditorDocument` 里 `document`（页面配置 + 组件数组）与 `web`（画布配置 + 根容器树）
+是两套完全独立的数据；`setMode` 只改 `mode` 字段（并清空选中），切模式**不动任何内容**，且本身入历史栈可撤销。
+store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统一成「森林」，
+所以增删改移只写一份逻辑。
+
+**2. 注册表驱动**：组件定义 `ComponentDefinition{type,label,category,supportedModes,icon,defaultProps,defaultFrame,propSchema,render}`。
+左侧面板按 `supportedModes` 过滤并分组；右侧属性面板按 `propSchema` 的 `group` 分节、
+按 `control` 派发控件。**新增组件 = 写一个文件 + 注册，不改面板与画布代码**。
+
+**3. 所见即所得**：画布用 `def.render(props, ctx)` 渲染真实最终外观（真实 `<h1>`–`<h6>`/`<table>`/`<button>`…），
+只有选中（2px #1677ff 描边）与悬停（1px 淡蓝）时才有编辑态外壳；`ui.preview` 可整体关掉编辑态。
+
+**4. 缩放**：CSS `transform: scale()` + 外层容器宽高同步缩放后的尺寸（`ResizeObserver` 量真实高），
+避免缩小时下方留白；切换模式时自动按「适应宽度」适配。
+
+---
+
+## 四、主题（浅色 / 深色 Monokai）
+
+**视图 → 深色模式（Monokai）** 切换，或用 `?theme=monokai`。深色配色参考 Monokai：
+底 `#1e1f1c`、面板 `#272822`、控件 `#34352c`、边框 `#3e3d32`、正文 `#f8f8f2`、
+主色（青）`#66d9ef`、告警橙 `#fd971f`、成功绿 `#a6e22e`、危险粉 `#f92672`。
+
+范围说明（很重要，避免误解）：
+
+- 深色只改**编辑器外壳**：菜单栏/工具栏/左右面板/组件树/诊断面板/属性面板的**所有控件**（输入框、下拉、滑块、颜色选择器、富文本工具条…）一起跟随；
+- **纸张与画布本身不改**：文档模式的纸始终是白的（那是"文档"，颜色由 页面属性 → 背景色 决定）；
+  Web 模式的画布底色由 画布属性 → 画布背景 决定，页面菜单里另加了 **Monokai #272822** 预设，做深色界面时可直接选它；
+- 实现方式：`html[data-theme='monokai']` 上定义一组语义变量，再把界面用到的 Tailwind 工具类做一层重映射（约 80 行，见 `src/index.css`）。
+  新增界面代码建议优先用语义类，工具类重映射只覆盖当前用到的那些。
+
+---
+
+## 五、打印 / 导出
+
+### 打印（`文件 → 打印…`，或 Ctrl+P）
+
+打印分页采用**已验证产线（`江苏誉创_金卫智慧舱_AGV方案_V5.0.html`）同款做法**：
+
+```css
+@page { size: <当前纸张>; margin: 0 }        /* 由 App.tsx 按当前文档注入（Chrome 不解析 @page 里的 var()） */
+.sheet/[data-paper] { width:210mm; height:297mm; padding:<文档页边距>; overflow:hidden }   /* 屏幕样式不变 */
+@media print {
+  [data-paper] { margin:0; box-shadow:none; break-after: page; page-break-after: always }
+  [data-paper]:last-child { break-after: auto }        /* 末张不强制分页 */
+  .no-print { display: none !important }               /* 菜单栏/面板/状态栏/标尺/网格/辅助线/手柄/高亮/说明 */
+}
+```
+
+- 纸张保持物理尺寸（297mm）与内边距，**页脚/页眉用绝对定位钉在纸底**，所以打印出来的页码位置与屏幕一致；
+- 打印时额外做两件事：`print-color-adjust: exact`（否则 Chrome 不打印背景色，柱状图/表头底色会消失）、
+  去掉 `.node-selected/.node-hover`（选中高亮是编辑器态，不能印进纸里）；
+- ⚠ **打印设置必须是：纸张 A4、缩放 100%、边距「无/默认」、勾选「背景图形」**。
+  画布下方有一行同样内容的提示（不打印）。若边距选了"默认/1cm"，可打印区只有 ~277mm < 297mm，
+  浏览器就会把每张纸挤出一页空白 —— 这不是编辑器的问题（同一套 CSS 的 V5.0 文档实测打印正常）。
+- **想完全不依赖打印设置**：用「文件 → 导出 HTML」拿到自包含的单文件 HTML，
+  它用 `@page{margin:<文档页边距>}` + 内容流，打印时由浏览器自己分页，任何边距设置都正确。
+
+排障开关 `?printdebug=1`：左上角渲染诊断块（纸张/容器 `display/height/margin/break-*`），打印时会带到 PDF。
+
+### 导出
+
+| 菜单项 | 产物 | 说明 |
+|---|---|---|
+| 导出 HTML | 单文件 `.html` | 自包含（组件内联样式 + 按需补一份最小 CSS，不依赖 Tailwind）；文档模式带 `@page` 与文档页边距；Web 模式是"设备尺寸容器 + 绝对定位"的忠实快照 |
+| 导出 Word（.doc） | `.doc` | Word 可直接打开的 HTML 版式，带 `xmlns:w` 命名空间与 `@page WordSection1`（纸张/页边距），段落/表格可继续编辑。Web 模式的绝对定位 Word 支持差，故按流输出 |
+| 导出 JSON / 导入 JSON | `.json` | 完整工程数据（两种模式内容） |
+| 导出 React 代码 | — | 阶段五剩余项，尚未实现 |
+
+---
+
+### 组件的通用属性
+
+- **上边距 / 下边距（mm）**：**所有组件**都自动具备（注册表在注册时统一补齐 schema，
+  `NodeView` 在文档模式下按 mm→px 应用）——新增组件不需要自己处理；
+- 各组件原有的四边 `margin` 已统一移除，避免与上下边距重复；左右缩进由组件自身属性负责（如引用块的"左右缩进"）；
+- 其余通用片段见 `registry/components/shared.ts`：字体/字号/字重/行距/字距/颜色/对齐、背景/边框/圆角/阴影/内边距。
+
+### 画布缩放（只缩放画布，不缩放编辑器界面）
+
+- **Ctrl/Cmd + 滚轮**：接管该手势（`preventDefault`），只缩放画布预览——不会像浏览器缩放那样把菜单栏/面板一起放大；
+- 画布右下角**悬浮缩放控件**：`− 100% ＋ | 适应宽度 | 100%`（跟随浅色/深色主题）；
+- 工具栏 / 视图菜单 / Ctrl± / Ctrl+0 同样只作用于画布；**默认缩放 100%**。
+
+---
+
+## 六、组件开发：热加载（加组件不用重新构建）
+
+两条路，按需要选：
+
+| 方式 | 文件位置 | 是否要构建 | 适合 |
+|---|---|---|---|
+| **外部组件（热加载）** | `public/组件/*.js`（普通 JS，无需 TS） | **不用**：改完保存 → 编辑器里点「重载外部组件」 | 加常用组件、改文案/样式/属性、给别人临时加组件 |
+| 内置组件 | `src/registry/components/**/*.tsx` | 要（`npm run build`；开发时 `npm run dev` 有 HMR） | 参与工程长期维护、需要类型检查的组件 |
+
+**加一个外部组件（3 步）**
+
+1. 在 `public/组件/` 下新建 `我的组件.js`，照抄现成例子（`提示条.js` / `参数对比卡.js` / `免责声明.js`）；
+2. 文件里调用 `window.EditorKit.register({...})` 注册组件定义（`type/label/category/supportedModes/icon/defaultProps/propSchema/render`）；
+3. 回到编辑器点 **组件面板底部「外部组件 N · 重载」**（或 **帮助 → 重载外部组件**）→ 左侧面板立刻出现新组件，**不需要 npm run build、不需要重启服务**。
+
+`window.EditorKit` 提供（定义见 `src/registry/live.ts`）：
+
+| 能力 | 说明 |
+|---|---|
+| `React` | React 本体，用 `React.createElement` 写渲染 |
+| `register(def)` | 注册组件；同名 type 会**先卸载再注册**，所以改完重载即生效 |
+| `fontProps / boxProps / fontSizeProp / …` | **与内置组件同一套通用属性片段**（属性面板行为完全一致） |
+| `defaultsOf(schema)` / `defaultFrameOf(w,h)` | 由 schema 推导 defaultProps；默认位置尺寸 |
+| `boxStyle / typographyStyle / alignOf / spacingCss / edgeCss` | 属性 → CSS |
+| `asString / asNumber / asBool / asEnum / lines / rows` | 取值守卫（与内置同源） |
+| `icon('Megaphone')` | 按名字取图标（白名单见 `live.ts`，未命中会退回默认图标并记 warn） |
+
+**它是怎么生效的**
+
+- 清单：编辑器请求 `/__components` 拿文件列表（Vite dev 里由 `vite.config.ts` 的中间件提供；启动器里由 `启动编辑器.py` 提供；都没有时退回静态 `public/组件/_manifest.json`）；
+- 加载：对每个文件做**带时间戳的动态 import**（`?t=…`，绕开浏览器缓存），文件执行时自注册；
+- 服务：启动器**直接服务 `public/组件/`**（不是 dist 里的副本），所以「改文件 → 点重载」这条链路上没有任何构建步骤；
+- 失败可见：某个文件加载失败会把**文件名 + 错误**写进日志，在 帮助 → 诊断信息 里能看到，不会静默消失。
+
+> 已实测：`public/组件/提示条.js` 改一个字符串，服务端返回内容立刻变化（3202 → 3217 B），**未构建、未重启**；自检里也有"外部组件已热加载 / 重载幂等"两三条断言。
+
+---
+
+## 七、日志与诊断（出问题怎么定位）
+
+日志是三层，**不依赖控制台也能拿到现场**：
+
+| 层 | 内容 | 用途 |
+|---|---|---|
+| console | 按级别输出（dev 默认 `debug`，prod 默认 `warn`，可用 `?log=` 覆盖） | 开发时即时看 |
+| 内存环形缓冲 | **全量**最近 500 条（含 debug），可订阅 | 面板里查看/下载 |
+| localStorage `visual-editor-log-v1` | 尾部 200 条（warn/error 即时落盘 + 关闭页面时） | 刷新/崩溃后仍能看到上次现场；启动时会自动恢复并提示 |
+
+记录了什么：
+
+- **启动信息**：地址、视口、像素比、日志级别、恢复的历史日志条数；
+- **动作意图**：每个会改文档的 action 记一条 `[action] xxx`（如 `addComponent {type,parentId,mode}`、`importJSON {bytes}`、`setMode {from,to}`）；
+- **变更效果**：任何文档变更都会记 `mode / 文档组件数 / Web顶层数 / 选中数 / 历史深度 / 是否被防抖合并`；
+- **性能**：`commit` 等关键路径超过阈值记 `warn`（带耗时 ms）；
+- **错误**：`window.onerror`、`unhandledrejection`、以及 **React 错误边界**捕获的渲染错误（附错误栈 + 组件栈）；
+- **数据结构异常**：如 `importJSON` 结构不合法会记 `error` 并列出实际键名。
+
+怎么看：
+
+1. 菜单 **帮助 → 诊断信息**（或 `?diag=1`）：四块状态（运行环境 / 编辑器状态 / 组件注册表 / 当前模式结构）+ 日志列表（可按级别过滤、可切换输出级别）+ 按钮「复制完整诊断报告 / 刷新 / 下载日志 / 清空」。
+2. 菜单 **帮助 → 下载日志文件**：直接导出 `.txt`。
+3. 控制台里 `__EDITOR_LOG__`：`__EDITOR_LOG__.entries()` / `.dump()` 可随时取。
+
+诊断报告长这样（4 段 + 日志尾部，可直接粘给他人）：
+
+```
+================ 可视化编辑器 诊断报告 ================
+【运行环境】   时间/地址/浏览器/视口/语言/在线
+【编辑器状态】 模式/标题/缩放/纸张/设备/两模式组件数/选中数/历史深度/剪贴板/面板状态
+【组件注册表】 组件总数/两模式可用数/容器数/纸张与设备预设数
+【当前模式结构】节点数/最大嵌套深度/各类型数量
+【日志（尾部）】带时间戳、级别、作用域、结构化数据
+================ 报告结束 ================
+```
+
+> 出问题时**先复制这份报告**（菜单 帮助 → 诊断信息 → 复制完整诊断报告），里面已经包含复现所需的绝大部分信息。
+
+---
+
+## 八、阶段进度
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| 一 | 目录结构 + `registry/types.ts` + `store/editorStore.ts`（双模式 + 历史栈）+ `App.tsx` 四区骨架 | ✅ 完成（`tsc -b` 无错、`vite build` 通过、`?check=1` **12/12**） |
+| 二 | MenuBar（含模式切换）+ ComponentPanel（模式过滤）+ PropertyPanel（Schema 驱动）+ 控件集 | ✅ 完成（16 种控件全部实现；自检含"schema 里的控件都已实现"这条） |
+| 三 | Canvas 分派 + PaperCanvas 分页预览 + WebCanvas 拖拽/缩放/旋转/吸附/辅助线/框选/多选 | ✅ 完成（含离屏测量的多页分页、拖动排序插入指示线、容器落点高亮） |
+| 四 | 组件库（Word 常用 + PPT 常用 + Web 控件） | ✅ 完成 **31 个内置组件** + **3 个外部示例组件**（热加载）；属性统一走 shared 的通用片段 |
+| 五 | 组件树拖拽、导出 HTML/React、快捷键完善、持久化 | ✅ 完成：导出 HTML、导出 Word(.doc)、**导出 React/TSX**、组件树拖拽改层级、快捷键、持久化、日志诊断、组件热加载 |
+| 六 | 验收标准 1–10 逐条复核 | ✅ 见「十、验收标准对照」（每条都有对应断言或明确说明） |
+| 六 | 按验收标准 1–10 自测修复 | ⏳ 待做 |
+
+---
+
+## 九、验证记录（2026-09-22）
+
+| 阶段 | 验证 | 结果 |
+|---|---|---|
+| 一 | `tsc -b` / `vite build` | 修复 3 处类型错误后 0 错误；1610 模块 → JS 224KB(gzip 69KB) |
+| 一 | 四区布局截图（1600×1000） | 菜单栏/工具栏/左240px/中画布/右300px/状态栏到位；A4 纸张 + 标尺 + 页边距辅助线 |
+| 二 | 控件集 + 组件面板截图 | 左栏按模式过滤（通用 5 + 文档专用 1 / Web 控件 2 + 容器 2）；真实 h1–h6、table、button、图片占位渲染 |
+| 二 | 容器嵌套截图（`?demo=1&mode=web`） | 诊断面板显示 **最大嵌套深度 2**（container → card → button/input） |
+| 二 | 修掉的一个真实缺陷 | `StatusBar` 的 zustand selector 每次返回新对象 → 有选中项时无限重渲染、整棵 React 树崩掉；改为只选原始值 |
+| 二 | 日志与诊断 | 模拟运行时错误被全局捕获（error 0→1）；诊断报告 4 段齐全（18KB）；缓冲 165 条、动作 18 个 |
+| 全阶段 | `?check=1` 自检 | 阶段一~二：23/23；补阶段三后 28/28；加热加载后 **31/31 全部通过** |
+| 三 | 交互（真实 PointerEvent） | Web 拖动 `x=176,y=144`、缩放手柄 `120×32 → 192×72`、框选选中；文档 **3 页自动分页**、拖动排序把第 2 项移到第 1 位 |
+| 四 | 组件库 | 面板 4 组：通用 7 / 文档专用 13 / PPT 专用 10 / Web 专用（另一模式 4）；**所有组件模板与 match 自洽、所有 schema 控件均已实现**（15 种控件、自动校验） |
+| 修 | 标尺吸顶（用户反馈） | 标尺原先在 `transform: scale()` 层内，sticky 失效跟着内容滚 → 移到缩放层外 + 去掉画布容器上内边距；断言：滚动 420px 后**标尺与视口顶差 0px**；`?scroll=` 参数可复现核对 |
+| 加 | 深色主题（用户要求） | 断言：切 Monokai 后面板底色 `rgb(39,40,34)`、切回浅色 `rgb(255,255,255)`，属性面板控件同步变色；截图已核对 |
+| 修 | 组件面板底部按钮换行（用户反馈） | 「外部组件 3 · 重载」文字被折成两行 → 按钮加 `whitespace-nowrap` + `flex-none`、标签改「重载外部组件 (3)」，左侧计数文字改 `truncate` |
+| 修 | 打印起点 / 空白页（用户两轮反馈） | 见「五、打印」：最小复现（2 页 ✓）证明 Chrome 分页本身正确 → 根因是"纸张盒高 ≥ 可打印区高"；探针把纸高临时设 700px 时页数立刻 4→2，确认该判定成立 → 改为**内容流 + `@page` 边距**由浏览器分页。**实测：2 页无空白、left=90.0pt(31.7mm) / top=74.5pt(25.4mm)、内容完整（第 2 页的 PPT 图元都在）、柱状图 9 个填充图元** |
+| 修 | 另外 7 项反馈 | 暗色补菜单分隔线与标尺底色；组件面板默认只展开「通用」；删除「插入」菜单；菜单项不换行；图片对齐改 flex（原来 textAlign 只对齐文字、图片没动）；`print-color-adjust` 让柱状图打印可见；打印时去掉选中高亮 |
+| 五 | 导出 React / 组件树拖拽（本轮） | 自检「导出 React：含组件函数与默认导出」460 字节 / 「含 Tailwind 布局类」`absolute left-[120px]`+`w-[160px]` / 「不再是占位实现」；「组件树拖拽改层级」reparent 生效 + 可拖拽行 3/3 |
+| 修 | Web 模式导出取错数据源（本轮发现） | `doc.web.root` 是"画布根容器节点"，两个导出模块直接读它 → Web 模式导出内容为空/多包一层。改为由 store 用 `getForest(doc)` 传入顶层节点（utils 层保持纯函数，避免循环依赖）。**这是诊断断言暴露出来的真实 bug** |
+| 五 | 热加载 | 自检：外部组件 **3 个已加载**（liveNotice/liveCompareCard/liveDisclaimer）、17 个属性字段全部命中已实现控件、**重载幂等 3/3**；HTTP 层实测改文件即生效（3202→3217 B，未构建未重启） |
+
+### 历史记录：阶段一
+
+| 验证 | 方法 | 结果 |
+|---|---|---|
+| 类型检查 | `tsc -b`（真实检查，非 `--noEmit` 空跑） | 修复 3 处错误后 **0 错误** |
+| 构建 | `vite build` | **1610 模块** → JS 224KB(gzip 69KB) + CSS 15KB |
+| 四区布局 | 无头 Edge 截图 1600×1000 | 菜单栏/工具栏/左240px/中画布/右300px/状态栏全部到位；A4 纸张 + 标尺 + 页边距辅助线 + 页眉页脚占位 |
+| 数据层自检 | `?check=1` 打印 PDF 提取文本 | **12/12 全部通过**（默认文档模式、A4 794×1123、注册表按模式过滤、双模式互不覆盖、模式切换可撤销、属性输入合并历史、历史上限 50、A3/Letter 切换、Mobile 设备、JSON 往返还原、localStorage 持久化、未注册组件兜底） |
+
+---
+
+## 十、验收标准对照（阶段六）
+
+| # | 验收标准 | 状态 | 证据 / 说明 |
+|---|---|---|---|
+| 1 | 文档模式与 Web 模式可一键切换，**两套内容零丢失** | ✅ | 自检「两套内容独立保留（往返切换互不覆盖）」「切回文档模式后原内容完整保留」「模式切换可撤销/重做」 |
+| 2 | 文档模式渲染接近 A4 纸张（mm 单位、页边距、页眉页脚、自动分页） | ✅ | 自检「A4 纸张 794×1123px @96DPI」「文档模式自动分页（内容超出纸张）→ 3 页」「页脚变量替换生效」；纸张 210×297mm、版心 25.4/31.7mm |
+| 3 | Web 模式设备画布（预设尺寸、网格、安全区、绝对定位、容器嵌套） | ✅ | 自检「设备预设可切换（Mobile 375×812）」；面板/画布按 `supportedModes` 过滤；容器嵌套最深 2 层（示例） |
+| 4 | 组件注册表驱动：加组件不改动面板与画布代码 | ✅ | 自检「注册表按模式过滤组件」「所有组件 schema 的控件都已实现」；外部组件热加载（`external 3 个`）也走同一注册表 |
+| 5 | 属性面板由 schema 自动生成（含分组与控件类型） | ✅ | 自检「所有组件 schema 的控件都已实现 → 15 种控件」「外部组件 schema 与内置组件共用同一套控件」 |
+| 6 | 选中/悬停/拖拽/缩放/旋转/吸附/框选/多选可用（Web 模式） | ✅ | 自检「Web 拖动移动元素（真实 PointerEvent）」「Web 缩放手柄改变尺寸」「Web 框选能选中元素」；辅助线/网格/容器落点高亮 |
+| 7 | 文档模式可拖动排序、面板拖入按落点插入、分页符换页 | ✅ | 自检「文档模式拖动排序（插入指示线 + 真实 PointerEvent）」「分页符强制另起一页（纸张数 +1）」「上/下边距计入分页高度」 |
+| 8 | 撤销/重做覆盖所有改动，连续输入合并为一步 | ✅ | 自检「连续属性输入合并成一步」「历史栈上限 50 步」「模式切换可撤销/重做」 |
+| 9 | 导出 HTML 可在浏览器独立打开；导出 Word 可编辑 | ✅ | 自检「导出 HTML 是完整文档（@page + 正文内容）」「导出 Word(.doc) 含 Word 命名空间与页面设置」；另有「导出 React 代码可独立使用」 |
+| 10 | 出问题可定位（日志 + 诊断报告） | ✅ | 自检「日志记录了本次自检的动作」「日志带时间戳/级别/作用域」「window 运行时错误被捕获进日志」「诊断报告包含环境/状态/注册表/日志四段」 |
+
+**已知取舍 / 未做项（如实列出）**
+
+- 导出 Word 是 **`.doc`（Word HTML 版式）**，不是真 OOXML `.docx`；真 docx 需要引入 `docx` 依赖并按组件类型做 OOXML 映射，尚未做。
+- 跨页表格**不做行级拆分**（整块换页），与"行级断行"的 Word 行为不同。
+- 导出的 HTML **不含页眉页脚**（浏览器打印的内容流无法让页眉页脚按页重复，Chrome 不支持 `@page` margin box）；编辑器内打印与 Word 导出都有页眉页脚。
+- 打印需按画布下方提示设置（A4、100%、边距"无/默认"、勾选背景图形）；否则浏览器可打印区不足会多出空白页。
+- 撤销栈上限 50 步（超出丢弃最早的记录）。

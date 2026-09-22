@@ -1,0 +1,1820 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>A4 文档编辑器</title>
+<style>
+/* ══════════════ 编辑器界面 ══════════════ */
+*{box-sizing:border-box}
+:root{
+  --ui:#1f4e79; --ui2:#2e74b5; --bd:#d5dde5; --bg:#eef1f5; --tint:#f6f9fc;
+  --mt:2.54; --mb:2.54; --ml:3.17; --mr:3.17;   /* 页边距 cm */
+  --pw:210; --ph:297;                            /* 纸张 mm */
+  --fd:0.5;                                      /* 页脚距底边 cm */
+}
+html,body{margin:0;height:100%}
+body{font:13px/1.5 "Microsoft YaHei","微软雅黑",system-ui,sans-serif;background:var(--bg);color:#222;
+     display:grid;grid-template-columns:264px 1fr 344px;grid-template-rows:auto 1fr;height:100vh;overflow:hidden}
+header{display:flex;align-items:center;gap:10px;padding:7px 12px;background:var(--ui);color:#fff;grid-column:1/-1}
+header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.5px}
+header .sp{flex:1}
+header button{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:4px;padding:5px 11px;font:inherit;cursor:pointer}
+header button:hover{background:rgba(255,255,255,.26)}
+header .primary{background:#fff;color:var(--ui);font-weight:600}
+/* ★三栏布局（参照 Qt Designer 的分工）：左=组件箱，中=编辑区，右=对象检查器 + 属性编辑器。
+   用显式网格定位，DOM 里 #side 写在 #view 之前也不影响视觉顺序。 */
+#panel{grid-column:1;grid-row:2}
+#view{grid-column:2;grid-row:2}
+#side{grid-column:3;grid-row:2}
+#tabs{display:flex;gap:2px;background:#dde4ec;padding:6px 10px 0}
+#tabs button{flex:1;border:1px solid var(--bd);border-bottom:none;background:#f2f5f9;padding:7px 6px;border-radius:5px 5px 0 0;cursor:pointer;font:inherit;color:#456}
+#tabs button.on{background:#fff;color:var(--ui);font-weight:600}
+/* ★左侧功能区 */
+#panel{overflow:auto;background:#fff;border-right:1px solid var(--bd);min-height:0}
+#side{overflow:auto;background:#fff;border-left:1px solid var(--bd);min-height:0}
+#bar,#bar2{display:block;padding:0}
+.grp{display:block;padding:9px 11px;border-bottom:1px solid #eef2f6}
+.grp:last-child{border-bottom:none}
+.grp>label{display:block;color:#567;font-size:12px;font-weight:600;margin:0 0 6px}
+#inspector{background:#f7fafd}
+#grpPalette{background:#fbfdff}
+#palette button.t{font-size:12px;height:26px}
+/* ★属性编辑器：两列网格「属性名 | 值」，参照 Qt Designer 的属性表 */
+#props{display:grid;grid-template-columns:92px minmax(0,1fr);gap:5px 8px;align-items:center;
+       border:1px solid #e3eaf2;border-radius:5px;padding:7px 8px;background:#fff}
+#props>span{grid-column:1/-1}
+#props label{display:contents}
+#props label>span.f{color:#789;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#props input[type=text],#props select,#props textarea{width:100%;min-width:0;height:26px;border:1px solid var(--bd);border-radius:4px;padding:0 5px;font:inherit;font-size:12px}
+#props textarea{height:64px;padding:4px 5px;resize:vertical}
+#props input[type=color]{width:44px;justify-self:start;padding:1px}
+#props input[type=checkbox]{justify-self:start;width:auto;height:auto}
+#props .hintx,#props .none{grid-column:1/-1;color:#9aa;font-size:11px;margin:2px 0;line-height:1.6}
+#props .none b{color:#c0392b}
+#grpProps.flash{animation:fl .9s ease-out}
+@keyframes fl{from{background:#fff7d6}to{background:#fbfdff}}
+/* 组件箱：按类别分组（Qt 的 Widget Box 风格） */
+#palette .cat{width:100%;color:#7c8b9c;font-size:11px;font-weight:600;margin:7px 0 1px;letter-spacing:.4px}
+#palette .cat:first-child{margin-top:0}
+#palFilter{width:100%;height:26px;margin:0 0 7px}
+#inspInfo{font-size:12px;color:#567;line-height:1.6}
+#inspInfo b{color:var(--ui)}
+#inspInfo .txt{color:#89a}
+button.t{min-width:30px;height:27px;padding:0 7px;border:1px solid var(--bd);background:#fff;border-radius:4px;cursor:pointer;font:inherit;color:#334}
+button.t:hover{border-color:var(--ui2);color:var(--ui)}
+button.t.on{background:var(--ui2);border-color:var(--ui2);color:#fff}
+button.t.lv{font-weight:700}
+select,input[type=number],input[type=text]{height:27px;border:1px solid var(--bd);border-radius:4px;padding:0 5px;font:inherit;background:#fff;color:#223}
+input[type=color]{width:30px;height:27px;padding:1px;border:1px solid var(--bd);border-radius:4px;background:#fff;cursor:pointer}
+#view{overflow:auto;padding:16px;min-height:0}
+#md-pane textarea:focus{outline:2px solid var(--ui2);outline-offset:1px}
+#edit-pane{display:block}
+#prev-pane{display:none}
+#docHost{position:absolute;left:-99999px;top:0;width:210mm;visibility:hidden}
+.paper.editing .body{outline:none}
+.paper.editing{box-shadow:0 0 0 2px var(--ui2),0 3px 14px rgba(0,0,0,.16)}
+.paper.editing .body:focus{background:#fff}
+#stage{display:flex;justify-content:center}
+/* 编辑流：宽度=版心宽，保证与 A4 换行一致 */
+#doc{background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.13);outline:none;
+     padding:calc(var(--mt)*10mm) calc(var(--mr)*10mm) calc(var(--mb)*10mm) calc(var(--ml)*10mm);
+     width:calc(var(--pw)*1mm);min-height:calc(var(--ph)*1mm)}
+#prevStage{display:flex;flex-direction:column;align-items:center;gap:14px}
+.hint{color:#7a8798;font-size:12px;text-align:center;margin:0 0 12px}
+/* ══════════════ 文档样式（与 a4-printable-html-doc 令牌一致）══════════════ */
+.doc{font-family:"宋体",SimSun,"Times New Roman",serif;font-size:12pt;line-height:1.5;color:#000}
+.doc p{margin:0;text-indent:2em}            /* ★与管线一致：段落靠首行缩进区分，不加段后距 */
+.doc p.noind{text-indent:0}
+.doc h1{font:700 22pt/1.3 "黑体",SimHei,sans-serif;text-align:center;text-indent:0;margin:0 0 6pt;color:#1f4e79}
+.doc h2{font:700 16pt/1.3 "黑体",SimHei,sans-serif;text-indent:0;margin:12pt 0 6pt;color:#1f4e79;
+        border-left:4px solid var(--ui2);border-bottom:1px solid #dce7f2;padding:0 0 3px 8px}
+.doc h3{font:700 14pt/1.3 "黑体",SimHei,sans-serif;text-indent:0;margin:6pt 0;color:var(--ui2)}
+.doc h4{font:700 12pt/1.3 "黑体",SimHei,sans-serif;text-indent:0;margin:6pt 0;color:var(--ui2)}
+.doc ul,.doc ol{margin:0 0 6pt;padding-left:2em}
+.doc li{text-indent:0;margin:2pt 0}
+.doc table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10.5pt;line-height:1.2;margin:3pt 0 6pt}
+.doc th,.doc td{border:1px solid #c9d6e2;padding:3pt;vertical-align:middle;overflow-wrap:break-word;text-indent:0}
+.doc th{background:#e8f1f9;color:var(--ui);font-weight:600;text-align:left}
+.doc thead{display:table-header-group}
+.doc .tabcap,.doc .figcap{font-size:10.5pt;text-align:center;text-indent:0;color:#333;margin:6pt 0 3pt}
+.doc .figcap{margin:3pt 0 12pt}
+.doc .note{border-left:4px solid #3a9d5d;background:#f6fbf7;padding:5pt 8pt;margin:5pt 0 8pt;text-indent:0}
+.doc img{max-width:100%;height:auto;display:block;margin:6pt auto 0}
+.doc hr{border:none;border-top:2px solid var(--ui);margin:6pt 0 10pt}
+.doc .sel{outline:2px solid var(--ui2);outline-offset:1px;background:rgba(46,116,181,.06)}
+/* ── 以下规则对齐参考文件（AGV方案 V5.0）的排版特性 ── */
+.doc .sub{font-size:9pt;font-family:"黑体",SimHei,sans-serif;color:#5a5a5a;text-align:center;letter-spacing:2px;text-indent:0;margin:0}
+.doc hr.top{margin:6px 0 10px;border:none;border-top:2px solid #1f4e79}
+.doc .meta{margin:6pt 0 0;font-size:10.5pt;color:#808080;text-align:center;text-indent:0}
+.doc p.lead{color:#12395e;font-weight:600}
+.doc b,.doc strong{color:#12395e;font-weight:600}
+.doc .flow{margin:5px 0 8px;padding:7px 11px;background:#f5f9fd;border:1px solid #cfe0ef;
+           border-left:4px solid var(--ui2);border-radius:3px;text-indent:0}
+.doc .topo{text-align:center;margin:5px 0 3px;break-inside:avoid;page-break-inside:avoid}
+.doc .topo img{border:1px solid #c8d3de;border-radius:3px;max-width:146.6mm;max-height:200mm;height:auto;margin:0 auto}
+.doc .cap{margin-top:3pt;font-size:10.5pt;color:#333;text-align:center;text-indent:0}
+.doc a{color:inherit;text-decoration:none}
+/* ❰ 只读预览 ❱ */
+.paper{position:relative;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.15);
+       width:calc(var(--pw)*1mm);height:calc(var(--ph)*1mm);overflow:hidden;flex:none}
+.paper .body{position:absolute;left:calc(var(--ml)*10mm);top:calc(var(--mt)*10mm);
+             width:calc((var(--pw) - var(--ml) - var(--mr))*1mm);height:calc((var(--ph) - var(--mt) - var(--mb))*1mm);overflow:hidden}
+.paper .hdr{position:absolute;left:calc(var(--ml)*10mm);right:calc(var(--mr)*10mm);top:calc(15mm);
+            font:10.5pt "宋体",SimSun,serif;color:#333;text-align:center;border-bottom:1px solid #ddd;padding-bottom:2pt}
+.paper .ftr{position:absolute;left:0;right:0;bottom:calc(var(--fd)*10mm);padding:0 calc(var(--ml)*10mm);
+            font:10.5pt "宋体",SimSun,serif;color:#333;text-align:center;border-top:1px dashed #bbb;padding-top:2pt;background:#fff}
+#measure{position:absolute;left:-99999px;top:0;visibility:hidden}
+/* ❰ 对话框 ❱ */
+dialog{border:none;border-radius:8px;padding:0;box-shadow:0 8px 40px rgba(0,0,0,.3);min-width:320px}
+dialog::backdrop{background:rgba(20,30,45,.45)}
+dialog .dh{background:var(--ui);color:#fff;padding:9px 14px;font-weight:600}
+dialog .db{padding:14px}
+dialog .df{padding:10px 14px;text-align:right;border-top:1px solid var(--bd);background:var(--tint)}
+dialog label{display:flex;align-items:center;gap:8px;margin:7px 0}
+dialog label span{width:96px;color:#567}
+dialog button{margin-left:6px}
+@media print{
+  body{background:#fff}
+  header,#panel,#side,.hint{display:none!important}
+  body{display:block!important;height:auto!important;overflow:visible!important}
+  #view{overflow:visible!important;padding:0!important}
+  #edit-pane{display:block!important}
+  #prev-pane{display:none!important}
+  #docHost,#md-pane{display:none!important}
+  /* ★必须去掉屏幕上的 flex 间距与内边距：每页正好一张纸高，
+     任何额外 gap/padding 都会把第 N 页挤到第 N+1 张纸上（会多出空白页并裁掉内容）*/
+  #prevStage{display:block!important;gap:0!important;padding:0!important}
+  .paper{box-shadow:none;margin:0;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}
+  .paper:last-child{break-after:auto;page-break-after:auto}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>A4 文档编辑器</h1>
+  <span class="sp"></span>
+  <button id="btnOpen">加载 HTML</button>
+  <button id="btnSave">保存 HTML</button>
+  <button id="btnPdf" class="primary">分页预览 / 打印 PDF</button>
+  <button id="btnDemo">示例文档</button>
+</header>
+
+<aside id="panel">
+<div id="tabs">
+  <button data-tab="edit" class="on">富文本</button>
+  <button data-tab="md">源码(MD)</button>
+  <button data-tab="prev">预览</button>
+</div>
+<div class="grp" id="grpPalette">
+  <label>组件箱（点一下插入到光标所在块之后）</label>
+  <input type="text" id="palFilter" placeholder="筛选组件…（按名称或 key）">
+  <div id="palette" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+  <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:7px">
+    <button class="t" id="cmpNew" title="把当前选中的元素存成可复用组件">新建组件</button>
+    <button class="t" id="cmpExport" title="导出组件包 JSON">导出组件包</button>
+    <button class="t" id="cmpImport" title="加载外部组件包 JSON">加载组件包</button>
+    <button class="t" id="cmpPickDir" title="选择「组件」目录，批量加载其中 .js/.json（支持中文名）">选择组件目录</button>
+    <button class="t" id="cmpExportDir" title="每个组件导出一个文件（中文名）">导出组件目录</button>
+    <button class="t" id="cmpReset" title="清空自建组件（文件加载的组件不受影响）">清空自建</button>
+  </div>
+</div>
+<div id="bar">
+  <div class="grp" style="background:#f7fafd">
+    <label>格式与插入</label>
+    <div style="color:#9aa;font-size:11px;line-height:1.5">先选中元素（或把光标放进某段），下面的按钮作用于它。</div>
+  </div>
+  <div class="grp">
+    <label>层级</label>
+    <button class="t lv" id="btnUp" title="提升层级（正文→H4→H3→H2→H1）Ctrl+Alt+←">&lt;</button>
+    <button class="t lv" id="btnDown" title="降低层级（H1→H2→H3→H4→正文）Ctrl+Alt+→">&gt;</button>
+    <select id="blk" title="直接指定块级样式">
+      <option value="p">正文</option><option value="h1">一级标题（二号）</option>
+      <option value="h2">二级标题（三号）</option><option value="h3">三级标题（四号）</option>
+      <option value="h4">四级标题（小四）</option>
+      <option value="div.tabcap">表题</option><option value="div.figcap">图题</option>
+      <option value="div.note">提示框</option><option value="p.sub">副标题</option>
+      <option value="p.lead">导语</option><option value="div.flow">示意框</option>
+    </select>
+  </div>
+  <div class="grp">
+    <label>字体</label>
+    <select id="fname">
+      <option value="宋体">宋体</option><option value="黑体">黑体</option>
+      <option value="楷体">楷体</option><option value="仿宋">仿宋</option>
+      <option value="Times New Roman">Times New Roman</option>
+    </select>
+    <select id="fsize" title="中文字号"></select>
+    <input type="number" id="fpt" step="0.5" min="5" max="72" style="width:58px" title="自定义 pt">
+    <input type="color" id="fcolor" value="#000000" title="文字颜色">
+    <button class="t" id="bB" title="加粗"><b>B</b></button>
+    <button class="t" id="bI" title="斜体"><i>I</i></button>
+    <button class="t" id="bU" title="下划线"><u>U</u></button>
+  </div>
+  <div class="grp">
+    <label>段落</label>
+    <select id="align">
+      <option value="left">左对齐</option><option value="center">居中</option>
+      <option value="right">右对齐</option><option value="justify">两端对齐</option>
+    </select>
+    <select id="lh">
+      <option value="1">单倍</option><option value="1.2">1.2 倍</option>
+      <option value="1.5" selected>1.5 倍</option><option value="2">2 倍</option>
+    </select>
+    <button class="t" id="bInd" title="首行缩进 2 字符">缩进2字</button>
+  </div>
+  <div class="grp">
+    <label>表格</label>
+    <button class="t" id="tNew" title="插入表格">插入</button>
+    <button class="t" id="tRowAdd" title="在下方插入行">+行</button>
+    <button class="t" id="tRowDel" title="删除当前行">−行</button>
+    <button class="t" id="tColAdd" title="在右侧插入列">+列</button>
+    <button class="t" id="tColDel" title="删除当前列">−列</button>
+    <button class="t" id="tCap" title="在表格上方插入表题">表题</button>
+    <button class="t" id="tAutoW" title="按内容重算列宽">列宽自适应</button>
+  </div>
+  <div class="grp">
+    <label>列表 / 块</label>
+    <div style="display:flex;flex-wrap:wrap;gap:4px">
+      <button class="t" id="bUl" title="项目符号列表">• 列表</button>
+      <button class="t" id="bOl" title="编号列表">1. 列表</button>
+      <button class="t" id="bNote" title="插入提示框（绿色左边框）">提示框</button>
+      <button class="t" id="bFlow" title="插入示意框（浅蓝左边框）">示意框</button>
+      <button class="t" id="bTopo" title="把选中的图片包成图文框（.topo + .cap）">图文框</button>
+    </div>
+  </div>
+  <div class="grp">
+    <label>插入</label>
+    <button class="t" id="iImg" title="插入图片">图片</button>
+    <button class="t" id="iFigCap" title="在图下方插图题">图题</button>
+    <button class="t" id="iBreak" title="插入分页符">分页</button>
+    <button class="t" id="iHr" title="插入分隔线">分隔线</button>
+    <button class="t" id="reno" title="按章重排全部图/表编号">重排编号</button>
+  </div>
+</div>
+</aside>
+
+<!-- ★右侧：对象检查器 + 属性编辑器 + 文档设置（参照 Qt Designer 右侧的两块面板） -->
+<aside id="side">
+  <div class="grp" id="inspector">
+    <label>对象检查器 <span style="font-weight:400;color:#89a">当前选中元素</span></label>
+    <div id="inspInfo">未选中 —— 在中间文档里点任意标题/段落/表格/图片即可选中，右侧属性与左侧格式按钮都会作用到它。</div>
+  </div>
+
+  <div class="grp" id="grpProps" style="background:#fbfdff">
+    <label>属性编辑器 <span id="propWho" style="font-weight:400;color:#89a"></span></label>
+    <div id="props"><span style="color:#89a;font-size:12px">在中间文档里点选一个元素，这里就会列出它的属性。</span></div>
+  </div>
+
+  <div class="grp" style="background:#f7fafd"><label>文档设置</label></div>
+  <div id="bar2">
+    <div class="grp">
+      <label>纸张</label>
+      <button class="t" data-ori="portrait" title="纵向 A4">纵向</button>
+      <button class="t" data-ori="landscape" title="横向 A4">横向</button>
+    </div>
+    <div class="grp">
+      <label>页边距（cm）</label>
+      <input type="number" id="mgT" step="0.1" min="0" style="width:56px" title="上 cm">
+      <input type="number" id="mgB" step="0.1" min="0" style="width:56px" title="下 cm">
+      <input type="number" id="mgL" step="0.1" min="0" style="width:56px" title="左 cm">
+      <input type="number" id="mgR" step="0.1" min="0" style="width:56px" title="右 cm">
+      <button class="t" id="mgReset" title="恢复规范默认 2.54/2.54/3.17/3.17">默认</button>
+    </div>
+    <div class="grp">
+      <label>页眉/页脚</label>
+      <input type="text" id="hdrText" placeholder="页眉文字（可空）" style="width:150px">
+      <input type="text" id="ftrText" placeholder="页脚文字" style="width:150px">
+      <label style="display:flex;gap:4px;align-items:center;color:#678;font-size:12px">
+        <input type="checkbox" id="coverNo" style="width:auto;height:auto"> 首页不显示页码（封面页）
+      </label>
+      <label style="display:flex;gap:4px;align-items:center;color:#678;font-size:12px">
+        <input type="checkbox" id="keepBrk" checked style="width:auto;height:auto"> 保留原分页
+      </label>
+      <button class="t" id="pnIns" title="在页脚光标处插入页码域">插入页码</button>
+    </div>
+  </div>
+</aside>
+
+<div id="view">
+  <p class="hint" id="hint">直接编辑；换行/字号按 A4 版心显示。写完点右上「分页预览 / 打印 PDF」看真实分页效果。</p>
+  <div id="edit-pane"><p class="hint" style="margin:0 0 10px">所见即所得：下面是 A4 分页，直接在上面改；打字停下后会自动重排。</p><div id="prevStage"></div></div>
+  <div id="prev-pane" style="display:none"></div>
+  <div id="docHost"><div id="doc" class="doc" contenteditable="true" spellcheck="false"></div></div>
+  <div id="md-pane" style="display:none">
+    <div style="display:flex;gap:8px;align-items:center;margin:0 0 8px">
+      <button class="t" id="mdApply" style="background:var(--ui2);color:#fff;border-color:var(--ui2)">应用到文档</button>
+      <button class="t" id="mdReload">从文档重新生成</button>
+      <span style="color:#7a8798;font-size:12px">标题：<b>#</b>=文档标题/<b>#</b>=章　<b>##</b>=三级　<b>###</b>=四级　<b>&gt;</b> 提示框　<b>-</b>/<b>1.</b> 列表　<b>| |</b> 表格　<b>[[表: …]]</b> 表题　<b>![alt](img:N)</b> 图片</span>
+    </div>
+    <textarea id="mdBox" spellcheck="false" style="width:100%;height:calc(100vh - 190px);border:1px solid var(--bd);border-radius:6px;padding:12px;font:12.5px/1.7 Consolas,'Courier New',monospace;resize:vertical;background:#fff"></textarea>
+  </div>
+</div>
+
+<div id="measure" class="doc"></div>
+
+<dialog id="dlgTable">
+  <form method="dialog">
+    <div class="dh">插入表格</div>
+    <div class="db">
+      <label><span>列数</span><input type="number" id="twCols" value="3" min="1" max="20"></label>
+      <label><span>数据行数</span><input type="number" id="twRows" value="3" min="1" max="60"></label>
+      <label><span>首行为表头</span><input type="checkbox" id="twHead" checked></label>
+      <label><span>首列加粗</span><input type="checkbox" id="twFirst" checked></label>
+    </div>
+    <div class="df"><button value="cancel">取消</button><button value="ok" class="primary" style="background:var(--ui);color:#fff;border:1px solid var(--ui);border-radius:4px;padding:5px 12px;cursor:pointer">插入</button></div>
+  </form>
+</dialog>
+
+<input type="file" id="fileHtml" accept=".html,.htm" style="display:none">
+<input type="file" id="fileImg" accept="image/*" style="display:none">
+
+<!-- 组件清单：主应用启动时按它逐个加载 组件/ 下的文件（支持中文文件名） -->
+<script src="组件/_manifest.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   A4 编辑器 —— 与 a4-printable-html-doc 的令牌保持一致
+   ══════════════════════════════════════════════════════════════ */
+const $ = s => document.querySelector(s);
+const doc = $('#doc'), prevStage = $('#prevStage'), measure = $('#measure');
+
+/* ★原分页支持：SECTIONS 记录源文件每页的页码模式；KEEP=true 时按标记分页 */
+const SECTIONS = [];
+let ORIG_TOTAL = null;
+let KEEP = true;
+function roman(n){
+  const T=[[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  let s=''; for(const [v,c] of T){ while(n>=v){ s+=c; n-=v; } } return s;
+}
+const root = document.documentElement;
+
+/* 中文字号 ↔ pt */
+const SIZES = [['初号',42],['小初',36],['一号',26],['小一',24],['二号',22],['小二',18],
+  ['三号',16],['小三',15],['四号',14],['小四',12],['五号',10.5],['小五',9],['六号',7.5],['小六',6.5]];
+(function initSizes(){
+  const sel = $('#fsize');
+  sel.innerHTML = '<option value="">字号</option>' +
+    SIZES.map(([n,p])=>`<option value="${p}">${n} / ${p}pt</option>`).join('');
+})();
+
+/* 单位换算：1mm 多少 px */
+const mmPx = (()=>{ const d=document.createElement('div'); d.style.cssText='width:100mm;position:absolute;left:-9999px';
+  document.body.appendChild(d); const v=d.getBoundingClientRect().width/100; d.remove(); return v; })();
+
+/* 打印方向必须动态：静态 @page 无法随纸张方向变化 */
+const pageStyle = document.createElement('style');
+document.head.appendChild(pageStyle);
+
+/* ───────── ★元素/容器级编辑 ───────── */
+let selected = null;
+function selEl(el){
+  if(selected && selected !== el) selected.classList.remove('sel');
+  selected = (el && el !== doc && document.contains(el) && !el.closest('#panel,#side')) ? el : null;
+  if(selected) selected.classList.add('sel');
+  refreshInspector();
+}
+function refreshInspector(){
+  const inp = document.getElementById('inspInfo'); if(!inp) return;
+  if(!selected){
+    inp.innerHTML = '未选中 —— 在中间文档里点任意标题/段落/表格/图片即可选中，右侧属性与左侧格式按钮都会作用到它。';
+    return;
+  }
+  const cs = getComputedStyle(selected);
+  const cls = (selected.className || '').replace(/\bsel\b/g, '').trim();
+  inp.innerHTML = '<b>&lt;' + selected.tagName.toLowerCase() + '&gt;</b>' +
+    (cls ? ' .' + cls.split(/\s+/).join(' .') : '') +
+    '<br>字号 ' + cs.fontSize + '　行高 ' + cs.lineHeight + '　对齐 ' + cs.textAlign +
+    '<br><span class="txt">' + (selected.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 46) + '</span>' +
+    '<br><button class="t" id="desel" style="margin-top:5px">取消选中</button>';
+  const b = document.getElementById('desel'); if(b) b.onclick = () => selEl(null);
+  renderProps();                                   // ★选中即生成组件属性表单
+  // ★选中时把「属性编辑器」滚进视野并闪一下：以前它埋在左栏最底部，选中后要自己滚动去找
+  const gp = document.getElementById('grpProps');
+  if(gp){
+    try{ gp.scrollIntoView({ block: 'nearest' }); }catch(e){}
+    gp.classList.remove('flash'); void gp.offsetWidth; gp.classList.add('flash');
+  }
+  const pt = parseFloat(cs.fontSize);
+  if(!isNaN(pt)) $('#fpt').value = Math.round(pt * 2) / 2;
+  const m = cs.color.match(/\d+/g);
+  if(m) $('#fcolor').value = '#' + m.slice(0,3).map(x => (+x).toString(16).padStart(2,'0')).join('');
+}
+
+/* ───────── ★分页编辑：同步 / 重排 / 光标恢复 ───────── */
+let EDITING = true, PAGING = false, DIRTY = false;
+let SELFTEST_REPORT = null;            // 由 ?selftest=1 写入，paginate 负责渲染成末页
+const pageHost = () => document.getElementById('prevStage');
+const pageBodies = () => [...pageHost().querySelectorAll('.paper .body')];
+
+function syncFromPages(){
+  if(!DIRTY) return false;                          // ★没编辑就不同步：加载后保持原分页
+  const bs = pageBodies();
+  if(!bs.length) return false;                      // 还没分页过，别覆盖数据源
+  let html = '';
+  const nums = [...pageHost().querySelectorAll('.paper')].map(p => p.dataset.num || 'arabic');
+  bs.forEach((b, i) => {
+    // 只在**分节边界**插标记：节内允许自由回流
+    if(i > 0 && nums[i] !== nums[i-1])
+      html += '<div class="pgbreak" data-num="' + nums[i] + '" contenteditable="false"></div>\n';
+    html += b.innerHTML + '\n';
+  });
+  doc.innerHTML = html;
+  DIRTY = false;
+  return true;
+}
+
+function caretPath(){
+  const sel = window.getSelection();
+  if(!sel.rangeCount || !sel.anchorNode) return null;
+  const r = sel.getRangeAt(0), n = r.startContainer;
+  let el = n.nodeType === 3 ? n.parentNode : n;
+  const body = el.closest ? el.closest('.paper .body') : null;
+  if(!body) return null;
+  let top = el; while(top && top.parentNode !== body) top = top.parentNode;
+  const locals = [...body.children];
+  const bi = locals.indexOf(top);
+  if(bi < 0) return null;
+  let gi = bi;
+  for(const b of pageBodies()){ if(b === body) break; gi += b.children.length; }
+  let cnt = 0, node; const w = document.createTreeWalker(top, NodeFilter.SHOW_TEXT);
+  while((node = w.nextNode())){
+    if(node === n){ cnt += r.startOffset; break; }
+    cnt += node.textContent.length;
+  }
+  return {gi: gi, cnt: cnt};
+}
+
+function restoreCaret(path){
+  if(!path) return;
+  const bs = pageBodies(); if(!bs.length) return;
+  let gi = path.gi, target = null;
+  for(const b of bs){
+    if(gi < b.children.length){ target = b.children[gi]; break; }
+    gi -= b.children.length;
+  }
+  if(!target) return;
+  const w = document.createTreeWalker(target, NodeFilter.SHOW_TEXT);
+  let node, acc = 0, done = false;
+  while((node = w.nextNode())){
+    if(acc + node.textContent.length >= path.cnt){
+      try{
+        const r = document.createRange();
+        r.setStart(node, Math.max(0, Math.min(path.cnt - acc, node.textContent.length)));
+        r.collapse(true);
+        const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+        done = true;
+      }catch(e){}
+      break;
+    }
+    acc += node.textContent.length;
+  }
+  if(!done){
+    try{
+      const r = document.createRange(); r.selectNodeContents(target); r.collapse(false);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    }catch(e){}
+  }
+}
+
+let _reflowT = null;
+function reflowSoon(){
+  if(!EDITING || PAGING) return;
+  clearTimeout(_reflowT);
+  _reflowT = setTimeout(()=>{
+    if(!EDITING) return;
+    const path = caretPath();
+    PAGING = true;
+    try{ paginate(); restoreCaret(path); } finally { PAGING = false; save(); }
+  }, 650);
+}
+
+/* ───────── ★组件化构建 ───────── */
+/* 组件定义（数据驱动，可导出/导入）：
+   html      : 插入时的模板
+   match     : 识别页面上元素属于哪个组件（选择器）
+   props     : 属性表单字段。k 支持 text / css:xxx / attr:xxx / 自定义（rows/cols 等） */
+/* 组件全部来自同级「组件/」目录（见 loadComponentFiles）；BUILTIN 保留为空对象，
+   仅用于区分「来自文件的组件」与「用户自建组件」。 */
+const BUILTIN = {};
+let COMPS = Object.assign({}, BUILTIN);
+const FROMFILE = {};                 // 来自 组件/ 目录的组件
+(function loadUserComps(){
+  try{
+    const t = localStorage.getItem('a4editor.comps');
+    if(t) Object.assign(COMPS, JSON.parse(t));
+  }catch(e){}
+})();
+function saveUserComps(){
+  const user = {};
+  for(const k in COMPS) if(!BUILTIN[k] && !FROMFILE[k]) user[k] = COMPS[k];   // 文件组件不入本地库
+  try{ localStorage.setItem('a4editor.comps', JSON.stringify(user)); }catch(e){}
+}
+
+function renderPalette(){
+  const box = document.getElementById('palette'); if(!box) return;
+  const pf = document.getElementById('palFilter');
+  const q = ((pf && pf.value) || '').trim().toLowerCase();
+  box.innerHTML = '';
+  const groups = {};
+  for(const k in COMPS){
+    const c = COMPS[k];
+    if(q && (k + ' ' + (c.name || '') + ' ' + (c.group || '')).toLowerCase().indexOf(q) < 0) continue;
+    const g = c.group || '其他';
+    (groups[g] = groups[g] || []).push(k);
+  }
+  for(const g in groups){
+    const t = document.createElement('div');
+    t.className = 'cat'; t.textContent = g;
+    box.appendChild(t);
+    groups[g].forEach(k=>{
+      const b = document.createElement('button');
+      b.className = 't'; b.textContent = COMPS[k].name; b.title = '插入「' + COMPS[k].name + '」';
+      b.onclick = () => insertComponent(k);
+      box.appendChild(b);
+    });
+  }
+  if(!Object.keys(groups).length){
+    const e = document.createElement('div'); e.className = 'cat';
+    e.textContent = '没有匹配「' + q + '」的组件'; box.appendChild(e);
+  }
+}
+
+/* 光标所在的页体与块（用于「插入组件」定位）。
+   ★不能用 blockOf()：它会优先返回 selected，而且会在 doc 上停下、认不出页体边界。 */
+function caretBlock(){
+  const sel = getSelection();
+  if(!sel || !sel.rangeCount) return null;
+  const a = sel.anchorNode; if(!a) return null;
+  const n0 = a.nodeType === 3 ? a.parentNode : a;
+  const host = pageBodies().find(b => n0 && b.contains(n0));
+  if(!host) return null;
+  let b = n0;
+  while(b && b !== host && !/^(P|H1|H2|H3|H4|LI|DIV|TD|TH|BLOCKQUOTE)$/.test(b.nodeName)) b = b.parentNode;
+  if(!b || b === host) return { host: host, blk: null };
+  if(/^(TD|TH)$/.test(b.nodeName)) b = b.closest('table') || b;   // 表格内：整表之后插入
+  return { host: host, blk: b };
+}
+
+function insertComponent(key){
+  const c = COMPS[key]; if(!c) return;
+  let html = c.html;
+  if(key === 'table') html = '<table><colgroup><col style="width:50%"><col style="width:50%"></colgroup>'
+      + '<thead><tr><th>列1</th><th>列2</th></tr></thead><tbody><tr><td>　</td><td>　</td></tr></tbody></table>';
+  if(key === 'figure'){
+    const src = prompt('图片地址（可用 data: 或相对路径）', '');
+    if(src === null) return;
+    html = '<div class="topo"><img src="' + src + '" alt=""><div class="cap">图 X-Y　说明文字</div></div>';
+  }
+  if(key === 'img'){
+    const src = prompt('图片地址', ''); if(src === null) return;
+    html = '<img src="' + src + '" alt="">';
+  }
+  if(key === 'pagebreak') html = '<div class="pgbreak" contenteditable="false"></div>';
+  // ★作为**独立块**插到光标所在块的后面。
+  //   原来直接用 execCommand('insertHTML')，光标在段落里时新组件会被并进当前段落
+  //   （实测：点「正文段落」块数 2→2、字符 28→91），不符合"按组件搭文档"的预期。
+  const cb = caretBlock();
+  let placed = false;
+  if(cb){
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    const nodes = [...tmp.childNodes];
+    const frag = document.createDocumentFragment();
+    nodes.forEach(nd => frag.appendChild(nd));
+    if(cb.blk) cb.host.insertBefore(frag, cb.blk.nextSibling);
+    else       cb.host.appendChild(frag);
+    const last = nodes[nodes.length - 1];
+    const sel = getSelection();
+    if(last && sel){                       // 光标落到新块之后，便于连续插入
+      const r = document.createRange(); r.setStartAfter(last); r.collapse(true);
+      sel.removeAllRanges(); sel.addRange(r);
+    }
+    placed = nodes.length > 0;
+  }
+  if(!placed) document.execCommand('insertHTML', false, html);   // 光标不在页体内时的兜底
+  renumber(); DIRTY = true; reflowSoon();
+}
+
+/* ── 从同级「组件/」目录加载组件 ──
+   浏览器从 file:// 打开时 fetch/XHR 读本地文件会被拦，但 <script src> 不受限制，
+   所以组件用 .js 文件（内部给 window.A4_COMPONENTS 赋值），中文文件名做 URL 编码。 */
+function loadComponentFiles(cb){
+  const merge = () => {
+    const got = window.A4_COMPONENTS || {};
+    let n = 0;
+    for(const k in got){ COMPS[k] = got[k]; FROMFILE[k] = 1; n++; }
+    return n;
+  };
+  const done = (src) => {
+    const n = merge();                     // ★必须合并：组件文件只写了 window.A4_COMPONENTS
+    renderPalette();
+    if(document.title.indexOf('已加载') < 0)      // 别覆盖加载器写的"已加载 N 页"
+      document.title = 'A4 编辑器 · 组件 ' + Object.keys(COMPS).length + '（' + src + '）';
+    if(cb) cb();
+  };
+  const inject = (list, src) => {
+    if(!list || !list.length){ done(src + '·空'); return; }
+    let i = 0;
+    (function next(){
+      if(i >= list.length){ done(src); return; }
+      const sc = document.createElement('script');
+      sc.src = '组件/' + encodeURIComponent(list[i]);   // ★中文文件名 → URL 编码
+      sc.onload = sc.onerror = () => { i++; next(); };   // 单个失败不阻塞其余
+      document.head.appendChild(sc);
+    })();
+  };
+  // ① 由本地服务提供时：直接问组件目录（新增组件文件即自动生效，无需改清单）
+  if(location.protocol === 'http:' || location.protocol === 'https:'){
+    try{
+      const x = new XMLHttpRequest();
+      x.open('GET', '/__components', true);
+      x.onload = () => {
+        let list = null;
+        try{ list = JSON.parse(x.responseText).files; }catch(e){}
+        if(list && list.length) inject(list, '目录');
+        else inject(window.A4_COMPONENT_FILES, '清单');
+      };
+      x.onerror = () => inject(window.A4_COMPONENT_FILES, '清单');
+      x.send();
+    }catch(e){ inject(window.A4_COMPONENT_FILES, '清单'); }
+    return;
+  }
+  // ② file:// 打开时：用清单（<script src> 不受本地文件限制）
+  inject(window.A4_COMPONENT_FILES, '清单');
+}
+
+/* 选择组件目录：支持 .js（组件文件）与 .json（组件包），中文名不限 */
+function pickComponentDir(files){
+  let js = 0, jsn = 0;
+  const todo = [...files].filter(f => /\.(js|json)$/i.test(f.name));
+  if(!todo.length){ alert('该目录里没有 .js 或 .json 组件文件。'); return; }
+  let left = todo.length;
+  todo.forEach(f => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const txt = fr.result;
+      try{
+        if(/\.json$/i.test(f.name)){ const o = JSON.parse(txt); importCompObj(o); jsn++; }
+        else {
+          const before = Object.keys(window.A4_COMPONENTS || {}).length;
+          (new Function(txt))();                        // 组件文件内部自行挂到 window.A4_COMPONENTS
+          const after = window.A4_COMPONENTS || {};
+          for(const k in after){ if(!FROMFILE[k] || before !== Object.keys(after).length){ COMPS[k] = after[k]; FROMFILE[k] = 1; } }
+          js++;
+        }
+      }catch(e){ console.warn('组件文件加载失败：' + f.name, e); }
+      if(--left === 0){
+        if(window.A4_COMPONENTS) for(const k in window.A4_COMPONENTS){ COMPS[k] = window.A4_COMPONENTS[k]; FROMFILE[k] = 1; }
+        renderPalette();
+        document.title = 'A4 编辑器 · 组件 ' + Object.keys(COMPS).length;
+        alert('已从目录加载：组件文件 ' + js + ' 个、组件包 ' + jsn + ' 个；当前可用组件 ' + Object.keys(COMPS).length + ' 个。');
+      }
+    };
+    fr.readAsText(f, 'utf-8');
+  });
+}
+function importCompObj(o){
+  let n = 0;
+  for(const k in o){
+    const c = o[k];
+    if(!c || !c.name || typeof c.html !== 'string') continue;
+    COMPS[k] = { name:c.name, group:c.group || '导入', match:c.match || null, html:c.html, props:c.props || [] };
+    n++;
+  }
+  saveUserComps();
+  return n;
+}
+/* 导出组件目录：每个组件一个中文名 .js 文件 */
+function exportComponentDir(){
+  const keys = Object.keys(COMPS);
+  if(!keys.length){ alert('当前没有组件可导出。'); return; }
+  keys.forEach((k, i) => setTimeout(() => {
+    const c = COMPS[k];
+    const body = { key:k, name:c.name, group:c.group || '其他', match:c.match || null, html:c.html || '', props:c.props || [] };
+    const txt = '/* 组件：' + c.name + '（' + (c.group || '其他') + '） */\n'
+              + 'window.A4_COMPONENTS = window.A4_COMPONENTS || {};\n'
+              + 'window.A4_COMPONENTS[' + JSON.stringify(k) + '] = ' + JSON.stringify(body, null, 2) + ';\n';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], {type:'text/javascript;charset=utf-8'}));
+    a.download = ((c.group || '其他') + '-' + c.name).replace(/[\\/:*?"<>|]/g, '_') + '.js';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+  }, i * 250));
+}
+
+/* 识别元素的组件类型 */
+function compOf(el){
+  if(!el || el.nodeType !== 1) return null;
+  for(const k in COMPS){
+    const c = COMPS[k];
+    if(!c.match) continue;
+    try{ if(el.matches(c.match)) return k; }catch(e){}
+  }
+  // 图片在图框里 → 归到 figure
+  if(el.nodeName === 'IMG' && el.closest('.topo')) return 'figure';
+  return null;
+}
+
+/* 生成属性表单 */
+function renderProps(){
+  const box = document.getElementById('props'); if(!box) return;
+  const who = document.getElementById('propWho');
+  box.innerHTML = '';
+  const el = selected;
+  const key = compOf(el);
+  if(!el || !key){
+    if(who) who.textContent = '';
+    box.innerHTML = el
+      ? '<span style="color:#89a;font-size:12px">已选中 <b>&lt;' + el.tagName.toLowerCase() + '&gt;</b>，但它没被任何组件识别（组件靠 match 选择器认领元素）。<br>可用左侧「格式与插入」改字号/对齐，或点「新建组件」把它存成组件。</span>'
+      : '<span style="color:#89a;font-size:12px">在中间文档里点选一个元素（标题 / 段落 / 表格 / 图片…），这里就会列出它的属性。</span>';
+    return;
+  }
+  const c = COMPS[key];
+  if(who) who.textContent = '· ' + c.name;
+  if(!(c.props || []).length)
+    box.innerHTML = '<div class="none">组件「' + c.name + '」没有声明可编辑属性（对应的组件文件里 <b>props</b> 为空）。<br>'
+      + '临时改样式可用左侧「格式与插入」；要让它出现在这张表里，就在 <b>组件/</b> 目录对应的 .js 里补 props。</div>';
+  (c.props || []).forEach(f=>{
+    const lab = document.createElement('label');
+    const s = document.createElement('span'); s.className = 'f'; s.textContent = f.label || f.k;
+    lab.appendChild(s);
+    let inp;
+    const cur = readProp(el, f, key);
+    if(f.t === 'select'){
+      inp = document.createElement('select');
+      (f.opts || []).forEach(o=>{ const op = document.createElement('option'); op.value = o; op.textContent = o; inp.appendChild(op); });
+      inp.value = cur || (f.opts || [])[0];
+    } else if(f.t === 'area'){
+      inp = document.createElement('textarea'); inp.value = cur;
+    } else if(f.t === 'color'){
+      inp = document.createElement('input'); inp.type = 'color'; inp.value = /^#/.test(cur) ? cur : '#000000';
+    } else if(f.t === 'number'){
+      inp = document.createElement('input'); inp.type = 'number'; inp.value = cur;
+    } else if(f.t === 'bool'){
+      inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = !!cur;
+    } else {
+      inp = document.createElement('input'); inp.type = 'text'; inp.value = cur;
+    }
+    inp.onchange = inp.oninput = () => {
+      if(f.t === 'area' && inp === document.activeElement && f.k === 'text'){ /* 输入中不重排 */ }
+      writeProp(el, f, key, f.t === 'bool' ? inp.checked : inp.value);
+      renumber(); DIRTY = true; reflowSoon();
+      if(f.k === 'text' || f.k === 'items' || f.k === 'cap') { /* 文本变化重绘表单以外保持不变 */ }
+    };
+    lab.appendChild(inp);
+    box.appendChild(lab);
+  });
+  const tip = document.createElement('div');
+  tip.className = 'hintx';
+  tip.textContent = '改动即时生效；「文字」支持简单标签（如 <b>加粗</b>）。';
+  box.appendChild(tip);
+}
+
+function readProp(el, f, key){
+  const k = f.k;
+  if(k === 'text') return el.innerHTML.replace(/<br\s*\/?>/gi, '\n');
+  if(k === 'items') return [...el.children].map(li=>li.innerHTML).join('\n');
+  if(k === 'cap'){ const c = el.querySelector('.cap'); return c ? c.textContent : ''; }
+  if(k === 'src'){ const i = el.querySelector('img'); return i ? (i.getAttribute('src') || '') : ''; }
+  if(k === 'imgw'){ const i = el.querySelector('img'); return i ? (i.style.width || '') : ''; }
+  if(k === 'rows') return el.rows ? Math.max(0, el.rows.length - (el.tHead ? el.tHead.rows.length : 0)) : 0;
+  if(k === 'cols') return el.rows && el.rows[0] ? el.rows[0].cells.length : 0;
+  if(k === 'head') return !!(el.tHead && el.tHead.rows.length);
+  if(k === 'width') return el.style.width || '100%';
+  if(k === 'html') return el.innerHTML;
+  if(k.indexOf('css:') === 0){ const p = k.slice(4); return el.style.getPropertyValue(p) || ''; }
+  if(k.indexOf('attr:') === 0) return el.getAttribute(k.slice(5)) || '';
+  return '';
+}
+
+function writeProp(el, f, key, v){
+  const k = f.k;
+  if(k === 'text'){ el.innerHTML = String(v).replace(/\n/g, '<br>'); return; }
+  if(k === 'items'){
+    const lines = String(v).split('\n').filter(x=>x.trim() !== '');
+    el.innerHTML = lines.map(x=>'<li>' + x + '</li>').join('');
+    return;
+  }
+  if(k === 'cap'){ const c = el.querySelector('.cap'); if(c) c.textContent = v; return; }
+  if(k === 'src'){ const i = el.querySelector('img'); if(i) i.setAttribute('src', v); return; }
+  if(k === 'imgw'){ const i = el.querySelector('img'); if(i) i.style.width = v; return; }
+  if(k === 'width'){ el.style.width = v; return; }
+  if(k === 'rows' || k === 'cols' || k === 'head'){ resizeTable(el, k, v); return; }
+  if(k === 'html'){ el.innerHTML = v; return; }
+  if(k.indexOf('css:') === 0){ el.style.setProperty(k.slice(4), v); return; }
+  if(k.indexOf('attr:') === 0){ el.setAttribute(k.slice(5), v); return; }
+}
+
+function resizeTable(t, what, v){
+  if(!t.rows || !t.rows.length) return;
+  if(what === 'cols'){
+    const want = Math.max(1, +v || 1), has = t.rows[0].cells.length;
+    for(let i = has; i < want; i++) [...t.rows].forEach(r=>{ const c = r.cells[r.cells.length-1].cloneNode(false); c.innerHTML = '　'; r.appendChild(c); });
+    for(let i = has; i > want; i--) [...t.rows].forEach(r=>{ if(r.cells.length > 1) r.deleteCell(r.cells.length - 1); });
+    const cg = t.querySelector('colgroup');
+    if(cg){ cg.innerHTML = ''; for(let i = 0; i < want; i++){ const c = document.createElement('col'); c.style.width = (100 / want).toFixed(1) + '%'; cg.appendChild(c); } }
+    return;
+  }
+  if(what === 'rows'){
+    const want = Math.max(1, +v || 1);
+    const head = t.tHead ? t.tHead.rows.length : 0;
+    const body = t.tBodies[0] || t.appendChild(document.createElement('tbody'));
+    let has = body.rows.length;
+    const cols = t.rows[0].cells.length;
+    while(has < want){ const tr = body.insertRow(); for(let c = 0; c < cols; c++){ const td = tr.insertCell(); td.innerHTML = '　'; } has++; }
+    while(has > want && body.rows.length > 1){ body.deleteRow(body.rows.length - 1); has--; }
+    return;
+  }
+  if(what === 'head'){
+    const on = !!v;
+    if(on && !t.tHead){
+      const body = t.tBodies[0], first = body && body.rows[0];
+      if(first){
+        const th = document.createElement('thead'), tr = document.createElement('tr');
+        [...first.cells].forEach(c=>{ const h = document.createElement('th'); h.innerHTML = c.innerHTML; tr.appendChild(h); });
+        th.appendChild(tr); t.insertBefore(th, t.firstChild); first.remove();
+      }
+    } else if(!on && t.tHead){
+      const th = t.tHead, tr = th.rows[0];
+      const body = t.tBodies[0] || t.appendChild(document.createElement('tbody'));
+      const nr = body.insertRow(0);
+      [...tr.cells].forEach(c=>{ const td = nr.insertCell(); td.innerHTML = c.innerHTML; });
+      th.remove();
+    }
+  }
+}
+
+/* 新建 / 导出 / 导入 组件包 */
+function newComponent(){
+  if(!selected){ alert('先在右侧点选一个元素，再「新建组件」。'); return; }
+  const name = prompt('新组件名称', '自定义组件'); if(!name) return;
+  const key = 'u_' + Date.now().toString(36);
+  COMPS[key] = {
+    name: name, group: '自建', match: null,
+    html: selected.outerHTML.replace(/ class="sel"/g, '').replace(/\bsel\b/g, '').replace(/ data-num="[^"]*"/g, ''),
+    props: [{k:'html',t:'area',label:'HTML'}]
+  };
+  saveUserComps(); renderPalette();
+  alert('已保存为组件「' + name + '」，出现在左侧「组件库 · 自建」里。');
+}
+function exportComps(){
+  const user = {};
+  for(const k in COMPS) if(!BUILTIN[k]) user[k] = COMPS[k];
+  const blob = new Blob([JSON.stringify(user, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'a4components.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+}
+function importComps(text){
+  let o;
+  try{ o = JSON.parse(text); }catch(e){ alert('组件包不是合法 JSON：' + e.message); return; }
+  let n = 0;
+  for(const k in o){
+    const c = o[k];
+    if(!c || !c.name || typeof c.html !== 'string') continue;
+    COMPS[k] = { name:c.name, group:c.group || '导入', match:c.match || null, html:c.html, props:c.props || [] };
+    n++;
+  }
+  saveUserComps(); renderPalette();
+  alert('已加载 ' + n + ' 个组件。');
+}
+
+/* ───────── ★组件层自测（?selftest=1）─────────
+   无头浏览器点不了按钮、打不了字，所以把"组件模板/识别、属性读写、表格行列、元素识别"
+   做成页面内断言，结果写进标题并打印成一页，便于自动化回归。 */
+function selfTest(){
+  const res = [];
+  const ok = (name, cond, extra) => res.push((cond ? 'PASS' : 'FAIL') + '  ' + name + (extra ? '  → ' + extra : ''));
+  const keys = Object.keys(COMPS);
+  ok('组件已从目录加载', keys.length >= 15, keys.length + ' 个');
+  // ⓪ 启动即分页：boot() 必须自己调 paginate()，不能等用户切页签
+  //    （原来靠 ?load= 路径里「200ms 后替用户点一次富文本页签」侥幸渲染，慢加载即白屏）
+  const bootPages = pageHost().querySelectorAll('.paper').length;
+  ok('启动即已完成分页（无需切页签）', bootPages > 0, bootPages + ' 页');
+
+  // ① 模板可解析 + 能被 compOf 识别
+  const probe = document.createElement('div');
+  let tmpl = 0, rec = 0, noMatch = [];
+  const MULTI = ['cover', 'toc'];                  // 多根复合组件：由"标题+内容+分节标记"组成
+  keys.forEach(k => {
+    const c = COMPS[k];
+    if(!c || !c.html) return;                      // table/figure/img 的 html 为空是设计如此
+    if(MULTI.indexOf(k) >= 0) return;              // 多根组件不做"首元素匹配"检查
+    probe.innerHTML = c.html;
+    const el = probe.firstElementChild;
+    if(!el) return;
+    tmpl++;
+    if(c.match){
+      let hit = false;
+      try{ hit = el.matches(c.match) || !!(el.querySelector && el.querySelector(c.match)); }catch(e){}
+      if(hit) rec++; else noMatch.push(k);
+    }
+  });
+  ok('组件模板可解析出元素', tmpl >= 15, tmpl + ' 个');
+  ok('模板与 match 选择器自洽', noMatch.length === 0, noMatch.join(',') || '全部自洽');
+
+  // ② 属性读写往返（正文文字 / 颜色 / 列表条目）
+  const el = document.createElement('p');
+  doc.appendChild(el);
+  const fT = {k:'text', t:'area'}, fC = {k:'css:color', t:'color'};
+  writeProp(el, fT, 'p', '测试文字');
+  ok('writeProp(text)', el.innerHTML === '测试文字', el.innerHTML);
+  ok('readProp(text) 往返', readProp(el, fT, 'p') === '测试文字', readProp(el, fT, 'p'));
+  writeProp(el, fC, 'p', 'rgb(18, 52, 86)');
+  ok('writeProp(css:color)', /52/.test(el.getAttribute('style') || ''), el.getAttribute('style') || '');
+  const ul = document.createElement('ul');
+  doc.appendChild(ul);
+  writeProp(ul, {k:'items'}, 'ul', 'A\nB\nC');
+  ok('writeProp(items) 生成 3 条', ul.children.length === 3, ul.children.length + ' 条');
+  el.remove(); ul.remove();
+
+  // ③ 表格行列与表头
+  const tb = document.createElement('table');
+  tb.innerHTML = '<thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>1</td><td>2</td></tr></tbody>';
+  doc.appendChild(tb);
+  resizeTable(tb, 'cols', 4);
+  ok('表格加列 → 4 列', tb.rows[0].cells.length === 4, tb.rows[0].cells.length + ' 列');
+  resizeTable(tb, 'rows', 3);
+  ok('表格加行 → 3 行', tb.tBodies[0].rows.length === 3, tb.tBodies[0].rows.length + ' 行');
+  resizeTable(tb, 'head', false);
+  ok('取消表头', !tb.tHead);
+  resizeTable(tb, 'head', true);
+  ok('恢复表头', !!tb.tHead);
+  tb.remove();
+
+  // ④ 真实元素能被识别成组件
+  const real = doc.querySelector('h1,h2,h3,p,table,div.note');
+  ok('compOf 识别真实元素', !!compOf(real), real ? real.nodeName : '无元素');
+  // ④b 页面上（#prevStage 的分页克隆体）点选的元素也必须认得出组件，
+  //     否则"选中元素 → 属性表"在真实操作路径上是空的（自测原来只查了隐藏的 #doc，漏掉这条）
+  const pel = pageHost().querySelector('h1,h2,h3,p,table,div.note');
+  const pkey = compOf(pel);
+  ok('compOf 认识页面上点选的元素', !!pkey, pel ? pel.nodeName + ' → ' + pkey : '页内无元素');
+
+  // ⑥ A4 纵横向版心
+  const w0 = contentW(), h0 = contentH();
+  paper.ori = 'landscape'; applyPaper();
+  const w1 = contentW(), h1 = contentH();
+  paper.ori = 'portrait'; applyPaper();
+  ok('纵向 A4 版心 146.6×246.2mm', Math.abs(w0-146.6) < 0.1 && Math.abs(h0-246.2) < 0.1,
+     w0.toFixed(1) + '×' + h0.toFixed(1));
+  ok('横向 A4 版心 233.6×159.2mm', Math.abs(w1-233.6) < 0.1 && Math.abs(h1-159.2) < 0.1,
+     w1.toFixed(1) + '×' + h1.toFixed(1));
+
+  // ⑦ 组件包导入往返（导入 → 进组件表 → 导出/清理，不留痕）
+  const nImp = importCompObj({ zz_selftest: {
+    name: '自测组件', group: '自测', match: 'p.zzc',
+    html: '<p class="zzc">x</p>', props: [{ k:'text', t:'text', label:'文字' }] } });
+  ok('导入组件包（含中文组件名）', nImp === 1 && !!COMPS.zz_selftest, '共 ' + Object.keys(COMPS).length + ' 个');
+  delete COMPS.zz_selftest; saveUserComps(); renderPalette();
+  ok('导入后可干净移除', !COMPS.zz_selftest);
+
+  // ⑧ 导出 HTML（含分页 .sheet 与页脚）
+  const outHtml = buildHTML();
+  ok('导出 HTML 含 .sheet 与页脚',
+     outHtml.indexOf('<div class="sheet">') >= 0 && outHtml.indexOf('class="footer"') >= 0,
+     Math.round(outHtml.length/1024) + ' KB');
+
+  // ⑨ 组件模板搭出三段式 → 断言页码模式顺序 none → roman → arabic
+  const keep = doc.innerHTML;
+  doc.innerHTML = ['cover','toc','h2','p'].map(k => (COMPS[k] && COMPS[k].html) || '').join('\n');
+  DIRTY = false; renumber(); paginate();
+  const m3 = [...pageHost().querySelectorAll('.paper')].map(p => p.dataset.num || '?');
+  ok('三段式：封面 none → 目录 roman → 正文 arabic',
+     m3[0] === 'none' && m3.indexOf('roman') > 0 && m3.indexOf('arabic') > m3.indexOf('roman'),
+     m3.join(','));
+  // ⑩ 点组件库按钮 → 真实 click → insertComponent（走按钮绑定，不直接调函数）
+  const btnP = [...document.querySelectorAll('#palette button')]
+    .find(b => COMPS.p && b.textContent === COMPS.p.name);
+  const host = pageBodies().pop();
+  let insOK = false, insNote = btnP ? '未取到页体' : '未找到「' + (COMPS.p && COMPS.p.name) + '」按钮';
+  if(btnP && host){
+    if(!host.isContentEditable) host.contentEditable = 'true';   // 编辑态才可插入
+    host.focus();
+    const rg = document.createRange(); rg.selectNodeContents(host); rg.collapse(false);
+    const sl = getSelection(); sl.removeAllRanges(); sl.addRange(rg);
+    const len0 = host.innerHTML.length, n0 = host.children.length;
+    btnP.click();
+    insOK = host.children.length === n0 + 1 && host.innerHTML.length > len0;   // ★必须是独立块
+    insNote = btnP.textContent + '：块 ' + n0 + '→' + host.children.length + '，' + len0 + '→' + host.innerHTML.length + ' 字符';
+  }
+  ok('点组件库按钮即插入（真实 click 事件）', insOK, insNote);
+
+  // ⑪ 属性表单改值 → 真实 input 事件 → 写回元素
+  const tgt = pageBodies().pop().querySelector('p');
+  let prOK = false, prNote = '页体内无 <p>';
+  if(tgt){
+    selected = tgt; renderProps();
+    const inp = document.querySelector('#props label input[type="text"], #props label textarea, #props label input[type="number"]');
+    if(inp){
+      const before = tgt.outerHTML;
+      inp.value = (inp.type === 'number') ? '3' : '自测改值';
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      prOK = tgt.outerHTML !== before;
+      prNote = '字段「' + ((inp.previousElementSibling && inp.previousElementSibling.textContent) || inp.type) + '」→ ' + (prOK ? '已写回' : '未变化');
+    } else prNote = '表单未渲染出可编辑字段';
+    selected = null;
+  }
+  ok('属性表单改值写回元素（真实 input 事件）', prOK, prNote);
+
+  // 收尾：恢复文档、取消待触发的重排（reflowSoon 的 650ms 回调会 save()）
+  clearTimeout(_reflowT);
+  doc.innerHTML = keep; DIRTY = false; renumber(); syncBar(); paginate();
+
+  // ⑤ 先分页，再断言分页结果（顺序很重要：原来在 paginate 之前取容器，永远是空的）
+  paginate();
+  const modes = [...pageHost().querySelectorAll('.paper')].map(p => p.dataset.num || '?');
+  ok('分页已生成', modes.length > 0, modes.length + ' 页');
+  if(doc.querySelector('.pgbreak[data-num]'))
+    ok('含封面节(none)', modes.indexOf('none') >= 0, modes.join(','));
+  else
+    ok('无分节标记时不做封面节断言（示例文档）', true, modes.join(','));
+
+  const bad = res.filter(x => x.indexOf('FAIL') === 0).map(x => x.slice(6).split('  →')[0]);
+  const good = res.length - bad.length;
+  document.title = 'selftest: ' + good + '/' + res.length + (bad.length ? '  失败项: ' + bad.join(' | ') : ' 全部通过');
+  SELFTEST_REPORT = '组件层自测 ' + good + '/' + res.length + '\n' + res.join('\n');
+  paginate();
+}
+
+/* ───────── 纸张与页边距 ───────── */
+const paper = { ori:'portrait', t:2.54, b:2.54, l:3.17, r:3.17, fd:0.5, hdr:1.5 };
+function applyPaper(){
+  const w = paper.ori==='portrait' ? 210 : 297;
+  const h = paper.ori==='portrait' ? 297 : 210;
+  root.style.setProperty('--pw', w); root.style.setProperty('--ph', h);
+  root.style.setProperty('--mt', paper.t); root.style.setProperty('--mb', paper.b);
+  root.style.setProperty('--ml', paper.l); root.style.setProperty('--mr', paper.r);
+  root.style.setProperty('--fd', paper.fd);
+  pageStyle.textContent = `@page{size:A4 ${paper.ori};margin:0}`;
+  document.querySelectorAll('[data-ori]').forEach(b=>b.classList.toggle('on', b.dataset.ori===paper.ori));
+  $('#mgT').value=paper.t; $('#mgB').value=paper.b; $('#mgL').value=paper.l; $('#mgR').value=paper.r;
+}
+// ★paper.t/b/l/r 单位是 **cm**，这里必须 ×10 换成 mm，否则版心会算大 57mm、
+//   页面右侧内容会被 .paper 的 overflow:hidden 整片裁掉（实测踩过）。
+const contentW = ()=> (paper.ori==='portrait'?210:297) - (paper.l + paper.r) * 10;   // mm
+const contentH = ()=> (paper.ori==='portrait'?297:210) - (paper.t + paper.b) * 10;   // mm
+
+/* ───────── 选区与块级操作 ───────── */
+function blockOf(node){
+  // ★有选中元素时，块级命令一律作用于它（元素/容器级编辑）
+  if(selected && document.contains(selected) && !selected.closest('#panel,#side')) return selected;
+  let n = node && node.nodeType===3 ? node.parentNode : node;
+  while(n && n!==doc && !/^(P|H1|H2|H3|H4|LI|DIV|TD|TH|BLOCKQUOTE)$/.test(n.nodeName)) n=n.parentNode;
+  return (n && n!==doc) ? n : null;
+}
+function setBlockTag(spec){
+  // ★支持 "tag" 或 "tag.class"：tabcap/figcap/note 必须生成 <div class="…">，
+  //   不能 createElement('tabcap')（那是非法自定义元素，样式不生效）。
+  const dot = String(spec).indexOf('.');
+  const tag = dot < 0 ? spec : spec.slice(0, dot);
+  const cls = dot < 0 ? '' : spec.slice(dot + 1);
+  const b = blockOf(window.getSelection().anchorNode);
+  if(!b){ // 无块：直接插入一个
+    document.execCommand('insertHTML', false,
+      `<${tag}${cls?' class="'+cls+'"':''}>${tag==='p'?'　':'　'}</${tag}>`); return; }
+  if(b.nodeName.toLowerCase()==='li'){ // 列表项 → 换成标题则脱去 li
+    const el = document.createElement(tag); el.innerHTML = b.innerHTML;
+    if(cls) el.className = cls;
+    b.parentNode.replaceChild(el, b); return;
+  }
+  const el = document.createElement(tag);
+  el.innerHTML = b.innerHTML;
+  if(cls) el.className = cls; else el.removeAttribute('class');
+  b.parentNode.replaceChild(el, b);
+  if(selected === b){ selected = el; el.classList.add('sel'); }   // ★换标签后保持选中
+  const r=document.createRange(); r.selectNodeContents(el); r.collapse(false);
+  const s=window.getSelection(); s.removeAllRanges(); s.addRange(r);
+}
+/* 层级升降：正文 < h4 < h3 < h2 < h1 */
+const LADDER = ['p','h4','h3','h2','h1'];
+function shiftLevel(dir){
+  const b = blockOf(window.getSelection().anchorNode);
+  if(!b) return;
+  let i = LADDER.indexOf(b.nodeName.toLowerCase());
+  if(i<0) i=0;
+  i = Math.max(0, Math.min(LADDER.length-1, i + dir));
+  setBlockTag(LADDER[i]);
+  syncBar();
+}
+/* 行内格式：字号/颜色/字体 —— 用 span 包裹选区 */
+function wrapSelection(style){
+  const sel = window.getSelection();
+  if(!sel.rangeCount || sel.isCollapsed) return false;
+  const r = sel.getRangeAt(0);
+  const span = document.createElement('span');
+  span.setAttribute('style', style);
+  try{ span.appendChild(r.extractContents()); r.insertNode(span); }
+  catch(e){ return false; }
+  sel.removeAllRanges(); const nr=document.createRange(); nr.selectNodeContents(span); sel.addRange(nr);
+  return true;
+}
+function applyInline(prop, val){
+  if(!wrapSelection(`${prop}:${val}`)){                    // 无选区 → 作用于整个块
+    const b = blockOf(window.getSelection().anchorNode);
+    if(b) b.style[ prop.replace(/-(\w)/g,(m,c)=>c.toUpperCase()) ] = val;
+  }
+}
+/* 工具栏状态回显 */
+function syncBar(){
+  const b = blockOf(window.getSelection().anchorNode);
+  const tag = b ? b.nodeName.toLowerCase() : 'p';
+  const c0 = b ? String(b.className||'').replace(/\bsel\b/g,'').trim().split(/\s+/)[0] : '';
+  const guess = c0 ? tag + '.' + c0 : tag;
+  const opts = [...$('#blk').options].map(o=>o.value);
+  $('#blk').value = opts.includes(guess) ? guess : (opts.includes(tag) ? tag : 'p');
+  $('#bB').classList.toggle('on', document.queryCommandState('bold'));
+  $('#bI').classList.toggle('on', document.queryCommandState('italic'));
+  $('#bU').classList.toggle('on', document.queryCommandState('underline'));
+}
+
+/* ───────── 表格 ───────── */
+function currentCell(){
+  if(selected && selected.closest){ const c = selected.closest('td,th'); if(c) return c; }
+  let n = window.getSelection().anchorNode;
+  n = n && n.nodeType===3 ? n.parentNode : n;
+  while(n && n!==doc && !/^(TD|TH)$/.test(n.nodeName)) n=n.parentNode;
+  return (n && n!==doc) ? n : null;
+}
+function currentTable(){
+  if(selected && selected.closest){ const t = selected.closest('table'); if(t) return t; }
+  const c=currentCell(); return c ? c.closest('table') : null;
+}
+function insertTable(cols, rows, head, firstBold){
+  let h = '<table><colgroup>'+Array.from({length:cols},()=>`<col style="width:${(100/cols).toFixed(1)}%">`).join('')+'</colgroup>';
+  if(head){ h += '<thead><tr>'+Array.from({length:cols},(_,i)=>`<th>列${i+1}</th>`).join('')+'</tr></thead>'; }
+  h += '<tbody>';
+  const n = head ? rows : rows;
+  for(let r=0;r<n;r++){
+    h += '<tr>'+Array.from({length:cols},(_,c)=>`<td>${r===0&&c===0&&firstBold?'<b>　</b>':'　'}</td>`).join('')+'</tr>';
+  }
+  h += '</tbody></table><p>　</p>';
+  document.execCommand('insertHTML', false, h);
+  autoWidth(currentTable());
+}
+function autoWidth(t){
+  if(!t) return;
+  const rows=[...t.rows]; if(!rows.length) return;
+  const n=rows[0].cells.length;
+  const eff = s => [...String(s)].reduce((a,ch)=>a+(ch.codePointAt(0)>0x2000?1:0.55),0);
+  const need=[];
+  for(let c=0;c<n;c++){
+    let mx=4; rows.forEach(r=>{ if(r.cells[c]) mx=Math.max(mx, eff(r.cells[c].textContent)); });
+    need.push(Math.min(Math.max(mx,6),24));
+  }
+  const total=need.reduce((a,b)=>a+b,0);
+  let pct=need.map(x=>x/total*100);
+  const cw=contentW(), minPct=13/ (cw/10) *100;         // 13mm 保底
+  pct=pct.map(p=>Math.max(p,minPct));
+  const s=pct.reduce((a,b)=>a+b,0); pct=pct.map(p=>p/s*100);
+  const cg=t.querySelector('colgroup');
+  if(cg) [...cg.children].forEach((col,i)=>col.style.width=pct[i].toFixed(1)+'%');
+}
+function tableCmd(cmd){
+  const t=currentTable(), c=currentCell(); if(!t||!c) return alert('请先把光标放进表格里');
+  const row=c.parentNode, ti=row.rowIndex, ci=c.cellIndex;
+  if(cmd==='rowAdd'){ const nr=row.cloneNode(true); [...nr.cells].forEach(x=>x.innerHTML='　'); row.after(nr); }
+  if(cmd==='rowDel'){ if(t.rows.length<=1) return; row.remove(); }
+  if(cmd==='colAdd'){ [...t.rows].forEach(r=>{ const nc=r.cells[ci].cloneNode(false); nc.innerHTML='　'; r.cells[ci].after(nc); });
+    const cg=t.querySelector('colgroup'); if(cg){ const nc=cg.children[ci].cloneNode(); cg.children[ci].after(nc); } autoWidth(t); }
+  if(cmd==='colDel'){ if(t.rows[0].cells.length<=1) return; [...t.rows].forEach(r=>r.cells[ci].remove());
+    const cg=t.querySelector('colgroup'); if(cg && cg.children[ci]) cg.children[ci].remove(); autoWidth(t); }
+  if(cmd==='cap'){
+    const d=document.createElement('div'); d.className='tabcap'; d.textContent='表 X-Y　说明文字';
+    t.parentNode.insertBefore(d,t); renumber();
+  }
+}
+
+/* ───────── 图表按章编号 ───────── */
+/* 编号口径与方案工具一致：**h2 = 章**（h1 是文档标题），图/表按章编号 图 X-Y / 表 X-Y */
+function renumber(){
+  let chap=0, tf=0, tt=0;
+  [...doc.children].forEach(el=>{
+    if(el.nodeName==='H2'){ chap++; tf=0; tt=0; }      // 进新章 → 图/表序号归零
+    const isCap = el.classList && el.classList.contains('tabcap');
+    const isFig = el.classList && el.classList.contains('figcap');
+    if(isCap) tt++;
+    if(isFig) tf++;
+    if(isCap || isFig){
+      const pre = isCap ? `表 ${chap}-${tt}　` : `图 ${chap}-${tf}　`;
+      el.textContent = el.textContent.replace(/^[图表][\s　]*\S*[\s　]*/, pre);
+    }
+  });
+}
+
+/* ───────── 分页 ───────── */
+function debugReport(){
+  const key = el => el.nodeName + '|' + (el.textContent||'').replace(/\s+/g,'').slice(0,26);
+  const src = [...doc.children];
+  const seen = new Set();
+  prevStage.querySelectorAll('.paper .body').forEach(b=>{
+    [...b.children].forEach(c=>{
+      seen.add(key(c));
+      if(c.nodeName==='TABLE') [...c.rows].forEach(r=>seen.add('TR|'+r.textContent.replace(/\s+/g,'').slice(0,26)));
+    });
+  });
+  const miss = src.filter(el=>!seen.has(key(el)));
+  const lines = src.map((el,i)=>{
+    const k = key(el);
+    const st = seen.has(k) ? '在页内' : (el.nodeName==='TABLE' && seen.has('TR|'+el.textContent.replace(/\s+/g,'').slice(0,26)) ? '表已拆入页' : '*** 丢失 ***');
+    return String(i).padStart(3) + '  <' + el.nodeName + '>  ' + (el.textContent||'').replace(/\s+/g,' ').trim().slice(0,34) + '   ' + st;
+  });
+  const box = document.createElement('div');
+  box.className = 'paper';
+  box.innerHTML = '<div class="body doc" style="position:absolute;left:31.7mm;top:20mm;width:146.6mm;font:9pt monospace;white-space:pre-wrap;overflow:visible">'
+    + '源块=' + src.length + '  页内识别=' + seen.size + '  丢失=' + miss.length + '\n\n'
+    + lines.join('\n') + '</div>';
+  prevStage.appendChild(box);
+}
+
+function paginate(){
+  if(!PAGING) syncFromPages();          // ★先把分页面上的编辑回写数据源
+  const cwPx = contentW()*mmPx, chPx = contentH()*mmPx;
+  // ★6mm 容差：内容区底边到页脚之间还有约 21mm 空隙，源文件常排到接近满页，
+  //   不留容差会因 1mm 级渲染差异凭空多出一页（实测踩过）。
+  const LIMIT = chPx + 6*mmPx;
+  const pages=[];
+  // ★有分节标记的文档 → 首页按"封面"处理（无页码）；否则常规阿拉伯页码
+  const _sect = !!doc.querySelector('.pgbreak[data-num]');
+  let body=null, curNum = SECTIONS[0] || (_sect ? 'none' : 'arabic');
+  const newPage=(num)=>{ if(num) curNum=num;
+    body=document.createElement('div'); body.className='body doc';
+    body.style.cssText=`position:absolute;left:${paper.l*10}mm;top:${paper.t*10}mm;width:${contentW()}mm;height:${contentH()}mm;overflow:hidden`;
+    const p=document.createElement('div'); p.className='paper'; p.appendChild(body);
+    /* ★必须挂到常驻的 #measure 上再量：元素不在文档里时 scrollHeight 恒为 0，
+       会导致所有内容都塞进第 1 页、其余被 overflow:hidden 裁掉。 */
+    measure.appendChild(p);
+    pages.push({el:p, num:curNum}); return body; };
+  newPage(curNum);
+  let full=false;                 // ★本页已确定超高（放了单个超大块）
+  const hdr=$('#hdrText').value.trim(), ftr=$('#ftrText').value.trim(), coverNo=$('#coverNo').checked;
+
+  [...doc.children].forEach(src=>{
+    const el = src.cloneNode(true);
+    // ★原分页标记：KEEP 时在此强制换页，并切换该页的页码模式
+    if(el.classList && el.classList.contains('pgbreak')){
+      if(KEEP && body.children.length) body = newPage(el.getAttribute('data-num') || 'arabic');
+      return;                                   // 标记本身不渲染
+    }
+    body.appendChild(el);
+    if(full || body.scrollHeight > LIMIT){
+      if(el.nodeName==='TABLE' && el.rows.length>1){         // 长表：按行拆页、续页重复表头
+        const rows=[...el.rows];
+        const isHead = el.tHead && el.tHead.rows.length;
+        const keep = isHead ? rows.slice(0,isHead) : [];
+        const data = isHead ? rows.slice(isHead) : rows;
+        let cur = el.cloneNode(false);
+        if(el.querySelector('colgroup')) cur.appendChild(el.querySelector('colgroup').cloneNode(true));
+        if(keep.length){ const th=document.createElement('thead');
+          keep.forEach(r=>th.appendChild(r.cloneNode(true))); cur.appendChild(th); }
+        let tb=document.createElement('tbody'); cur.appendChild(tb);
+        body.replaceChild(cur, el);
+        let placed=0;
+        for(const r of data){
+          tb.appendChild(r.cloneNode(true));
+          if(body.scrollHeight > LIMIT && tb.rows.length > 1){
+            tb.removeChild(tb.lastChild);
+            body=newPage();
+            const cont=cur.cloneNode(false);
+            if(keep.length){ const h2=document.createElement('thead'); keep.forEach(x=>h2.appendChild(x.cloneNode(true))); cont.appendChild(h2); }
+            const tb2=document.createElement('tbody'); cont.appendChild(tb2); body.appendChild(cont);
+            tb2.appendChild(r.cloneNode(true)); tb=tb2;
+          } else placed++;
+        }
+        full = body.scrollHeight > LIMIT;
+        return;
+      }
+      body.removeChild(el);
+      if(!body.children.length){ body.appendChild(el); full = body.scrollHeight > LIMIT; return; }
+      body = newPage(); full = false; body.appendChild(el);
+      full = body.scrollHeight > LIMIT;      // 这一块自己就超页 → 后续块另起一页
+    }
+  });
+
+  prevStage.innerHTML='';
+  if(SELFTEST_REPORT){                 // ★自测报告页（必须在这里生成，否则会被冲掉）
+    const rp=document.createElement('div'); rp.className='paper';
+    rp.innerHTML='<div class="body doc" style="position:absolute;left:20mm;top:15mm;width:170mm;'
+      + 'font:8pt monospace;white-space:pre-wrap;overflow:visible">'
+      + SELFTEST_REPORT.replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</div>';
+    prevStage.appendChild(rp);
+  }
+  // ★三段式页码：封面(none) 无页脚 / 目录(roman) 罗马 / 正文(arabic) 阿拉伯从 1 起
+  const total = ORIG_TOTAL || pages.filter(p=>p.num!=='none').length;
+  let ri=0, ai=0;
+  pages.forEach(pg=>{
+    const p=pg.el;
+    if(hdr){ const h=document.createElement('div'); h.className='hdr'; h.textContent=hdr; p.appendChild(h); }
+    let label='';
+    if(pg.num==='roman'){ ri++; label='第 '+roman(ri)+' 页 / 共 '+total+' 页'; }
+    else if(pg.num==='arabic'){
+      // ★兼容旧行为：没有分节信息的文档，且勾选了「首页不显示页码」→ 首页跳过且不计数
+      if(pg===pages[0] && coverNo && !SECTIONS.length){ /* 不写页脚 */ }
+      else { ai++; label='第 '+ai+' 页 / 共 '+total+' 页'; }
+    }
+    // ★pg.num==='none'（封面节）→ 一律不写页脚（此前误入兜底分支，给了它阿拉伯页码）
+    if(label){ const f=document.createElement('div'); f.className='ftr';
+      f.textContent=(ftr?ftr+'　|　':'')+label; p.appendChild(f); }
+    const shown = pg.num==='roman' ? roman(ri) : (pg.num==='none' ? '封面' : ai);
+    p.dataset.num = pg.num || 'arabic';
+    if(EDITING){
+      p.classList.add('editing');
+      const bd = p.querySelector('.body');
+      if(bd){ bd.setAttribute('contenteditable','true'); bd.setAttribute('spellcheck','false'); }
+    }
+    const lbl=document.createElement('div'); lbl.className='hint';
+    lbl.textContent='第 '+shown+' 页 / 共 '+total+' 页（'+(paper.ori==='portrait'?'纵向':'横向')+' A4）';
+    prevStage.appendChild(p);
+  });
+  return pages.length;
+}
+
+/* ───────── ★Markdown 式源码编辑 ───────── */
+let imgMap = {};
+function toMd(){
+  syncFromPages();
+  imgMap = {}; let n = 0; const L = [];
+  const inl = el => {
+    let o = '';
+    el.childNodes.forEach(nd=>{
+      if(nd.nodeType===3) o += nd.textContent;
+      else if(nd.nodeName==='B'||nd.nodeName==='STRONG') o += '**'+nd.textContent+'**';
+      else if(nd.nodeName==='BR') o += ' ';
+      else o += nd.textContent;
+    });
+    return o.replace(/\s+/g,' ').trim();
+  };
+  const pushTbl = t => {
+    const cg = t.querySelector('colgroup');
+    const pcts = cg ? [...cg.children].map(c=>parseFloat(c.style.width)||0) : [];
+    const rows = [...t.rows].map(r=>[...r.cells].map(c=>c.textContent.replace(/\s+/g,' ').trim().replace(/\|/g,'\\|')));
+    if(!rows.length) return;
+    if(pcts.length && pcts.some(x=>x))
+      L.push('<!-- cols: '+pcts.map(x=>x.toFixed(1)).join(',')+' -->');
+    L.push('| '+rows[0].join(' | ')+' |');
+    L.push('|'+rows[0].map(()=>' --- ').join('|')+'|');
+    rows.slice(1).forEach(r=>L.push('| '+r.join(' | ')+' |'));
+  };
+  [...doc.children].forEach(el=>{
+    const tag = el.nodeName, cls = el.classList;
+    if(cls.contains('pgbreak')){                       // ★分页标记要能往返
+      L.push('<!-- pagebreak: ' + (el.getAttribute('data-num') || 'arabic') + ' -->');
+      L.push(''); return;
+    }
+    if(tag==='H1' || tag==='H2') L.push('# '+el.textContent.trim());
+    else if(tag==='H3') L.push('## '+el.textContent.trim());
+    else if(tag==='H4') L.push('### '+el.textContent.trim());
+    else if(tag==='P'){
+      const t=inl(el);
+      if(t){
+        const c=String(el.className||'').replace(/\bsel\b/g,'').trim();
+        L.push((el.style.textAlign==='center'?'-> ':'') + (c?'{.'+c.split(/\s+/).join('.')+'} ':'') + t);
+      }
+    }
+    else if(tag==='UL'||tag==='OL'){
+      [...el.children].forEach((li,i)=>L.push((tag==='OL'?(i+1)+'. ':'- ')+inl(li)));
+    }
+    else if(cls.contains('note')) L.push('> '+el.textContent.trim());
+    else if(cls.contains('tabcap')) L.push('[[表: '+el.textContent.trim()+']]');
+    else if(cls.contains('figcap')) L.push('[[图: '+el.textContent.trim()+']]');
+    else if(cls.contains('topo')){
+      const im=el.querySelector('img'); if(im){ n++; imgMap['img:'+n]=im.getAttribute('src');
+        const cp=el.querySelector('.cap'); L.push('!['+(cp?cp.textContent.trim():'')+'](img:'+n+')'); }
+    }
+    else if(tag==='IMG'){ n++; imgMap['img:'+n]=el.getAttribute('src'); L.push('![](img:'+n+')'); }
+    else if(tag==='TABLE') pushTbl(el);
+    else if(tag==='HR') L.push((el.className ? '{.'+String(el.className).trim()+'} ' : '') + '---');
+    else if(el.textContent.trim()) L.push(el.textContent.trim());
+    L.push('');
+  });
+  return L.join('\n').replace(/\n{3,}/g,'\n\n').trim()+'\n';
+}
+function fromMd(text){
+  const lines = text.split('\n'); const out = []; let i = 0, firstH = true, pendCols = null;
+  const esc = x => x.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const inl = x => esc(x).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+  const src = x => /^img:\d+$/.test(x) && imgMap[x] ? imgMap[x] : x;
+  while(i < lines.length){
+    const s = lines[i].trim();
+    if(!s){ i++; continue; }
+    let m;
+    if((m=/^<!--\s*cols\s*:\s*([\d.,\s]+?)\s*-->$/.exec(s))){ pendCols = m[1].split(',').map(x=>parseFloat(x)||0); i++; continue; }
+    if((m=/^<!--\s*pagebreak\s*:\s*([a-z]+)\s*-->$/.exec(s))){
+      out.push('<div class="pgbreak" data-num="'+m[1]+'" contenteditable="false"></div>'); i++; continue;
+    }
+    if(/^#\s+/.test(s)){
+      const t=s.replace(/^#\s+/,''), tag=firstH?'h1':'h2'; firstH=false;
+      out.push('<'+tag+'>'+inl(t)+'</'+tag+'>'); i++; continue;
+    }
+    if(/^##\s+/.test(s)){ out.push('<h3>'+inl(s.replace(/^##\s+/,''))+'</h3>'); i++; continue; }
+    if(/^###\s+/.test(s)){ out.push('<h4>'+inl(s.replace(/^###\s+/,''))+'</h4>'); i++; continue; }
+    if((m=/^\[\[表[:：]\s*(.+?)\]\]$/.exec(s))){ out.push('<div class="tabcap">'+esc(m[1])+'</div>'); i++; continue; }
+    if((m=/^\[\[图[:：]\s*(.+?)\]\]$/.exec(s))){ out.push('<div class="figcap">'+esc(m[1])+'</div>'); i++; continue; }
+    if((m=/^!\[(.*?)\]\((.*?)\)$/.exec(s))){
+      const alt=m[1], im=src(m[2]);
+      out.push(alt ? '<div class="topo"><img src="'+im+'" alt="'+esc(alt)+'"><div class="cap">'+esc(alt)+'</div></div>'
+                   : '<img src="'+im+'">');
+      i++; continue;
+    }
+    if(/^>\s?/.test(s)){ out.push('<div class="note">'+inl(s.replace(/^>\s?/,''))+'</div>'); i++; continue; }
+    if(/^->\s?/.test(s)){
+      let body=s.replace(/^->\s?/,''), cl='';
+      const cm=/^\{\.([\w\-. ]+)\}\s*/.exec(body);
+      if(cm){ cl=' class="'+cm[1].split('.').join(' ')+'"'; body=body.replace(cm[0],''); }
+      out.push('<p style="text-align:center;text-indent:0"'+cl+'>'+inl(body)+'</p>'); i++; continue;
+    }
+    if(/^-\s+/.test(s)){
+      const it=[]; while(i<lines.length && /^\s*-\s+/.test(lines[i])){ it.push('<li>'+inl(lines[i].trim().replace(/^-\s+/,''))+'</li>'); i++; }
+      out.push('<ul>'+it.join('')+'</ul>'); continue;
+    }
+    if(/^\d+\.\s+/.test(s)){
+      const it=[]; while(i<lines.length && /^\s*\d+\.\s+/.test(lines[i])){ it.push('<li>'+inl(lines[i].trim().replace(/^\d+\.\s+/,''))+'</li>'); i++; }
+      out.push('<ol>'+it.join('')+'</ol>'); continue;
+    }
+    if(s.startsWith('|') && i+1<lines.length && /^\|[\s:\-\|]+\|$/.test(lines[i+1].trim())){
+      const cells = ln => ln.trim().replace(/^\||\|$/g,'').split('|').map(x=>x.trim());
+      const hdr = cells(lines[i]); i += 2; const rows = [];
+      while(i<lines.length && lines[i].trim().startsWith('|')){ rows.push(cells(lines[i])); i++; }
+      const use = (pendCols && pendCols.length===hdr.length) ? pendCols : null; pendCols = null;
+      let h = '<table><colgroup>'+hdr.map((_,c)=>'<col'+(use?' style="width:'+use[c].toFixed(1)+'%"':'')+'>').join('')+'</colgroup>';
+      h += '<thead><tr>'+hdr.map(x=>'<th>'+inl(x)+'</th>').join('')+'</tr></thead><tbody>';
+      rows.forEach(r=>{ h += '<tr>'+hdr.map((_,c)=>'<td>'+inl(r[c]||'')+'</td>').join('')+'</tr>'; });
+      out.push(h+'</tbody></table>'); continue;
+    }
+    if((m=/^(?:\{\.([\w\-. ]+)\}\s*)?-{3,}$/.exec(s))){
+      out.push('<hr'+(m[1]?' class="'+m[1].split('.').join(' ')+'"':'')+'>'); i++; continue;
+    }
+    let cl2='', body2=s;
+    const cm2=/^\{\.([\w\-. ]+)\}\s*/.exec(s);
+    if(cm2){ cl2=' class="'+cm2[1].split('.').join(' ')+'"'; body2=s.replace(cm2[0],''); }
+    out.push('<p'+cl2+'>'+inl(body2)+'</p>'); i++;
+  }
+  return out.join('\n');
+}
+
+/* ───────── 加载 / 保存 / 打印 ───────── */
+function loadHTML(text, name, quiet){
+  const d=new DOMParser().parseFromString(text,'text/html');
+  const sheets=[...d.querySelectorAll('.sheet')];
+  const box=document.createElement('div');
+  SECTIONS.length = 0;
+  if(sheets.length){
+    sheets.forEach((s, si)=>{
+      // ① 读这一页原有的页码模式与文档总页数
+      const f=[...s.children].find(c=>c.classList && c.classList.contains('footer'));
+      let mode='arabic';
+      if(!f){ mode='none'; }                       // 无页脚 → 封面页
+      else {
+        const t=f.textContent||'';
+        const m=/第\s*([IVXLC]+|\d+)\s*页/.exec(t);
+        if(m) mode=/^[IVXLC]+$/.test(m[1]) ? 'roman' : 'arabic';
+        const tot=/共\s*(\d+)\s*页/.exec(t);
+        if(tot && !ORIG_TOTAL) ORIG_TOTAL=+tot[1];
+      }
+      SECTIONS.push(mode);
+      // ② 页间插入显式分页标记（KEEP 模式下会被遵守）
+      if(si>0){
+        const br=document.createElement('div');
+        br.className='pgbreak'; br.setAttribute('data-num', mode);
+        br.setAttribute('contenteditable','false');
+        box.appendChild(br);
+      }
+      [...s.children].forEach(ch=>{ if(!ch.classList.contains('footer')) box.appendChild(ch.cloneNode(true)); });
+    });
+  } else { box.innerHTML = d.body ? d.body.innerHTML : text; SECTIONS.push('arabic'); }
+  // 去掉外层遗留的分页/提示元素
+  [...box.children].forEach(c=>{ if(c.classList.contains('tip')||c.classList.contains('no-print')) c.remove(); });
+  doc.innerHTML = box.innerHTML;
+  // 读页边距 / 方向 / 页脚
+  const st=[...d.querySelectorAll('style')].map(s=>s.textContent).join('\n');
+  // ★把源文件的样式规则注入进来（保证渲染一致）：
+  //   剥掉编辑器自己管理的 @page/@media/.sheet/.footer/.tip，以及 body/html/* 全局规则，
+  //   只留下 .doc 内容会用到的规则（h1~h4/p/table/th/td/.tabcap/.figcap/.note/img/.topo…）。
+  let _sc=document.getElementById('srcCss');
+  if(!_sc){ _sc=document.createElement('style'); _sc.id='srcCss'; document.head.appendChild(_sc); }
+  // 页面级规则（@page/.sheet/.footer/.tip/body/html/*）一律丢弃：纸张尺寸、页边距、
+  // 页脚位置都由编辑器自己负责；把它们套到已定位好的 .body 上会导致"页边距叠加两次"。
+  // 其余**内容级**规则（h1~h4/p/table/th/td/.tabcap/.figcap/.note/.topo/.cap/img…）
+  // 照旧注入并加 `.doc ` 前缀 —— 封面表格底色这类样式正是靠它们生效。
+  _sc.textContent = st.split('}')
+    .map(x=>x.trim())
+    .filter(x=>x)
+    .filter(x=>!/^@(page|media|charset|import)/i.test(x))
+    .filter(x=>!/\.(sheet|footer|tip|no-print|hdr)\b/.test(x))
+    .filter(x=>!/^(body|html|\*)\s*[,{]/.test(x))
+    .map(x=>x+'}')
+    .join('\n')
+    .replace(/(^|\n)([^@\n][^{]*)\{/g, (m, pre, sel) => pre + sel.split(',').map(t=>{
+        t = t.trim(); if(!t) return t;
+        return t.startsWith('.doc') ? t : '.doc ' + t;
+      }).join(',') + '{');
+  const pm=/padding:\s*([\d.]+)mm\s+([\d.]+)mm/.exec(st);
+  if(pm){ paper.t=paper.b=(+pm[1])/10; paper.l=paper.r=(+pm[2])/10; }
+  // ★若 URL 显式带了 ?ori=，则**保持用户指定的方向**，不被源文件的 @page 覆盖
+  const _ov = new URLSearchParams(location.search).get('ori');
+  if(_ov !== 'landscape' && _ov !== 'portrait'){
+    if(/size:\s*A4\s+landscape/i.test(st) || /width:\s*297mm/.test(st)) paper.ori='landscape';
+    else if(/size:\s*A4|width:\s*210mm/.test(st)) paper.ori='portrait';
+  }
+  const f=d.querySelector('.footer'); if(f){ const t=f.textContent.split('　|　')[0].trim(); if(t) $('#ftrText').value=t; }
+  applyPaper(); renumber();
+  // ★加载完必须立刻分页渲染：
+  //   ① 原先这里没有 paginate()，只靠 boot 里「200ms 后替用户点一次富文本页签」间接渲染；
+  //      加载一旦慢于 200ms（HTTP 挂载大文件 + DOMParser），那次分页发生在内容就位之前 → 白屏。
+  //   ② DIRTY 必须清零：否则紧接着的 save() 会走 syncFromPages()，用**加载前的旧分页**覆盖刚载入的正文。
+  DIRTY = false;
+  paginate();
+  save();
+  if(!quiet) alert('已加载：'+(name||'HTML')+`\n共识别 ${sheets.length||1} 页内容，已合并为可编辑流。\n点「分页预览」可重新分页。`);
+  return sheets.length;
+}
+function buildHTML(){
+  syncFromPages();
+  const total = paginate();
+  const pages=[...prevStage.querySelectorAll('.paper')].map(p=>{
+    const b=p.querySelector('.body'), h=p.querySelector('.hdr'), f=p.querySelector('.ftr');
+    return `<div class="sheet">\n${h?`<div class="hdr">${h.textContent}</div>\n`:''}${b.innerHTML}\n${f&&f.textContent?`<div class="footer">${f.textContent}</div>\n`:''}</div>`;
+  }).join('\n');
+  const size = `A4 ${paper.ori==='portrait'?'portrait':'landscape'}`;
+  const css = `@page{size:${size};margin:0}
+*{box-sizing:border-box}
+body{margin:0;background:#eceff3;font-family:"宋体",SimSun,"Times New Roman",serif;font-size:12pt;line-height:1.5;color:#000}
+.sheet{position:relative;width:${paper.ori==='portrait'?210:297}mm;height:${paper.ori==='portrait'?297:210}mm;padding:${paper.t*10}mm ${paper.r*10}mm ${paper.b*10}mm ${paper.l*10}mm;overflow:hidden;background:#fff;margin:0 auto 8mm;box-shadow:0 2px 10px rgba(0,0,0,.14)}
+.sheet:last-child{margin-bottom:0}
+p{margin:0;text-indent:2em}p.noind{text-indent:0}
+h1{font:700 22pt/1.3 "黑体",SimHei,sans-serif;text-align:center;text-indent:0;margin:0 0 6pt;color:#1f4e79}
+h2{font:700 16pt/1.3 "黑体",SimHei,sans-serif;text-indent:0;margin:12pt 0 6pt;color:#1f4e79;border-left:4px solid #2e74b5;border-bottom:1px solid #dce7f2;padding:0 0 3px 8px}
+h3{font:700 14pt/1.3 "黑体",SimHei,sans-serif;text-indent:0;margin:6pt 0;color:#2e74b5}
+h4{font:700 12pt/1.3 "黑体",SimHei,sans-serif;text-indent:0;margin:6pt 0;color:#2e74b5}
+ul,ol{margin:0 0 6pt;padding-left:2em}li{text-indent:0;margin:2pt 0}
+table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:10.5pt;line-height:1.2;margin:3pt 0 6pt}
+th,td{border:1px solid #c9d6e2;padding:3pt;vertical-align:middle;text-indent:0;overflow-wrap:break-word}
+th{background:#e8f1f9;color:#1f4e79;font-weight:600;text-align:left}
+thead{display:table-header-group}
+.tabcap,.figcap{font-size:10.5pt;text-align:center;text-indent:0;color:#333;margin:6pt 0 3pt}
+.figcap{margin:3pt 0 12pt}
+.note{border-left:4px solid #3a9d5d;background:#f6fbf7;padding:5pt 8pt;margin:5pt 0 8pt;text-indent:0}
+img{max-width:100%;height:auto;display:block;margin:6pt auto 0}
+hr{border:none;border-top:2px solid #1f4e79;margin:6pt 0 10pt}
+.hdr{position:absolute;left:${paper.l*10}mm;right:${paper.r*10}mm;top:15mm;font:10.5pt "宋体",SimSun,serif;color:#333;text-align:center;border-bottom:1px solid #ddd;padding-bottom:2pt}
+.footer{position:absolute;left:0;right:0;bottom:${paper.fd*10}mm;padding:0 ${paper.l*10}mm;font:10.5pt "宋体",SimSun,serif;color:#333;text-align:center;border-top:1px dashed #bbb;padding-top:2pt;background:#fff}
+@media print{body{background:#fff}.sheet{margin:0;box-shadow:none;break-after:page;page-break-after:always}.sheet:last-child{break-after:auto}}`;
+  return `<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n<title>${($('#hdrText').value||'A4 文档')}</title>\n<style>\n${css}\n</style>\n</head>\n<body>\n${pages}\n</body>\n</html>`;
+}
+function download(name, text, mime){
+  const b=new Blob([text],{type:mime||'text/html;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+
+/* ───────── 事件绑定 ───────── */
+function showTab(name){
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.toggle('on', x.dataset.tab===name));
+  EDITING = (name !== 'prev');                 // ★富文本=可编辑分页；预览=只读分页
+  const md = (name === 'md');
+  $('#edit-pane').style.display = md ? 'none' : 'block';
+  $('#md-pane').style.display   = md ? 'block' : 'none';
+  if(md){ syncFromPages(); $('#mdBox').value = toMd(); }
+  else { paginate(); }                         // 两个视图都渲染分页面
+}
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>{
+  // ★从源码切走时自动应用，避免改动丢失
+  if(!document.querySelector('#tabs button[data-tab="md"]').classList.contains('on') || true){}
+  const cur = document.querySelector('#tabs button.on');
+  if(cur && cur.dataset.tab==='md' && b.dataset.tab!=='md') applyMd();
+  showTab(b.dataset.tab);
+});
+$('#mdApply').onclick = ()=>applyMd(true);
+$('#mdReload').onclick = ()=>{ $('#mdBox').value = toMd(); };
+function applyMd(alertIt){
+  const t = $('#mdBox').value;
+  doc.innerHTML = fromMd(t);
+  selEl(null); renumber(); save(); refreshInspector(); syncBar();
+  if(alertIt) alert('已应用到文档。');
+}
+document.querySelectorAll('[data-ori]').forEach(b=>b.onclick=()=>{ paper.ori=b.dataset.ori; applyPaper(); });
+['mgT','mgB','mgL','mgR'].forEach((id,i)=>$('#'+id).onchange=e=>{
+  const v=Math.max(0,+e.target.value||0); ['t','b','l','r'][i] && (paper[['t','b','l','r'][i]]=v); applyPaper(); });
+$('#mgReset').onclick=()=>{ Object.assign(paper,{t:2.54,b:2.54,l:3.17,r:3.17}); applyPaper(); };
+$('#btnUp').onclick=()=>shiftLevel(+1);
+$('#btnDown').onclick=()=>shiftLevel(-1);
+$('#blk').onchange=e=>{ setBlockTag(e.target.value); syncBar(); };
+$('#fname').onchange=e=>applyInline('font-family', `"${e.target.value}",${e.target.value==='Times New Roman'?'serif':'"宋体",SimSun,serif'}`);
+$('#fsize').onchange=e=>{ if(e.target.value){ applyInline('font-size', e.target.value+'pt'); $('#fpt').value=e.target.value; } };
+$('#fpt').onchange=e=>{ if(e.target.value) applyInline('font-size', e.target.value+'pt'); };
+$('#fcolor').oninput=e=>applyInline('color', e.target.value);
+$('#bB').onclick=()=>document.execCommand('bold');
+$('#bI').onclick=()=>document.execCommand('italic');
+$('#bU').onclick=()=>document.execCommand('underline');
+$('#align').onchange=e=>{ const b=blockOf(window.getSelection().anchorNode); if(b) b.style.textAlign=e.target.value; };
+$('#lh').onchange=e=>{ const b=blockOf(window.getSelection().anchorNode); if(b) b.style.lineHeight=e.target.value; };
+$('#bInd').onclick=()=>{ const b=blockOf(window.getSelection().anchorNode); if(!b) return;
+  b.style.textIndent = (b.style.textIndent==='2em') ? '0' : '2em'; };
+$('#tNew').onclick=()=>$('#dlgTable').showModal();
+$('#dlgTable').addEventListener('close',e=>{ if($('#dlgTable').returnValue==='ok')
+  insertTable(+$('#twCols').value||3, +$('#twRows').value||3, $('#twHead').checked, $('#twFirst').checked); });
+$('#tRowAdd').onclick=()=>tableCmd('rowAdd');
+$('#tRowDel').onclick=()=>tableCmd('rowDel');
+$('#tColAdd').onclick=()=>tableCmd('colAdd');
+$('#tColDel').onclick=()=>tableCmd('colDel');
+$('#tCap').onclick=()=>tableCmd('cap');
+$('#tAutoW').onclick=()=>autoWidth(currentTable());
+$('#iImg').onclick=()=>$('#fileImg').click();
+$('#fileImg').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const fr=new FileReader();
+  fr.onload=()=>{ document.execCommand('insertHTML', false, `<img src="${fr.result}" alt="图片">`); }; fr.readAsDataURL(f); e.target.value=''; };
+$('#iFigCap').onclick=()=>{ const im=[...doc.querySelectorAll('img')].filter(i=>{ const s=window.getSelection();
+  return s.anchorNode && (i.contains(s.anchorNode) || i===s.anchorNode); })[0];
+  const d=document.createElement('div'); d.className='figcap'; d.textContent='图 X-Y　说明文字';
+  (im?im.nextSibling?im.parentNode.insertBefore(d,im.nextSibling):im.parentNode.appendChild(d):doc.appendChild(d)); renumber(); };
+$('#iBreak').onclick=()=>document.execCommand('insertHTML', false, '<hr style="page-break-after:always;border:none;height:0;margin:0">');
+$('#iHr').onclick=()=>document.execCommand('insertHTML', false, '<hr>');
+$('#reno').onclick=()=>{ renumber(); alert('已按章重排图/表编号。'); };
+$('#pnIns').onclick=()=>{ const v=prompt('页脚内容（{page} 当前页，{total} 总页数）', ($('#ftrText').value||'金卫智慧舱方案')+'　|　第 {page} 页 / 共 {total} 页');
+  if(v!==null) $('#ftrText').value=v; };
+$('#btnSave').onclick=()=>{ const n=prompt('保存文件名', ($('#hdrText').value||'A4文档')+'.html'); if(n) download(n, buildHTML()); };
+$('#btnPdf').onclick=()=>{ document.querySelector('#tabs button[data-tab="prev"]').click();
+  setTimeout(()=>window.print(), 350); };
+$('#cmpNew').onclick = newComponent;
+const _palF = $('#palFilter'); if(_palF) _palF.addEventListener('input', renderPalette);
+$('#cmpExport').onclick = exportComps;
+$('#cmpImport').onclick = () => {
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+  inp.onchange = () => { const f = inp.files[0]; if(!f) return; const fr = new FileReader();
+    fr.onload = () => importComps(fr.result); fr.readAsText(f, 'utf-8'); };
+  inp.click();
+};
+$('#cmpPickDir').onclick = () => {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.webkitdirectory = true; inp.multiple = true;
+  inp.onchange = () => { if(inp.files && inp.files.length) pickComponentDir(inp.files); };
+  inp.click();
+};
+$('#cmpExportDir').onclick = exportComponentDir;
+$('#cmpReset').onclick = () => {
+  for(const k in COMPS) if(!FROMFILE[k]) delete COMPS[k];
+  try{ localStorage.removeItem('a4editor.comps'); }catch(e){}
+  renderPalette(); alert('已清空自建组件；来自「组件/」目录的组件不受影响。');
+};
+$('#keepBrk').onchange=e=>{ KEEP=e.target.checked; paginate(); };
+/* 列表 / 提示框 / 示意框 / 图文框 */
+function insertBlock(html){ document.execCommand('insertHTML', false, html); DIRTY = true; reflowSoon(); }
+$('#bUl').onclick=()=>{
+  const b = blockOf(window.getSelection().anchorNode);
+  if(b && b.nodeName==='UL'){ setBlockTag('p'); return; }
+  const items = b ? [b] : [];
+  let inner = '';
+  if(b && b.nodeName==='OL'){ inner = b.innerHTML; }
+  else { inner = '<li>' + (b ? b.innerHTML : '列表项') + '</li>'; }
+  document.execCommand('insertHTML', false, '<ul>'+inner+'</ul>');
+  if(b && b.parentNode) b.remove();
+  DIRTY = true; reflowSoon();
+};
+$('#bOl').onclick=()=>{
+  const b = blockOf(window.getSelection().anchorNode);
+  let inner;
+  if(b && b.nodeName==='OL'){ setBlockTag('p'); return; }
+  if(b && b.nodeName==='UL'){ inner = b.innerHTML; }
+  else { inner = '<li>' + (b ? b.innerHTML : '列表项') + '</li>'; }
+  document.execCommand('insertHTML', false, '<ol>'+inner+'</ol>');
+  if(b && b.parentNode && b.nodeName!=='UL') b.remove();
+  DIRTY = true; reflowSoon();
+};
+$('#bNote').onclick=()=>insertBlock('<div class="note">提示内容（待确认 / 以现场为准）</div>');
+$('#bFlow').onclick=()=>insertBlock('<div class="flow">流程 / 要点说明</div>');
+$('#bTopo').onclick=()=>{
+  const sel = selected && selected.nodeName==='IMG' ? selected
+            : [...(selected ? [selected] : [])].find(x=>x.nodeName==='IMG');
+  const img = sel || [...doc.querySelectorAll('img')].pop();
+  if(!img){ alert('请先插入或选中一张图片，再用「图文框」。'); return; }
+  const cap = prompt('图题文字（编号会按章自动生成）', '说明文字');
+  const wrap = document.createElement('div'); wrap.className = 'topo';
+  wrap.innerHTML = '<div class="cap">图 X-Y　' + (cap || '说明文字') + '</div>';
+  img.parentNode.insertBefore(wrap, img);
+  wrap.insertBefore(img, wrap.firstChild);
+  renumber(); DIRTY = true; reflowSoon();
+  alert('已生成图文框（.topo + .cap），已按章重排图号。');
+};
+$('#btnOpen').onclick=()=>$('#fileHtml').click();
+$('#fileHtml').onchange=e=>{ const f=e.target.files[0]; if(!f) return; const fr=new FileReader();
+  fr.onload=()=>loadHTML(fr.result, f.name); fr.readAsText(f,'utf-8'); e.target.value=''; };
+$('#btnDemo').onclick=()=>{ if(doc.textContent.trim() && !confirm('将覆盖当前内容，继续？')) return; doc.innerHTML=DEMO; renumber(); save(); };
+function onPick(e){
+  const el = e.target.closest && e.target.closest(
+    'h1,h2,h3,h4,p,li,ul,ol,table,tr,td,th,img,div.note,div.tabcap,div.figcap');
+  if(el && document.contains(el) && el !== doc && !el.closest('#panel,#side')) selEl(el);
+}
+document.addEventListener('click', onPick);
+document.addEventListener('input', e=>{
+  if(e.target.closest && e.target.closest('#prevStage')){ DIRTY = true; reflowSoon(); }
+});
+doc.addEventListener('keyup', syncBar);
+doc.addEventListener('mouseup', syncBar);
+doc.addEventListener('input', ()=>{ clearTimeout(doc._t); doc._t=setTimeout(save, 700); });
+document.addEventListener('keydown', e=>{
+  if(e.ctrlKey && e.altKey && e.key==='ArrowLeft'){ e.preventDefault(); shiftLevel(+1); }
+  if(e.ctrlKey && e.altKey && e.key==='ArrowRight'){ e.preventDefault(); shiftLevel(-1); }
+  if(e.ctrlKey && e.key==='s'){ e.preventDefault(); $('#btnSave').click(); }
+});
+window.addEventListener('beforeunload', ()=>{ try{ localStorage.setItem('a4editor.doc', doc.innerHTML); localStorage.setItem('a4editor.paper', JSON.stringify(paper)); }catch(e){} });
+/* ★直接按 Ctrl+P 也要能打：打印前自动分页，否则预览区为空会打出空白页 */
+window.addEventListener('beforeprint', ()=>{ try{ paginate(); }catch(e){} });
+function save(){ try{ syncFromPages(); localStorage.setItem('a4editor.doc', doc.innerHTML);
+  localStorage.setItem('a4editor.paper', JSON.stringify(paper)); }catch(e){} }
+
+/* ───────── 示例文档 ───────── */
+const DEMO = `
+<h1>A4 文档编辑器 使用示例</h1>
+<p style="text-align:center;text-indent:0"><b>编制单位</b>：江苏誉创智能科技有限公司　|　<b>版本</b>：V1.0　|　<b>日期</b>：2026 年 9 月</p>
+<hr>
+<h2>1 编辑器能做什么</h2>
+<p>本编辑器按 <b>A4 打印规范</b>排版：版心、字号、行距、页脚位置都与方案文档一致。你可以直接在这里写内容，再点右上角「分页预览 / 打印 PDF」导出。</p>
+<h3>1.1 排版控制</h3>
+<p>顶部工具栏可设纸张方向（<b>纵向 / 横向</b>）、页边距、字体、中文字号、颜色、行距、对齐与首行缩进。</p>
+<h3>1.2 层级调整</h3>
+<p>把光标放在任意段落，点 <b>&lt;</b> 提升层级、<b>&gt;</b> 降低层级（正文 → 四级 → 三级 → 二级 → 一级），快捷键 <b>Ctrl+Alt+←/→</b>。</p>
+<h2>2 表格</h2>
+<div class="tabcap">表 2-1　表格示例</div>
+<table>
+<colgroup><col style="width:18%"><col style="width:52%"><col style="width:30%"></colgroup>
+<thead><tr><th>项目</th><th>说明</th><th>备注</th></tr></thead>
+<tbody>
+<tr><td>列宽自适应</td><td>按内容重算列宽（汉字算 1、ASCII 算 0.55），短列 13mm 保底</td><td>与方案工具一致</td></tr>
+<tr><td>跨页</td><td>长表按行拆页并自动重复表头</td><td>打印友好</td></tr>
+<tr><td>表题</td><td>表题在表格上方、按章编号</td><td>点「重排编号」刷新</td></tr>
+</tbody></table>
+<h2>3 提示框与图题</h2>
+<div class="note">提示框：用于「待确认」「以现场为准」这类需要提醒读者的内容。</div>
+<p>插入图片后点「图题」，图题会出现在图片下方，编号按章自动排。</p>
+`;
+
+/* ───────── 启动：恢复上次内容，否则放示例 ───────── */
+(function boot(){
+  applyPaper();
+  const saved = localStorage.getItem('a4editor.doc');
+  const sp = localStorage.getItem('a4editor.paper');
+  if(sp){ try{ Object.assign(paper, JSON.parse(sp)); applyPaper(); }catch(e){} }
+  doc.innerHTML = saved || DEMO;
+  renumber(); syncBar();
+  // ★启动就必须分页渲染一次：原先 boot 里没有 paginate()，直接打开编辑器（不经 ?load=/自测）
+  //   时「富文本」页是空的，要切到「预览」再切回来才由 showTab() 补上分页。
+  paginate();
+  loadComponentFiles(() => {         // ★读组件目录（异步）→ 完成后才可跑自测
+    const _q = new URLSearchParams(location.search);
+    // ?pick=<css 选择器>：组件就绪后自动选中一个元素（便于验证/截图属性编辑器）。
+    //   ★必须放在这里而不是 boot 开头：组件表没加载完时 compOf() 认不出任何元素，
+    //     属性表会显示"没被组件识别"，而且之后没有人再刷新它。
+    const _pk = _q.get('pick');
+    if(_pk){ const t = pageHost().querySelector(_pk); if(t) selEl(t); }
+    if(_q.get('selftest')){ selfTest(); return; }
+    if(!_q.get('comptest')) return;
+    const seq = ['cover','toc','h2','p','p','table','note','h3','ul','figure','hr','pagebreak','h2','p'];
+    doc.innerHTML = seq.map(k => (COMPS[k] && COMPS[k].html) || ('<!-- ' + k + ' -->')).join('\n');
+    DIRTY = true; renumber(); paginate();
+    const modes = [...pageHost().querySelectorAll('.paper')].map(p => p.dataset.num || '?');
+    document.title = 'comptest: 块' + doc.children.length + ' 页' + modes.length + ' [' + modes.join(',') + ']';
+  });
+  // ?load=<url> 直接打开一份已生成的 HTML（例如 ?load=file:///D:/x.html）
+  const q = new URLSearchParams(location.search).get('load');
+  if(q){
+    // 用 XHR 而不是 fetch：Chromium 对 file:// 的 fetch 拦截更严；
+    // 无论哪种方式被拦，都降级提示用户改用「加载 HTML」按钮（File API 不受限制）。
+    const tip = msg => { document.title = '加载失败 · A4 文档编辑器';
+      const p = document.createElement('p'); p.className = 'hint';
+      p.style.color = '#b06'; p.textContent = msg;
+      const bar = document.querySelector('#bar'); if(bar) bar.after(p); };
+    try{
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', q, true);
+      xhr.onload = () => {
+        if(xhr.status === 0 || xhr.status === 200){
+          const n = loadHTML(xhr.responseText, decodeURIComponent(q.split('/').pop()||'HTML'), true);
+          document.title = '已加载 ' + n + ' 页 · A4 文档编辑器';
+          // ★自测：源码往返（?mdtest=1）并列出丢失的块
+          if(new URLSearchParams(location.search).get('mdtest')){
+            const key = el => el.nodeName + (el.className ? '.' + String(el.className).replace(/\bsel\b/g,'').trim().split(/\s+/).filter(Boolean).join('.') : '')
+                             + '|' + (el.textContent || '').replace(/\s+/g,'').slice(0,22);
+            const before = [...doc.children].map(key);
+            const md = toMd();
+            doc.innerHTML = fromMd(md); renumber();
+            const after = new Set([...doc.children].map(key));
+            const miss = before.filter(k => !after.has(k));
+            document.title = '往返: ' + before.length + ' → ' + doc.children.length + ' 丢失 ' + miss.length;
+            const pre = document.createElement('pre');
+            pre.style.cssText = 'font:8pt monospace;white-space:pre-wrap;background:#fffbe6;padding:6pt;border:1px solid #e0c97f';
+            pre.textContent = '往返丢失 ' + miss.length + ' / ' + before.length + ' 块：\n' + miss.join('\n');
+            doc.appendChild(pre);
+          }
+          setTimeout(()=>{ document.querySelector('#tabs button[data-tab="edit"]').click(); }, 200);
+        } else { tip('自动加载失败（HTTP ' + xhr.status + '）。请点右上角「加载 HTML」选择文件，功能完全一样。'); }
+      };
+      xhr.onerror = () => tip('浏览器拦截了本地文件自动加载。请点右上角「加载 HTML」选择文件，功能完全一样。');
+      xhr.send();
+    }catch(e){ tip('自动加载失败：' + e.message + '。请改用「加载 HTML」按钮。'); }
+  }
+  if(new URLSearchParams(location.search).get('debug')) setTimeout(()=>{ try{ paginate(); debugReport(); }catch(e){ console.warn(e); } }, 900);
+  const _ori = new URLSearchParams(location.search).get('ori');
+  if(_ori==='landscape' || _ori==='portrait'){ paper.ori = _ori; applyPaper(); }
+})();
+</script>
+</body>
+</html>

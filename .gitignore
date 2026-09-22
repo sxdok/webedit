@@ -1,0 +1,9 @@
+# 构建产物与依赖（可由 npm run build / npm install 再生）
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+
+# Python 运行时缓存（启动器无需编译，删除后会自动重建）
+__pycache__/
+*.pyc

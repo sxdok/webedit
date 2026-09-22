@@ -1,0 +1,54 @@
+复核记录（工作区 vs 对话记录）        复核时间：2026-09-23 00:52–01:00
+复核方式：全部为**在新位置实测**（不引用迁移时自述），命令与原始输出见下。
+
+── 一、结构与指纹（结论：与记录一致）──
+A4编辑器      70 文件 / 0.42 MB        记录 70 / 0.4 MB        ✓
+web-editor  7523 文件 / 103.0 MB       记录 7523 / 103.0 MB    ✓（其中 node_modules 7410 / 100.83 MB）
+  └ src 84 文件 / 10,633 物理行        记录 84 / 10,633        ✓（空行不计则为 9,931 行）
+  └ 注册表组件 31 个 .tsx              记录 31 内置 + 3 外部   ✓（/__components 实测 3 个；31 = 84 文件中的组件）
+tools         44 文件（check_print.py + README + legacy-scripts 42）
+docs\验证证据 42 文件（复核前）→ 44（本次新增 2 个复核 PDF）
+入口文件 SHA256：6/6 全部与《迁移记录.txt》一致（a4_editor.html、两个启动编辑器.py、package.json、check_print.py、README.md）
+源码旧路径：web-editor 源码/配置中 "HikRobot" 命中 0 处；根 README 与 legacy-scripts 中的命中属"迁移来源/历史记录"性质，与记录说明一致
+
+── 二、功能实测（结论：可复现，与记录一致）──
+web-editor 构建    npm run build 通过（1668 模块；产物 index-_GDrrWIp.js / index-ChTFvPYm.css / demo-CO3NjAVd.js，
+                   与迁移前 dist 内文件名完全相同 → dist 与 src 同步，无"改了源码没重建"问题）
+web-editor 服务    http://127.0.0.1:5179/ = 200；/__components = 3 个组件；/组件/提示条.js = 200
+web-editor 自检    ?check=1 → **50 PASS / 0 FAIL**（"check: 50/50 全部通过"）
+A4编辑器 服务      http://127.0.0.1:8080/ = 200（29041 字节）；/__components = 43 个组件
+A4编辑器 自检      ?selftest=1 → **37/37**（无 FAIL）
+打印工具           tools\check_print.py 端到端 = **全部通过**：2 页、A4 595.0×841.9pt、
+                   内容包围盒 left=89.8 / top=71.6（落在页边距上）、界面残留无、空白页无、主色填充图元 9 个
+热加载路径         启动器服务的 /组件/提示条.js 与 public\组件\提示条.js **SHA256 完全相同**
+                   → 确认服务的是源目录而非 dist 副本，"改文件即生效、无需构建"这一承诺成立
+
+── 三、发现的偏差（均为文档记账/陈旧描述，无功能性缺陷）──
+1. 《迁移记录.txt》规模记账偏松：写"验证证据 41 个"（实为 42）、"目标总规模 7676 文件"（实为 7681）。
+   两个应用本身的数目（70 / 7523）与全部指纹都是精确的，只有 tools/证据/总数的统计口径少算了
+   两份 README 与根目录两个文件。
+2. web-editor\README.md「二、目录结构（当前实际文件）」已陈旧：标题自称"当前实际文件"，但未包含
+   阶段三/五新增的 utils\export\（docExport.ts / reactExport.ts）、utils\logger.ts、utils\diagnostics.ts、
+   canvas\useCanvasInteraction.ts 与 GuideLines/InsertIndicator/GridOverlay/ResizeHandles/SelectionBox、
+   panels\DiagnosticsPanel.tsx、registry\components\shared.ts、components\document\pageBreak.tsx。
+   （该节停留在阶段一~二的骨架描述。）
+3. web-editor\README.md「八、阶段进度」最后一行仍写"六 | 按验收标准 1–10 自测修复 | ⏳ 待做"，
+   与上一行"✅ 见「十、验收标准对照」"自相矛盾 —— 该行是阶段六完成前留下的，未清理。
+4. 控件种数互不一致：README「四、验证记录」与「十、验收标准对照」都写"15 种控件"，
+   而本机实跑自检输出为 **"14 种控件全部实现"**（以运行时为准，README 数字偏高一）。
+5. web-editor\__pycache__\启动编辑器.cpython-313.pyc 是旧位置运行时留下的字节码缓存，
+   内部仍含旧绝对路径字符串 HikRobot。不影响运行（会自动重新生成），是目录树里唯一残留旧路径的文件；
+   .gitignore 未覆盖 __pycache__/。
+6. dist\组件\*.js（22:01–23:04 的副本）落后于 public\组件\ —— 因启动器优先服务 public\组件\，
+   热加载仍正确（见上）；这些副本只在"用纯静态服务器服务 dist"时才会被用到，属冗余，非缺陷。
+7. 复核实为"覆盖写"的既有证据文件：docs\验证证据\_print_check.pdf 被 check_print.py 重新生成
+   （字节数 215703 与复核前完全相同）。本次另新增 2 个复核证据：
+   _recheck_selfcheck.pdf（50/50）、_recheck_a4_selftest.pdf（37/37）。
+
+── 四、本次复核对工作区的改动（可回溯）──
+- 新增 docs\验证证据\_recheck_selfcheck.pdf、_recheck_a4_selftest.pdf
+- 覆盖 docs\验证证据\_print_check.pdf（同一工具重跑，结果一致）
+- 重跑 npm run build → dist 与 *.tsbuildinfo 时间戳更新（产物文件名与内容未变）
+- 新增本文件 复核记录.txt
+- 复核期间的临时提取文件已删除；两个服务已停止（复核开始前也处于停止状态）
+- 未改动：README.md、迁移记录.txt、两个应用的源码、package.json、node_modules

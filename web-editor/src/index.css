@@ -1,0 +1,291 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局：撑满视口，页面本身不出现滚动条（§二 四区布局要求） */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  color: #1f2329;
+  background: #f7f8fa;
+}
+
+/* 面板内部滚动条细化 */
+.thin-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #d0d5dd;
+  border-radius: 4px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 面板小标题（§八：12px / 半粗 / #6b7280） */
+.panel-title {
+  @apply text-xs font-semibold tracking-wide text-gray-500 uppercase;
+}
+
+/* 画布区内的纸/画布阴影 */
+.paper-shadow {
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+}
+.canvas-shadow {
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.18);
+}
+
+/* 选中态：2px #1677ff 描边 + 四角手柄（§6.1） */
+.node-selected {
+  outline: 2px solid #1677ff;
+  outline-offset: 0;
+}
+.node-hover {
+  outline: 1px solid rgba(22, 119, 255, 0.55);
+}
+.node-handle {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background: #fff;
+  border: 1.5px solid #1677ff;
+  border-radius: 1px;
+}
+
+/* 拖拽插入指示线（文档模式） */
+.insert-line {
+  height: 2px;
+  background: #1677ff;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15);
+}
+
+/* ══════════════ 打印 ══════════════
+   目标：打印/导出 PDF 只输出纸张（或 Web 画布）本体，位置从物理页原点开始，且不受编辑器缩放影响。
+   要点：
+     1) 去掉应用的 flex/100vh 外壳，让内容从文档流顶部开始；
+     2) .no-print 隐藏一切编辑器外壳与辅助层（菜单栏/工具栏/面板/状态栏/标尺/网格/辅助线/手柄/说明文字）；
+     3) .print-reset 取消画布的 transform: scale(zoom) —— 否则打印会按屏幕缩放比例偏移（用户反馈的"从 0,0 开始"就是这个）；
+     4) @page 尺寸由 App 按当前文档动态注入（见 App.tsx 的 page-style），这里 margin:0，页边距由纸张自身的内边距负责；
+     5) 每张纸之间强制分页，避免多页文档挤在一张纸上。 */
+
+/* ══════════════ 深色主题（参考 Monokai）══════════════
+   做法：先定义语义变量，再把编辑器外壳用到的 Tailwind 工具类做一层重映射。
+   纸张/画布自身的颜色来自文档配置（page.background / canvas.background），不在这里改 —— 深色主题只改"编辑器外壳"。
+   新增界面代码优先用 .ui-surface/.ui-ink 等语义类；工具类重映射只覆盖当前用到的那些。 */
+html[data-theme='monokai'] {
+  --mk-bg: #1e1f1c;
+  --mk-surface: #272822;
+  --mk-raised: #34352c;
+  --mk-line: #3e3d32;
+  --mk-ink: #f8f8f2;
+  --mk-muted: #a9a99c;
+  --mk-dim: #75715e;
+  --mk-accent: #66d9ef;
+  --mk-accent-soft: rgba(102, 217, 239, 0.14);
+  --mk-danger: #f92672;
+  --mk-warn: #fd971f;
+  --mk-ok: #a6e22e;
+  --ui: #272822;
+  --ui2: #66d9ef;
+  --bd: #3e3d32;
+  color-scheme: dark;
+}
+html[data-theme='monokai'] body {
+  background: var(--mk-bg);
+  color: var(--mk-ink);
+}
+html[data-theme='monokai'] .bg-white { background-color: var(--mk-surface); }
+html[data-theme='monokai'] .bg-panel { background-color: var(--mk-bg); }
+html[data-theme='monokai'] .bg-canvasbg { background-color: #15160f; }
+html[data-theme='monokai'] .bg-gray-50,
+html[data-theme='monokai'] .bg-gray-100 { background-color: var(--mk-raised); }
+html[data-theme='monokai'] .bg-gray-200 { background-color: #3e3d32; }
+html[data-theme='monokai'] .bg-gray-300 { background-color: #4b4c40; }
+html[data-theme='monokai'] .bg-gray-400 { background-color: #6b6c5e; }
+/* 菜单分隔线与悬停高亮（暗色下原来仍偏亮） */
+html[data-theme='monokai'] .bg-line { background-color: #4b4c40; }
+html[data-theme='monokai'] .border-b.border-line,
+html[data-theme='monokai'] .border-t.border-line,
+html[data-theme='monokai'] .border-r.border-line,
+html[data-theme='monokai'] .border-l.border-line { border-color: var(--mk-line); }
+html[data-theme='monokai'] .hover\:bg-gray-100:hover,
+html[data-theme='monokai'] .hover\:bg-gray-200:hover { background-color: #3e3d32; }
+html[data-theme='monokai'] .bg-primary { background-color: var(--mk-accent); }
+html[data-theme='monokai'] .bg-primary.text-white { color: #1e1f1c; }
+html[data-theme='monokai'] .bg-primary\/5,
+html[data-theme='monokai'] .bg-primary\/10 { background-color: var(--mk-accent-soft); }
+html[data-theme='monokai'] .border-line,
+html[data-theme='monokai'] .border-gray-200,
+html[data-theme='monokai'] .border-gray-300 { border-color: var(--mk-line); }
+html[data-theme='monokai'] .border-primary { border-color: var(--mk-accent); }
+html[data-theme='monokai'] .text-gray-900,
+html[data-theme='monokai'] .text-gray-800,
+html[data-theme='monokai'] .text-gray-700,
+html[data-theme='monokai'] .text-gray-600 { color: var(--mk-ink); }
+html[data-theme='monokai'] .text-gray-500,
+html[data-theme='monokai'] .text-gray-400 { color: var(--mk-muted); }
+html[data-theme='monokai'] .text-gray-300 { color: var(--mk-dim); }
+html[data-theme='monokai'] .text-primary { color: var(--mk-accent); }
+html[data-theme='monokai'] .placeholder\:text-gray-300::placeholder { color: var(--mk-dim); }
+html[data-theme='monokai'] .hover\:bg-gray-100:hover,
+html[data-theme='monokai'] .hover\:bg-gray-200\/70:hover { background-color: var(--mk-raised); }
+html[data-theme='monokai'] .hover\:bg-primary\/5:hover { background-color: var(--mk-accent-soft); }
+html[data-theme='monokai'] .hover\:text-primary:hover { color: var(--mk-accent); }
+html[data-theme='monokai'] .hover\:text-gray-900:hover { color: #fff; }
+html[data-theme='monokai'] .hover\:border-primary:hover { border-color: var(--mk-accent); }
+html[data-theme='monokai'] .bg-blue-50 { background-color: rgba(102, 217, 239, 0.14); }
+html[data-theme='monokai'] .text-blue-600 { color: var(--mk-accent); }
+html[data-theme='monokai'] .bg-emerald-50 { background-color: rgba(166, 226, 46, 0.12); }
+html[data-theme='monokai'] .text-emerald-600 { color: var(--mk-ok); }
+html[data-theme='monokai'] .bg-amber-50 { background-color: rgba(253, 151, 31, 0.14); }
+html[data-theme='monokai'] .text-amber-600 { color: var(--mk-warn); }
+html[data-theme='monokai'] .bg-red-50 { background-color: rgba(249, 38, 114, 0.14); }
+html[data-theme='monokai'] .text-red-600,
+html[data-theme='monokai'] .text-red-500 { color: var(--mk-danger); }
+html[data-theme='monokai'] .hover\:bg-red-50:hover { background-color: rgba(249, 38, 114, 0.2); }
+html[data-theme='monokai'] .border-red-200 { border-color: rgba(249, 38, 114, 0.4); }
+html[data-theme='monokai'] .border-dashed.border-line { border-color: var(--mk-line); }
+/* 表单控件（属性面板的输入框/下拉/文本域统一跟随主题） */
+html[data-theme='monokai'] input,
+html[data-theme='monokai'] select,
+html[data-theme='monokai'] textarea {
+  background-color: var(--mk-raised);
+  color: var(--mk-ink);
+  border-color: var(--mk-line);
+}
+html[data-theme='monokai'] input[type='range'] { background-color: transparent; }
+html[data-theme='monokai'] .thin-scroll::-webkit-scrollbar-thumb { background: #4b4c40; }
+/* 顶部比例尺适配暗色（原来底色是内联写死的浅色） */
+.ruler-bg { background: #fafafa; }
+html[data-theme='monokai'] .ruler-bg { background: #26271f; }
+html[data-theme='monokai'] .shadow-lg,
+html[data-theme='monokai'] .shadow-2xl { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55); }
+html[data-theme='monokai'] .paper-shadow { box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); }
+
+@media print {
+  html,
+  body,
+  #root {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  /* 根节点是 h-screen + overflow:hidden：打印时 100vh 只有一页高，会把后续内容整块裁掉 */
+  .app-root {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  /* 纸张外面的 flex 容器在打印时退化成块流（Chrome 对 flex 容器内分页支持差） */
+  .canvas-stack,
+  .print-block {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    flex: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  /* ★结构性兜底：打印只输出纸张/画布本体。
+     外壳里任何"忘了标 no-print"的元素（折叠把手就漏过一次，纸上出现一个 "<"）都会在这里被挡掉。 */
+  .app-root > *:not(.print-block) {
+    display: none !important;
+  }
+  div.print-block > *:not(main) {
+    display: none !important;
+  }
+  #canvas-viewport {
+    display: block !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+  }
+  #canvas-viewport > div {
+    width: auto !important;
+    height: auto !important;
+    margin: 0 !important;
+  }
+  .print-reset {
+    transform: none !important;
+    width: auto !important;
+  }
+  [data-measure] {
+    display: none !important;
+  }
+  [data-print-debug='1'] {
+    display: block !important;
+  }
+  /* 自检报告（?check=1）：打印时展开，否则 max-height/overflow 会把后半段断言列表裁掉 */
+  [data-check-report='1'] {
+    position: static !important;
+    max-height: none !important;
+    overflow: visible !important;
+    width: auto !important;
+  }
+
+  /* ── 分页：与已验证产线（江苏誉创_金卫智慧舱_AGV方案_V5.0.html）同款 ──
+     纸张盒保持物理尺寸（297mm）与内边距，页脚用绝对定位钉在纸底；
+     打印时只清 margin/阴影 + 每张纸后强制分页（末张不强制）。
+     ★打印设置：A4、缩放 100%、边距"无/默认"、勾选"背景图形"。 */
+  [data-paper],
+  [data-device] {
+    margin: 0 !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+  [data-paper]:last-of-type,
+  [data-device]:last-of-type,
+  [data-paper][data-last='1'],
+  [data-device][data-last='1'] {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  /* 打印背景色：Chrome 默认不输出背景色（柱状图/表头底色/提示块都会消失） */
+  [data-paper],
+  [data-paper] *,
+  [data-device],
+  [data-device] * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  /* 选中/悬停高亮是编辑器态，不能印进纸里 */
+  .node-selected,
+  .node-hover {
+    outline: none !important;
+    background: none !important;
+  }
+  .paper-shadow,
+  .canvas-shadow {
+    box-shadow: none !important;
+  }
+}
+
+/* 画布缩放控件：跟随主题（原来用 bg-white/95，暗色下不会被 .bg-white 的重映射命中） */
+.zoom-pill {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: #e5e7eb;
+  color: #4b5563;
+}
+html[data-theme='monokai'] .zoom-pill {
+  background: rgba(39, 40, 34, 0.95);
+  border-color: #4b4c40;
+  color: #cfcfc2;
+}
+html[data-theme='monokai'] .zoom-pill button:hover {
+  background: #3e3d32;
+}

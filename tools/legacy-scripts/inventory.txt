@@ -1,0 +1,9 @@
+  [PDF] 页数=29  抽出图片=130  文本=42303 字符 → src_pdf.txt
+  [PPTX] 幻灯片=107  文本=31198 字符  媒体=198 个 → src_pptx.txt
+  [DOCX] 段落=288  表格=20  媒体=22 → src_v32.txt
+  [net] sheet=0  表=7  内联base64图=0 → src_net.txt
+  [agv] sheet=21  表=29  内联base64图=3 → src_agv.txt
+
+=== 资源库 assets/：353 个文件，294.1 MB ===
+  按来源：agv=3  pdf=130  pptx=198  v32=22
+  最大的 12 个：pptx_media5.mp4(141492KB), pptx_media2.mp4(34026KB), pptx_media1.mp4(33108KB), pptx_media3.mp4(14633KB), pptx_media4.mp4(4501KB), pptx_image70.jpeg(4322KB), pptx_image71.jpeg(3310KB), pptx_image151.png(3127KB), pptx_image95.emf(2732KB), pptx_image101.emf(2728KB), pptx_image157.png(2721KB), pptx_image13.png(2551KB)

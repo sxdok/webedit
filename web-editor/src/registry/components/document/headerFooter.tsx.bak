@@ -1,0 +1,73 @@
+/**
+ * 组件：页眉/页脚（headerFooter，文档常用）——单行居中/左右分栏文本 + 可选分隔线。
+ */
+import { PanelTop } from 'lucide-react';
+import type { ComponentDefinition, PropSchemaItem } from '../../types';
+import { asBool, asNumber, asString } from '../../../utils/id';
+import { alignOf, defaultsOf, fontFamilyProp, fontSizeProp, marginProp } from '../shared';
+
+const schema: PropSchemaItem[] = [
+  {
+    key: 'kind',
+    label: '位置',
+    control: 'select',
+    group: '内容',
+    defaultValue: 'header',
+    options: [
+      { label: '页眉（上方）', value: 'header' },
+      { label: '页脚（下方）', value: 'footer' },
+    ],
+  },
+  { key: 'left', label: '左文本', control: 'text', group: '内容', defaultValue: '江苏誉创智能科技' },
+  { key: 'center', label: '中文本', control: 'text', group: '内容', defaultValue: '' },
+  { key: 'right', label: '右文本', control: 'text', group: '内容', defaultValue: '' },
+  { key: 'showBorder', label: '显示分隔线', control: 'switch', group: '外观', defaultValue: true },
+  { key: 'borderColor', label: '线颜色', control: 'color', group: '外观', defaultValue: '#dcdfe6' },
+  { key: 'borderStyle', label: '线型', control: 'select', group: '外观', defaultValue: 'solid', options: [{ label: '实线', value: 'solid' }, { label: '虚线', value: 'dashed' }, { label: '点线', value: 'dotted' }] },
+  fontFamilyProp(),
+  fontSizeProp(10.5),
+  { key: 'color', label: '文字颜色', control: 'color', group: '排版', defaultValue: '#5b6472' },
+  { key: 'align', label: '对齐', control: 'align', group: '排版', defaultValue: 'center' },
+  marginProp(),
+];
+
+export const headerFooterComponent: ComponentDefinition = {
+  type: 'headerFooter',
+  label: '页眉页脚',
+  category: '文档专用',
+  supportedModes: ['document', 'web'],
+  icon: PanelTop,
+  description: '文档页眉/页脚行：左中右文本 + 分隔线',
+  defaultFrame: { x: 40, y: 20, w: 640, h: 28 },
+  defaultProps: defaultsOf(schema),
+  propSchema: schema,
+  render: (props, ctx) => {
+    const size = ctx.mode === 'document' ? ctx.ptToPx(asNumber(props.fontSize, 10.5)) : asNumber(props.fontSize, 10.5);
+    const isHeader = asString(props.kind, 'header') === 'header';
+    const left = asString(props.left);
+    const center = asString(props.center);
+    const right = asString(props.right);
+    const bw = asBool(props.showBorder, true) ? `1px ${asString(props.borderStyle, 'solid')} ${asString(props.borderColor, '#dcdfe6')}` : undefined;
+    return (
+      <div
+        style={{
+          fontFamily: asString(props.fontFamily) || undefined,
+          fontSize: size,
+          color: asString(props.color, '#5b6472'),
+          textAlign: alignOf(props.align),
+          borderTop: !isHeader ? bw : undefined,
+          borderBottom: isHeader ? bw : undefined,
+          paddingTop: isHeader ? undefined : 4,
+          paddingBottom: isHeader ? 4 : undefined,
+          display: 'flex',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <span style={{ flex: 1, textAlign: 'left' }}>{left}</span>
+        <span style={{ flex: 1, textAlign: 'center' }}>{center}</span>
+        <span style={{ flex: 1, textAlign: 'right' }}>{right}</span>
+      </div>
+    );
+  },
+};
