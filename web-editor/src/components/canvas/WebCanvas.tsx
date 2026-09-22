@@ -12,6 +12,7 @@ import { GuideLines } from './GuideLines';
 import { ContainerHighlight } from './InsertIndicator';
 import { SelectionBox } from './SelectionBox';
 import { TableOverlay } from './TableOverlay';
+import { useTableCellSelect } from './useTableCellSelect';
 import type { CanvasInteractionApi } from './useCanvasInteraction';
 
 /** 计算节点在画布坐标系里的绝对框（容器内子元素要累加父级偏移） */
@@ -74,24 +75,8 @@ export function WebCanvas({
 }) {
   const doc = useEditorStore((s) => s.doc);
   const forest = useMemo(() => getForest(doc), [doc]);
-  const selectTableCells = useEditorStore((s) => s.selectTableCells);
-  const tableCellSel = useEditorStore((s) => s.ui.tableCells);
-
-  /* 表格单元格点选（捕获阶段，先于 NodeView 的选中处理） */
-  const onCellPointerDownCapture = (e: React.PointerEvent) => {
-    const cell = (e.target as HTMLElement).closest?.('[data-cell]') as HTMLElement | null;
-    if (!cell) return;
-    const id = (cell.closest('[data-node-id]') as HTMLElement | null)?.getAttribute('data-node-id');
-    if (!id) return;
-    const key = cell.dataset.cell ?? '';
-    const same = tableCellSel?.nodeId === id;
-    const cur = same ? tableCellSel.cells : [];
-    const next = e.shiftKey && same ? (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]) : [key];
-    selectTableCells(id, next);
-    if (!selectedIds.includes(id)) onSelect(id, false);
-    e.preventDefault();
-    e.stopPropagation();
-  };
+  /* 表格单元格：Excel 式点选 / Shift 扩展 / 拖选一片（捕获阶段，先于 NodeView 的选中处理） */
+  const onCellPointerDownCapture = useTableCellSelect(onSelect);
 
   const primaryId = selectedIds[0];
   const primaryFrame = primaryId ? absoluteFrame(forest, primaryId) : null;

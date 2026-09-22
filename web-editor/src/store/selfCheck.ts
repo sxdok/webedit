@@ -847,7 +847,99 @@ async function interactionChecks(): Promise<Result[]> {
       add('表格列宽可拖拽（真实 PointerEvent，只动相邻两列）', false, '找不到列宽手柄（表格未选中或未显示 chrome）');
     }
 
-    /* ── 属性分组抽屉：默认只展开「内容」，点标题可切换 ── */
+    /* ── 影响面：同页两张表时，操作只作用于被选中的那一张（覆盖层按节点作用域）── */
+    S().clearAll();
+    const tA = S().addComponent('table');
+    const tB = S().addComponent('table');
+    if (tA && tB) {
+      // A 与 B 故意做成不同列宽，才测得出"手柄挂在哪张表上"
+      S().updateProps(tA, { data: 'A1 | A2 | A3\na | b | c', colWidths: '60,20,20', cellStyles: {} });
+      S().updateProps(tB, { data: 'B1 | B2 | B3\nx | y | z', colWidths: '', cellStyles: {} });
+      S().selectComponent([tB]);
+      await wait(460);
+      const propsA = () => JSON.stringify(S().doc.document.components.find((n) => n.id === tA)?.props ?? {});
+      const propsB = () => JSON.stringify(S().doc.document.components.find((n) => n.id === tB)?.props ?? {});
+      const beforeA = propsA();
+
+      // ① 点 B 的单元格：只应高亮 B 的格子
+      const tdB = document.querySelector(`[data-node-id="${tB}"] tbody tr td`) as HTMLElement | null;
+      if (tdB) {
+        const r = tdB.getBoundingClientRect();
+        pe('pointerdown', r.left + 4, r.top + 4, tdB);
+        pe('pointerup', r.left + 4, r.top + 4, tdB);
+      }
+      await wait(300);
+      const rectCount = document.querySelectorAll('[data-cell-selected="1"]').length;
+      add(
+        '同页两张表：选中 B 的单元格不会连 A 一起高亮（覆盖层限定在选中节点内）',
+        rectCount === 1 && S().ui.tableCells?.nodeId === tB && propsA() === beforeA,
+        `选框 ${rectCount} 个（应为 1）、归属B=${S().ui.tableCells?.nodeId === tB}、A 属性未变=${propsA() === beforeA}`,
+      );
+
+      // ② 手柄必须挂在 B 的列边界上（用 A 的第一列边界做对照）
+      const cellB0 = document.querySelector(`[data-node-id="${tB}"] tbody tr td`) as HTMLElement | null;
+      const cellA0 = document.querySelector(`[data-node-id="${tA}"] tbody tr td`) as HTMLElement | null;
+      const handleB = document.querySelector('[data-col-handle="1"][data-col-index="0"]') as HTMLElement | null;
+      const borderB = cellB0 ? cellB0.getBoundingClientRect().right : -1;
+      const borderA = cellA0 ? cellA0.getBoundingClientRect().right : -1;
+      const handleX = handleB ? handleB.getBoundingClientRect().left + 3 : -999;
+      add(
+        '同页两张表：列宽手柄挂在被选中的 B 上（不是页面第一张 A）',
+        !!handleB && borderB > 0 && Math.abs(handleX - borderB) <= 5,
+        `手柄 x=${Math.round(handleX)}、B 第一列右边界=${Math.round(borderB)}、A 的=${Math.round(borderA)}`,
+      );
+
+      // ③ 拖 B 的手柄：只改 B
+      const beforeBDrag = propsB();
+      if (handleB) {
+        const hr = handleB.getBoundingClientRect();
+        const y = hr.top + Math.max(4, hr.height / 2);
+        pe('pointerdown', hr.left + 3, y, handleB);
+        pe('pointermove', hr.left + 43, y, window);
+        pe('pointerup', hr.left + 43, y, window);
+        await wait(340);
+      }
+      const bCols = String((JSON.parse(propsB()) as Record<string, unknown>).colWidths ?? '');
+      add(
+        '同页两张表：拖 B 的列宽只改 B，A 的属性一字未动',
+        !!handleB && propsB() !== beforeBDrag && bCols !== '' && propsA() === beforeA,
+        `B 列宽=${bCols || '(空)'}、B 有变化=${propsB() !== beforeBDrag}、A 未变=${propsA() === beforeA}`,
+      );
+    } else {
+      add('同页两张表：选中 B 的单元格不会连 A 一起高亮（覆盖层限定在选中节点内）', false, '插入两张表失败');
+      add('同页两张表：列宽手柄挂在被选中的 B 上（不是页面第一张 A）', false, '插入两张表失败');
+      add('同页两张表：拖 B 的列宽只改 B，A 的属性一字未动', false, '插入两张表失败');
+    }
+
+    /* ── （预期内的全局影响）表格变高 → 文档流重排，页数增加 ──
+       注意：单个超高块**不会**分页（它整块溢出纸面），所以表后面必须还有内容才观察得到重排。 */
+    S().clearAll();
+    const tall = S().addComponent('table');
+    const after = S().addComponent('paragraph');
+    if (tall && after) {
+      S().updateProps(after, { html: '表格后面的段落：用它观察表格变高后的重排。' });
+      const mk = (n: number) => Array.from({ length: n }, (_, i) => `r${i} | x | y`).join('\n');
+      S().updateProps(tall, { data: mk(3), rowHeight: '12' });
+      await wait(560);
+      const pagesBefore = document.querySelectorAll('[data-paper]').length;
+      S().updateProps(tall, { data: mk(26) });
+      await wait(700);
+      const pagesAfter = document.querySelectorAll('[data-paper]').length;
+      add(
+        '（预期内）表格变高会重排文档流：3 行 → 26 行，表格后的内容被推到下一页',
+        pagesAfter > pagesBefore,
+        `${pagesBefore} → ${pagesAfter} 页（表格只改了自己的属性，页数是文档流的必然结果）`,
+      );
+    } else {
+      add('（预期内）表格变高会重排文档流：3 行 → 26 行，表格后的内容被推到下一页', false, '插入表格/段落失败');
+    }
+
+    /* ── 属性分组抽屉：默认只展开「内容」，点标题可切换 ──
+       （自带一张表并选中，不依赖前一段留下的选中状态） */
+    S().setMode('document');
+    S().clearAll();
+    S().addComponent('table');
+    await wait(360);
     const groupEls = [...document.querySelectorAll('[data-prop-group="1"]')] as HTMLElement[];
     const openNames = groupEls.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
     const listCount = document.querySelectorAll('[data-prop-list="1"]').length;
@@ -868,6 +960,191 @@ async function interactionChecks(): Promise<Result[]> {
       await wait(140);
     }
     add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「外观」后展开=${expandWorks}`);
+
+    /* ── 表格行 / 列数量：输入（回车提交）与 ＋/− 按钮都要真改数据 ──
+       （自带一张 3×3 表并选中，保证面板里确实有行列数量控件） */
+    S().setMode('document');
+    S().clearAll();
+    const tSize = S().addComponent('table');
+    if (tSize) S().updateProps(tSize, { data: 'a | b | c\nd | e | f\ng | h | i', headerRow: true, colWidths: '', rowHeight: '', cellStyles: {} });
+    await wait(420);
+    const dataLines = (): string[] => {
+      // 读**当前选中**的那张表（各段用例都自带选中状态，互不依赖）；
+      // ★不过滤空行：空行在 Excel 语义里就是"一行空单元格"，插行/删行要靠它才验得出来
+      const id = S().doc.selectedIds[0];
+      const n = S().doc.document.components.find((x) => x.id === id);
+      const text = String(n?.props.data ?? '');
+      if (!text) return [];
+      let lines = text.split('\n');
+      if (text.endsWith('\n')) lines = lines.slice(0, -1);
+      return lines;
+    };
+    const nativeSet = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    const rowInput = document.querySelector('[data-table-rows="1"]') as HTMLInputElement | null;
+    const colInput = document.querySelector('[data-table-cols="1"]') as HTMLInputElement | null;
+    const commitInput = (el: HTMLInputElement, v: string) => {
+      if (!nativeSet) return;
+      nativeSet.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    };
+    if (rowInput && colInput && nativeSet) {
+      commitInput(rowInput, '5');
+      await wait(320);
+      const l5 = dataLines();
+      const cur = S().doc.selectedIds[0];
+      const ths = document.querySelector(`[data-node-id="${cur}"] thead tr`)?.children.length ?? 0;
+      const trs = document.querySelectorAll(`[data-node-id="${cur}"] tbody tr`).length;
+      add(
+        '表格行数可改（输入 5 + 回车 → 数据与渲染同步）',
+        l5.length === 5 && trs === 4 && ths === 3,
+        `数据 ${l5.length} 行、表头 ${ths} 列、tbody ${trs} 行`,
+      );
+
+      commitInput(colInput, '4');
+      await wait(320);
+      const ths4 = document.querySelectorAll(`[data-node-id="${S().doc.selectedIds[0]}"] thead tr th`).length;
+      const perLine = dataLines().map((l) => l.split('|').length);
+      add(
+        '表格列数可改（输入 4 + 回车 → 每行补到 4 列）',
+        ths4 === 4 && perLine.length === 5 && perLine.every((n) => n === 4),
+        `表头 ${ths4} 列、每行列数 [${perLine.join(',')}]`,
+      );
+
+      /* ── Excel 式：在**选中的单元格**处插入 / 删除整行整列（不是只会在末尾加减）── */
+      const curId = S().doc.selectedIds[0];
+      const clickCell = async (key: string) => {
+        const el = document.querySelector(`[data-node-id="${curId}"] [data-cell="${key}"]`) as HTMLElement | null;
+        if (!el) return false;
+        const r = el.getBoundingClientRect();
+        pe('pointerdown', r.left + 4, r.top + 4, el);
+        pe('pointerup', r.left + 4, r.top + 4, el);
+        await wait(220);
+        return true;
+      };
+      const hasCell = await clickCell('1,0');
+      const beforeRow = dataLines();
+      (document.querySelector('[data-table-ins-row="1"]') as HTMLButtonElement | null)?.click();
+      await wait(300);
+      const afterIns = dataLines();
+      const insertedEmpty = (afterIns[1] ?? '').split('|').every((c) => c.trim() === '');
+      add(
+        'Excel：在选中行处「插入行」（上方插入空行、其余下移）',
+        hasCell && afterIns.length === beforeRow.length + 1 && insertedEmpty && afterIns[2] === beforeRow[1],
+        `${beforeRow.length} → ${afterIns.length} 行；新第 2 行=「${afterIns[1] ?? ''}」；原第 2 行下移到第 3 行=${afterIns[2] === beforeRow[1]}`,
+      );
+
+      (document.querySelector('[data-table-del-row="1"]') as HTMLButtonElement | null)?.click();
+      await wait(300);
+      const afterDelRow = dataLines();
+      add(
+        'Excel：在选中行处「删除行」（删掉该整行，内容回到原样）',
+        afterDelRow.length === beforeRow.length && afterDelRow.every((l, i) => i < beforeRow.length && l === beforeRow[i]),
+        `${afterIns.length} → ${afterDelRow.length} 行，与插入前一致=${afterDelRow.every((l, i) => l === beforeRow[i])}`,
+      );
+
+      // 单元格格式要跟着列平移（Excel 里给 B 列上色，左边插一列后颜色应该跟着内容右移）
+      S().updateProps(curId, { cellStyles: { '1,0': { bold: true } } });
+      await wait(280);
+      const colsBefore = dataLines().map((l) => l.split('|').length);
+      (document.querySelector('[data-table-ins-col="1"]') as HTMLButtonElement | null)?.click();
+      await wait(320);
+      const colsAfter = dataLines().map((l) => l.split('|').length);
+      const shiftedStyle = (() => {
+        const n = S().doc.document.components.find((x) => x.id === curId);
+        const st = (n?.props.cellStyles ?? {}) as Record<string, unknown>;
+        return !!st['1,1'] && !st['1,0'];
+      })();
+      const movedCell = document.querySelector(`[data-node-id="${curId}"] [data-cell="1,1"]`) as HTMLElement | null;
+      add(
+        'Excel：插入列后单元格格式与内容一起右移（不是留在原坐标）',
+        colsAfter[0] === colsBefore[0] + 1 && shiftedStyle && getComputedStyle(movedCell!).fontWeight === '700',
+        `每行 ${colsBefore[0]} → ${colsAfter[0]} 列；格式键 1,0 → 1,1=${shiftedStyle}；新格字重=${movedCell ? getComputedStyle(movedCell).fontWeight : '?'}`,
+      );
+
+      (document.querySelector('[data-table-del-col="1"]') as HTMLButtonElement | null)?.click();
+      await wait(300);
+      const colsBack = dataLines().map((l) => l.split('|').length);
+      add('Excel：删除列后回到原列数', colsBack[0] === colsBefore[0], `每行 ${colsAfter[0]} → ${colsBack[0]} 列`);
+
+      /* ── Excel 式区域拖选：从一格拖到另一格 → 矩形区域 ── */
+      // 拖拽靠 elementsFromPoint 取坐标下的格子，所以目标格必须落在**画布视口内**
+      // （真实鼠标只能点在画布上；合成事件如果不先滚进来，坐标可能落到左右面板上）。
+      if (S().ui.showTree) S().toggleUI('showTree'); // 收掉组件树，给画布腾出宽度
+      const cellA = document.querySelector(`[data-node-id="${curId}"] [data-cell="1,0"]`) as HTMLElement | null;
+      const cellB0 = document.querySelector(`[data-node-id="${curId}"] [data-cell="2,1"]`) as HTMLElement | null;
+      if (cellA && cellB0) {
+        cellB0.scrollIntoView({ block: 'center', inline: 'center' });
+        await wait(340);
+        const cellB = document.querySelector(`[data-node-id="${curId}"] [data-cell="2,1"]`) as HTMLElement | null;
+        const vpRect = document.getElementById('canvas-viewport')?.getBoundingClientRect();
+        const rb = (cellB ?? cellB0).getBoundingClientRect();
+        const cx = rb.left + rb.width / 2;
+        const cy = rb.top + rb.height / 2;
+        const inVp = !!vpRect && cx >= vpRect.left && cx <= vpRect.right && cy >= vpRect.top && cy <= vpRect.bottom;
+        const stack = (document.elementsFromPoint(cx, cy) as HTMLElement[])
+          .slice(0, 4)
+          .map((e) => `${e.tagName}${e.dataset?.cell ? `[${e.dataset.cell}]` : ''}`);
+        pe('pointerdown', cellA.getBoundingClientRect().left + 4, cellA.getBoundingClientRect().top + 4, cellA);
+        pe('pointermove', cx, cy, window);
+        pe('pointerup', cx, cy, window);
+        await wait(340);
+        const picked = S().ui.tableCells?.cells ?? [];
+        const want = ['1,0', '1,1', '2,0', '2,1'];
+        const rects = document.querySelectorAll('[data-cell-selected="1"]').length;
+        add(
+          'Excel 式拖选区域（从 1,0 拖到 2,1 → 2×2 共 4 格）',
+          inVp && picked.length === 4 && want.every((k) => picked.includes(k)) && rects === 4,
+          `选中 ${picked.length} 格 [${picked.join(' ')}]；选框 ${rects} 个；目标点在画布视口内=${inVp}；坐标下元素栈=${stack.join(' | ')}`,
+        );
+      } else {
+        add('Excel 式拖选区域（从 1,0 拖到 2,1 → 2×2 共 4 格）', false, '找不到目标单元格');
+      }
+
+      /* ── 表题由表格自身承载 + 去重后的类型确实不存在了 ── */
+      S().updateProps(curId, { caption: '表 1-1　示例表题', captionAlign: 'left' });
+      await wait(280);
+      const capEl = document.querySelector(`[data-node-id="${curId}"] caption[data-table-caption="1"]`);
+      add(
+        '表题由表格自身承载（真实 caption 元素，显示在表格上方）',
+        !!capEl && capEl.textContent === '表 1-1　示例表题',
+        capEl ? `caption 文本=「${capEl.textContent}」` : '未渲染 caption',
+      );
+
+      add(
+        '去重：独立「题注」「富文本」组件已移除（能力分别由 image/table 的 caption 属性与 paragraph 承载）',
+        !getComponent('caption') && !getComponent('richtext'),
+        `getComponent('caption')=${String(getComponent('caption'))}、getComponent('richtext')=${String(getComponent('richtext'))}`,
+      );
+    } else {
+      add('表格行数可改（输入 5 + 回车 → 数据与渲染同步）', false, '找不到行/列数量输入框');
+      add('表格列数可改（输入 4 + 回车 → 每行补到 4 列）', false, '找不到行/列数量输入框');
+      add('Excel：在选中行处「插入行」（上方插入空行、其余下移）', false, '找不到行/列数量输入框');
+      add('Excel：在选中行处「删除行」（删掉该整行，内容回到原样）', false, '找不到按钮');
+      add('Excel：插入列后单元格格式与内容一起右移（不是留在原坐标）', false, '找不到按钮');
+      add('Excel：删除列后回到原列数', false, '找不到按钮');
+      add('Excel 式拖选区域（从 1,0 拖到 2,1 → 2×2 共 4 格）', false, '找不到按钮');
+      add('表题由表格自身承载（真实 caption 元素，显示在表格上方）', false, '找不到表格');
+      add('去重：独立「题注」「富文本」组件已移除（能力分别由 image/table 的 caption 属性与 paragraph 承载）', false, '前置失败');
+    }
+
+    /* ── 除通用属性（上/下边距，注册表统一补）外，每个组件都必须有自己的配置属性 ── */
+    {
+      const UNIVERSAL = new Set(['marginTop', 'marginBottom']);
+      const audit = getAllComponents()
+        .filter((d) => !d.type.startsWith('__')) // 自检探针不算业务组件
+        .map((d) => ({ type: d.type, own: d.propSchema.filter((i) => !UNIVERSAL.has(i.key)).length }))
+        .sort((a, b) => a.own - b.own);
+      const zero = audit.filter((a) => a.own === 0);
+      const thin = audit.filter((a) => a.own <= 2);
+      add(
+        '除通用属性外，每个组件都有自己的配置属性',
+        audit.length > 0 && zero.length === 0,
+        `${audit.length} 个组件；自有属性 ${audit[0]?.own ?? 0}–${audit[audit.length - 1]?.own ?? 0} 个；` +
+          `仅通用属性的 ${zero.length} 个${zero.length ? `：${zero.map((z) => z.type).join(' ')}` : ''}；` +
+          `偏少(≤2)：${thin.map((t) => `${t.type}:${t.own}`).join(' ') || '无'}`,
+      );
+    }
   } else {
     add('表格列宽生效（colgroup 20%/50%/30%）', false, 'addComponent(table) 失败');
     add('表格行高生效（纯数字按 mm）', false, 'addComponent(table) 失败');

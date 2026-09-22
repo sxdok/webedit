@@ -25,6 +25,9 @@ export const tableComponent: ComponentDefinition = {
   defaultProps: {
     data: DEFAULT_DATA,
     headerRow: true,
+    caption: '',
+    captionAlign: 'left',
+    captionSize: 10.5,
     variant: 'normal',
     width: 100,
     colWidths: '',

@@ -2,14 +2,20 @@
  * 职责：组件注册入口。所有组件在这里统一注册——新增组件只需在 common/document/ppt/web 下写一个文件，
  *       把它的 ComponentDefinition 加进 ALL_COMPONENTS，面板与画布自动支持（supportedModes 决定出现在哪些模式）。
  *
- * 当前清单（47 个）：
- *   通用 14：标题 / 正文段落 / 图片 / 图片并排 / 表格 / 三线表 / 两列参数表 / 明细表 / 核对表 /
- *            分割线 / 提示示意警示框 / 徽章按键标签 / 链接 / 图题表题
- *   文档专用 19：列表 / 富文本 / 引用块 / 代码块 / 分栏 / 页码 / 日期 / 签名区 / 间隔块 / 脚注 / 印章 / 分页符 /
+ * 当前清单（45 个）：
+ *   通用 13：标题 / 正文段落 / 图片 / 图片并排 / 表格 / 三线表 / 两列参数表 / 明细表 / 核对表 /
+ *            分割线 / 提示示意警示框 / 徽章按键标签 / 链接
+ *   文档专用 18：列表 / 引用块 / 代码块 / 分栏 / 页码 / 日期 / 签名区 / 间隔块 / 脚注 / 印章 / 分页符 /
  *               封面 / 目录 / 导语 / 摘要 / 关键词 / 定义列表 / 核对清单
- *   （页眉页脚已改为**页面属性**，不再是组件）
  *   PPT 专用 10：幻灯封面 / 要点列表 / 数据卡片 / 时间轴 / 流程步骤 / 左右对比 / 团队卡片 / 引用页 / 结束页 / 柱状图
  *   Web 专用 4：按钮 / 输入框 / 容器 / 卡片
+ *
+ * ★去重记录（功能重复的组件已合并/删除，避免"同一个能力两条路"）：
+ *   · 独立「题注」组件已删除 —— 图题由 image 的 caption 属性承载，表题由 table 的 caption 属性承载
+ *     （与"容器自带题注"统一，不再单列一个组件）；
+ *   · 独立「富文本」组件已删除 —— paragraph 的 html 属性本身就是富文本（rich 开关控制按 HTML 还是纯文本渲染），
+ *     两者是同一条渲染路径，保留 paragraph 一个入口；
+ *   · 页眉页脚已是**页面属性**（不是组件）；页码/日期是否也收进页面属性见 README「未做项」的待定项。
  */
 import { registerComponents } from '../index';
 import type { ComponentDefinition } from '../types';
@@ -25,10 +31,8 @@ import { dividerComponent } from './common/divider';
 import { calloutComponent } from './common/callout';
 import { badgeComponent } from './common/badge';
 import { linkComponent } from './common/link';
-import { captionComponent } from './common/caption';
 // 文档专用
 import { listComponent } from './document/list';
-import { richtextComponent } from './document/richtext';
 import { quoteComponent } from './document/quote';
 import { codeComponent } from './document/code';
 import { columnsComponent } from './document/columns';
@@ -78,10 +82,8 @@ export const ALL_COMPONENTS: ComponentDefinition[] = [
   calloutComponent,
   badgeComponent,
   linkComponent,
-  captionComponent,
   // 文档专用
   listComponent,
-  richtextComponent,
   quoteComponent,
   codeComponent,
   columnsComponent,

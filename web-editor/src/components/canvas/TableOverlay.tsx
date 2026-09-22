@@ -28,32 +28,44 @@ interface Geo {
 
 const EMPTY: Geo = { key: '', cells: [], borders: [] };
 
-function measure(host: HTMLElement, selected: string[]): Geo {
+function measure(host: HTMLElement, nodeId: string | null, selected: string[], zoom: number): Geo {
   const box = host.parentElement;
   if (!box) return EMPTY;
-  const table = host.parentElement.querySelector<HTMLTableElement>('table');
+  // ★必须限定在**被选中的那个节点**里量：同页可能有多张表，用整页 querySelector('table')
+  //   会拿到页面第一张表 —— 手柄画在 A 上、拖动却按 A 的几何写回 B，选框也会串到 A。
+  const tableHost = (nodeId ? box.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`) : null) ?? box;
+  const table = tableHost.querySelector<HTMLTableElement>('table');
   const firstRow = table?.rows?.[0];
   if (!table || !firstRow || !firstRow.cells.length) return EMPTY;
 
+  // ★屏幕坐标 → 覆盖层自身的布局坐标：画布整体被 scale(zoom) 包着，
+  //   getBoundingClientRect 拿到的是**已缩放**的值，而 left/top 写的是未缩放值 —— 必须除回 zoom，
+  //   否则缩放 ≠100% 时手柄会离列边界越来越远（双重缩放）。
+  const z = zoom || 1;
   const boxRect = box.getBoundingClientRect();
   const tableRect = table.getBoundingClientRect();
-  const top = tableRect.top - boxRect.top;
-  const height = Math.min(tableRect.height, boxRect.height - top);
+  const top = (tableRect.top - boxRect.top) / z;
+  const height = Math.min(tableRect.height / z, boxRect.height / z - top);
 
   const cells: Rect[] = [];
   if (selected.length) {
-    host.parentElement.querySelectorAll<HTMLElement>('[data-cell]').forEach((el) => {
+    tableHost.querySelectorAll<HTMLElement>('[data-cell]').forEach((el) => {
       if (!selected.includes(el.dataset.cell ?? '')) return;
       const r = el.getBoundingClientRect();
-      cells.push({ x: r.left - boxRect.left, y: r.top - boxRect.top, w: r.width, h: r.height });
+      cells.push({
+        x: (r.left - boxRect.left) / z,
+        y: (r.top - boxRect.top) / z,
+        w: r.width / z,
+        h: r.height / z,
+      });
     });
   }
 
   const rects = [...firstRow.cells].map((c) => c.getBoundingClientRect());
-  const borders = rects.slice(0, -1).map((r) => ({ x: r.right - boxRect.left, top, height }));
+  const borders = rects.slice(0, -1).map((r) => ({ x: (r.right - boxRect.left) / z, top, height }));
 
   return {
-    key: `${selected.join('|')}#${borders.map((b) => Math.round(b.x)).join(',')}#${Math.round(top)},${Math.round(height)}`,
+    key: `${nodeId ?? ''}#${selected.join('|')}#${Math.round(z * 100)}#${borders.map((b) => Math.round(b.x)).join(',')}#${Math.round(top)},${Math.round(height)}`,
     cells,
     borders,
   };
@@ -76,7 +88,7 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
       setGeo((p) => (p.key ? EMPTY : p));
       return;
     }
-    const next = measure(host, selectedKey ? selectedKey.split('|') : []);
+    const next = measure(host, nodeId, selectedKey ? selectedKey.split('|') : [], zoom);
     setGeo((prev) => (prev.key === next.key ? prev : next));
   });
 
@@ -92,7 +104,9 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
     e.preventDefault();
     e.stopPropagation();
     const host = hostRef.current;
-    const table = host?.parentElement?.querySelector<HTMLTableElement>('table');
+    const box = host?.parentElement;
+    const tableHost = (nodeId ? box?.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`) : null) ?? box;
+    const table = tableHost?.querySelector<HTMLTableElement>('table');
     const cells = table?.rows?.[0]?.cells;
     if (!table || !cells || cells.length < 2 || i >= cells.length - 1) return;
     const all = [...cells].map((c) => c.offsetWidth);

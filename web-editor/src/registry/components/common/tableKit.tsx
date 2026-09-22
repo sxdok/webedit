@@ -42,13 +42,17 @@ export function parseRowHeight(raw: unknown): string | null {
   return /^\d+(\.\d+)?$/.test(v) ? `${v}mm` : v;
 }
 
-/** 把 data 属性（二维数组或 "a | b" 文本）解析成行 */
+/** 把 data 属性（二维数组或 "a | b" 文本）解析成行
+ *  ★空行**要保留**（Excel 里空行就是一行空单元格）：只把"末尾换行"这个书写残留去掉，
+ *    中间和末尾的空行都算真实行 —— 否则"插入空行"会看不见、行列数量也对不上。 */
 export function parseTableData(raw: unknown): string[][] {
   if (Array.isArray(raw)) return asMatrix(raw);
-  return String(raw ?? '')
-    .split('\n')
-    .filter((l) => l.trim() !== '')
-    .map((l) => l.split('|').map((c) => c.trim()));
+  const text = String(raw ?? '');
+  if (!text) return [];
+  let lines = text.split('\n');
+  if (text.endsWith('\n')) lines = lines.slice(0, -1);
+  if (lines.every((l) => l.trim() === '')) return [];
+  return lines.map((l) => l.split('|').map((c) => c.trim()));
 }
 
 /**
@@ -162,9 +166,26 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   };
 
   const stripe = asBool(props.stripe, true) && variant === 'normal';
+  const caption = asString(props.caption);
+  const captionAlign = asString(props.captionAlign, 'left') as React.CSSProperties['textAlign'];
 
   return (
     <table style={tableStyle}>
+      {/* 表题：由**表格自己**承载（与图片的图题同一做法），不再需要单独的"题注"组件 */}
+      {caption && (
+        <caption
+          data-table-caption="1"
+          style={{
+            captionSide: 'top',
+            textAlign: captionAlign,
+            fontWeight: 600,
+            fontSize: ctx.mode === 'document' ? ctx.ptToPx(asNumber(props.captionSize, fontSize)) : asNumber(props.captionSize, fontSize),
+            paddingBottom: 4,
+          }}
+        >
+          {caption}
+        </caption>
+      )}
       {/* 列宽写进 colgroup，与 A4 编辑器一致（未给出的列保持自动宽度） */}
       <colgroup>
         {Array.from({ length: colCount }, (_, i) => (
@@ -223,6 +244,9 @@ export function tableSchema(
       placeholder: '列1 | 列2 | 列3',
     },
     { key: 'headerRow', label: '首行为表头', control: 'switch', group: GROUP.content, defaultValue: true },
+    { key: 'caption', label: '表题（显示在表格上方）', control: 'text', group: GROUP.content, defaultValue: '' },
+    { key: 'captionAlign', label: '表题对齐', control: 'align', group: GROUP.content, defaultValue: 'left' },
+    { key: 'captionSize', label: '表题字号', control: 'unit', group: GROUP.content, defaultValue: 10.5, unit: 'pt', min: 6, max: 24 },
     {
       key: 'variant',
       label: '线条风格',
@@ -249,6 +273,13 @@ export function tableSchema(
       placeholder: '9',
     },
     { key: 'cellPadding', label: '内边距', control: 'number', group: GROUP.size, defaultValue: 6, min: 0, max: 24 },
+    {
+      key: 'tableSize',
+      label: '行 / 列数量',
+      control: 'tableSize',
+      group: GROUP.content,
+      defaultValue: null,
+    },
     {
       key: 'cellStyles',
       label: '单元格格式（先在画布上点选单元格）',

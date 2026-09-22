@@ -15,6 +15,7 @@ import { RichTextControl } from './RichTextControl';
 import { SpacingControl } from './SpacingControl';
 import { ChildrenControl } from './ChildrenControl';
 import { TableCellsControl } from './TableCellsControl';
+import { TableSizeControl } from './TableSizeControl';
 
 export interface ControlProps {
   item: PropSchemaItem;
@@ -48,6 +49,7 @@ export const IMPLEMENTED_CONTROLS: ReadonlySet<string> = new Set([
   'frame',
   'children',
   'cells',
+  'tableSize',
 ]);
 
 /** 需要独占整行宽度的控件（多行文本、工具条、多维输入） */
@@ -59,6 +61,7 @@ const WIDE_CONTROLS: ReadonlySet<string> = new Set([
   'frame',
   'children',
   'cells',
+  'tableSize',
 ]);
 
 /**
@@ -342,6 +345,9 @@ export function PropertyControl({ item, value, onChange, nodeId }: ControlProps)
 
     case 'cells':
       return field(<TableCellsControl item={item} value={value} onChange={onChange} nodeId={nodeId} />);
+
+    case 'tableSize':
+      return field(<TableSizeControl item={item} value={value} onChange={onChange} nodeId={nodeId} />);
 
     default:
       return <NotImplemented control={item.control} />;

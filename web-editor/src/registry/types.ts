@@ -251,7 +251,9 @@ export type PropControlType =
   | 'frame'
   | 'children'
   /** 表格单元格：点选单元格后按格填背景色（+ 列宽自适应） */
-  | 'cells';
+  | 'cells'
+  /** 表格行/列数量（真正增删数据的行列） */
+  | 'tableSize';
 
 export interface SelectOption {
   label: string;

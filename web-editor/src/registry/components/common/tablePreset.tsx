@@ -33,10 +33,13 @@ const CHECK_DATA: string[][] = [
   ['2', '—', '√', '—'],
 ];
 
-function presetProps(data: string[][], variant: string, colWidths = '', rowHeight = '') {
+function presetProps(data: string[][], variant: string, colWidths = '', rowHeight = '', caption = '') {
   return {
     data,
     headerRow: true,
+    caption,
+    captionAlign: 'left',
+    captionSize: 10.5,
     variant,
     width: 100,
     colWidths,
