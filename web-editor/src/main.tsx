@@ -90,6 +90,22 @@ if (params.get('check')) {
   queueMicrotask(() => runSelfCheck());
 }
 
+// ?spec=1 → 生成「组件与属性说明清单」并写到运行目录 docs/（无接口时下载）
+if (params.get('spec')) {
+  setTimeout(() => {
+    void import('./utils/specSheet').then(async (m) => {
+      const text = m.buildComponentSpecSheet();
+      const { saveToRunDir, downloadText } = await import('./utils/download');
+      const r = await saveToRunDir('docs/组件与属性说明清单.md', text);
+      if (r?.ok) log.info('spec', '组件与属性说明清单已写入运行目录', { file: r.file, bytes: r.bytes });
+      else {
+        downloadText('组件与属性说明清单.md', text, 'text/markdown');
+        log.warn('spec', '没有 /__save 接口，清单改为下载');
+      }
+    });
+  }, 800); // 等外部组件加载完，清单里才会带上它们
+}
+
 // ?demo=1 → 灌入示例文档；随后（无论是否 demo）应用 ?mode=
 // ?select=<type|index> → 启动后选中一个节点（截图/核对属性面板排版用，例如 ?select=table）
 const applySelectParam = () => {

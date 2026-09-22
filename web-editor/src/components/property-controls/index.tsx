@@ -53,8 +53,8 @@ export const IMPLEMENTED_CONTROLS: ReadonlySet<string> = new Set([
   'tableSize',
 ]);
 
-/** 需要独占整行宽度的控件（多行文本、工具条、多维输入） */
-const WIDE_CONTROLS: ReadonlySet<string> = new Set([
+/** 需要独占整行宽度的控件（多行文本、工具条、多维输入、表格工具） */
+export const WIDE_CONTROLS: ReadonlySet<string> = new Set([
   'textarea',
   'richtext',
   'spacing',
@@ -64,6 +64,11 @@ const WIDE_CONTROLS: ReadonlySet<string> = new Set([
   'cells',
   'tableSize',
 ]);
+
+/** 该控件在面板里是不是"标签在上、控件独占整行"的两行式（清单/文档用它描述排版） */
+export function isWideControl(control: string): boolean {
+  return WIDE_CONTROLS.has(control);
+}
 
 /**
  * 把 schema 里的长标签拆成"主名 + 说明"：

@@ -18,9 +18,10 @@ import {
   useEditorStore,
 } from '../../store/editorStore';
 import { flatten } from '../../store/treeUtils';
-import { downloadText, pickTextFile } from '../../utils/download';
+import { downloadText, pickTextFile, saveToRunDir } from '../../utils/download';
 import { log } from '../../utils/logger';
 import { saveDiagnosticReportToRunDir } from '../../utils/diagnostics';
+import { buildComponentSpecSheet } from '../../utils/specSheet';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { fitZoom } from '../canvas/fitZoom';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
@@ -198,6 +199,24 @@ export function MenuBar() {
         void saveDiagnosticReportToRunDir().then((r) => {
           if (r.ok) window.alert(`诊断报告已写入运行目录：\n${r.file}\n（${r.bytes} 字节）`);
           else window.alert('没有 /__log 接口（不是启动器托管）：已改为复制到剪贴板 / 下载。');
+        });
+      },
+    },
+    {
+      key: 'specsheet',
+      label: '导出组件与属性说明清单（Markdown）',
+      onClick: () => {
+        const text = buildComponentSpecSheet();
+        void saveToRunDir('docs/组件与属性说明清单.md', text).then((r) => {
+          if (r?.ok) {
+            window.alert(`组件与属性说明清单已写入运行目录：\n${r.file}\n（${r.bytes} 字节）`);
+            log.info('spec', '组件与属性说明清单已导出', { file: r.file, bytes: r.bytes });
+          } else {
+            downloadText('组件与属性说明清单.md', text, 'text/markdown');
+            window.alert(
+              r?.error ? `写入运行目录失败（${r.error}），已改为下载。` : '没有 /__save 接口（不是启动器托管）：已改为下载。',
+            );
+          }
         });
       },
     },

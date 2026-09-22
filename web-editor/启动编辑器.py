@@ -67,6 +67,21 @@ def append_log(kind: str, lines) -> dict:
     return {"file": path, "bytes": st.st_size, "count": len(lines)}
 
 
+def save_artifact(rel: str, text: str) -> dict:
+    """把前端生成的产物（如「组件与属性说明清单.md」）写到运行目录。**只允许 docs/ 下**，防止路径越界。"""
+    rel = (rel or "").replace("\\", "/").lstrip("/")
+    if not rel.startswith("docs/") or ".." in rel.split("/"):
+        return {"ok": False, "error": "只允许写到运行目录的 docs/ 下"}
+    target = os.path.normpath(os.path.join(ROOT, rel))
+    docs_root = os.path.normpath(os.path.join(ROOT, "docs"))
+    if not target.startswith(docs_root + os.sep):
+        return {"ok": False, "error": "路径越界"}
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(target, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    return {"ok": True, "file": target, "bytes": len(text.encode("utf-8")), "chars": len(text)}
+
+
 
 def components_dir():
     """外部（热加载）组件的真实目录：优先 public/组件（源目录，改完立刻生效、无需构建），
@@ -156,8 +171,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        """前端日志/诊断报告落盘：POST /__log  {"kind":"editor","lines":[...]}"""
-        if self.path.split("?", 1)[0] != "/__log":
+        """前端落盘接口：
+             POST /__log   {"kind":"editor","lines":[...]}          → 追加到 运行目录/logs/
+             POST /__save  {"path":"docs/xxx.md","text":"..."}       → 写到 运行目录 下的指定相对路径（只允许 docs/）
+        """
+        route = self.path.split("?", 1)[0]
+        if route not in ("/__log", "/__save"):
             self.send_error(404, "not found")
             return
         try:
@@ -169,14 +188,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         try:
             payload = json.loads(self.rfile.read(n).decode("utf-8"))
-            kind = str(payload.get("kind") or "editor")
-            lines = payload.get("lines") or []
-            if isinstance(lines, str):
-                lines = lines.splitlines()
-            lines = [str(x) for x in lines][:2000]
-            info = append_log(kind, lines) if lines else {"file": log_path(kind), "bytes": 0, "count": 0}
-            body = json.dumps({"ok": True, **info}, ensure_ascii=False).encode("utf-8")
-            self.send_response(200)
+            if route == "/__log":
+                kind = str(payload.get("kind") or "editor")
+                lines = payload.get("lines") or []
+                if isinstance(lines, str):
+                    lines = lines.splitlines()
+                lines = [str(x) for x in lines][:2000]
+                info = append_log(kind, lines) if lines else {"file": log_path(kind), "bytes": 0, "count": 0}
+                body = json.dumps({"ok": True, **info}, ensure_ascii=False).encode("utf-8")
+            else:
+                rel = str(payload.get("path") or "")
+                text = str(payload.get("text") or "")
+                body = json.dumps(save_artifact(rel, text), ensure_ascii=False).encode("utf-8")
+            self.send_response(200 if json.loads(body).get("ok") else 403)
         except Exception as e:  # 落盘失败要如实回错，前端会记一条 error
             body = json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False).encode("utf-8")
             self.send_response(500)

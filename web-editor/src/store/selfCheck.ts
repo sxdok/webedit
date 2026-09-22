@@ -16,6 +16,8 @@ import { HISTORY_LIMIT } from './history';
 import { mmToPx } from '../utils/units';
 import { log } from '../utils/logger';
 import { buildDiagnosticReport } from '../utils/diagnostics';
+import { buildComponentSpecSheet } from '../utils/specSheet';
+import { saveToRunDir } from '../utils/download';
 import { findNode, getForest } from './treeUtils';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
@@ -955,10 +957,24 @@ async function interactionChecks(): Promise<Result[]> {
     const openNames = groupEls.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
     const listCount = document.querySelectorAll('[data-prop-list="1"]').length;
     add(
-      '属性分组默认折叠（只展开「表格」组）',
+      '属性分组默认折叠（表格组件只展开「表格」组）',
       groupEls.length >= 3 && openNames.length === 1 && openNames[0] === '表格' && listCount === 1,
       `${groupEls.length} 个分组，展开「${openNames.join('/') || '无'}」，渲染的属性列表 ${listCount} 个`,
     );
+
+    /* ── 非表格组件也必须有一个默认展开的分组（否则选中后看不到任何属性）── */
+    {
+      S().clearAll();
+      S().addComponent('paragraph');
+      await wait(360);
+      const gs = [...document.querySelectorAll('[data-prop-group="1"]')] as HTMLElement[];
+      const open = gs.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
+      add(
+        '非表格组件也有默认展开的分组（选中后能看到属性）',
+        gs.length >= 1 && open.length === 1 && open[0] === '内容',
+        `${gs.length} 个分组，展开「${open.join('/') || '无'}」`,
+      );
+    }
     const target = '[data-prop-group="1"][data-group-name="尺寸"]';
     let expandWorks = false;
     const head = document.querySelector(target) as HTMLElement | null;
@@ -1252,6 +1268,31 @@ async function interactionChecks(): Promise<Result[]> {
     add('表格列宽生效（colgroup 20%/50%/30%）', false, 'addComponent(table) 失败');
     add('表格行高生效（纯数字按 mm）', false, 'addComponent(table) 失败');
     add('表格列宽支持 mm 且列数不缩水', false, 'addComponent(table) 失败');
+  }
+
+  /* ── 组件与属性说明清单：覆盖全部组件/分类，且能落盘到运行目录 ── */
+  {
+    const spec = buildComponentSpecSheet();
+    const all = getAllComponents().filter((d) => !d.type.startsWith('__'));
+    const missing = all.filter((d) => !spec.includes(`\`${d.type}\``));
+    const catsMissing = (CATEGORY_ORDER as readonly string[]).filter((c) => !spec.includes(`## ${c}（`));
+    add(
+      '组件与属性说明清单：覆盖全部组件与分类，且含"面板状态"与"功能属性"两段',
+      missing.length === 0 &&
+        catsMissing.length === 0 &&
+        spec.includes('## 二、属性编辑器总说明') &&
+        spec.includes('**选中它之后，属性编辑器的状态**') &&
+        spec.includes('**它的功能属性**'),
+      `清单 ${spec.length} 字符；组件 ${all.length} 个全部出现=${missing.length === 0}；分类齐全=${catsMissing.length === 0}` +
+        (missing.length ? `；缺：${missing.map((d) => d.type).join(',')}` : ''),
+    );
+    const r = await saveToRunDir('docs/组件与属性说明清单.md', spec);
+    const httpLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+    add(
+      '组件与属性说明清单可写入运行目录（docs/）',
+      httpLocal ? !!r?.ok && (r.bytes ?? 0) > 0 : true,
+      r ? (r.ok ? `已写入 ${r.file}（${r.bytes} 字节）` : `失败：${r.error ?? '未知'}`) : '没有 /__save 接口（非启动器托管）：菜单里会退回下载',
+    );
   }
 
   /* ── 节点级错误边界：某个组件 render 抛错时只降级该节点，不能把编辑器拖垮 ──

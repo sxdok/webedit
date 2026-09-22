@@ -14,16 +14,16 @@ import { PagePropertyPanel } from './PagePropertyPanel';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
 import { Tooltip } from '../ui/Tooltip';
 
-const GROUP_ORDER = ['表格', '单元格', '内容', '排版', '外观', '尺寸', '布局', '高级'];
+export const GROUP_ORDER = ['表格', '单元格', '内容', '排版', '外观', '尺寸', '布局', '高级'];
 
 /** 默认只展开这个分组，其余分组默认折叠（与左侧组件面板"只展开一类"一致） */
-const DEFAULT_OPEN_GROUP = '表格';
+export const DEFAULT_OPEN_GROUP = '表格';
 
 /**
  * 分组说明（默认隐藏，鼠标悬停分组标题时弹气泡）——重点把"整表属性 vs 单元格属性"讲清楚，
  * 这也是用户明确要求的：右侧属性里必须一眼看出改的是整体还是某个单元格。
  */
-const GROUP_HINTS: Record<string, string> = {
+export const GROUP_HINTS: Record<string, string> = {
   表格: '整张表格的属性。下面「单元格」组里针对个别格子做的设置会覆盖这里的默认值。',
   单元格: '只作用于画布上选中的单元格（点选/拖选一片）。没被覆盖的项沿用「表格」组的默认值。',
   内容: '组件的内容与文字。',
@@ -112,6 +112,12 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
     });
   }, [def, node.props, query, ctx]);
 
+  // ★默认展开哪个组：有「表格」组就展开它；否则展开**第一个组**（非表格组件若全折叠，
+  //   用户选中后会看到一排折叠标题、看不到任何属性）
+  const defaultOpenGroup = sections.some(([g]) => g === DEFAULT_OPEN_GROUP)
+    ? DEFAULT_OPEN_GROUP
+    : (sections[0]?.[0] ?? '');
+
   if (!def) {
     return (
       <div className="px-3 py-3 text-2xs text-gray-500">
@@ -183,7 +189,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
       )}
 
       {sections.map(([group, items]) => {
-        const open = toggled[group] ?? (group === DEFAULT_OPEN_GROUP || (group === '单元格' && cellGroupOpen));
+        const open = toggled[group] ?? (group === defaultOpenGroup || (group === '单元格' && cellGroupOpen));
         return (
           <div key={group} className="mb-1.5" data-prop-group="1" data-group-name={group} data-group-open={open ? '1' : '0'}>
             <button
