@@ -6,6 +6,7 @@
  *   ?check=1                    运行自检并把结果写到标题、console 与右下角浮层
  *   ?demo=1                     灌入示例文档    ?mode=web|document  启动后切到指定模式
  *   ?select=table              启动后选中第一个该类型的节点（也可给序号），用于核对属性面板排版
+ *   ?cell=1,0[;1,1]            再选中该表格的这些单元格（核对单元格格式；行列从 0 起）
  *   ?theme=monokai|light  ?scroll=N  ?printdebug=1
  */
 import { StrictMode } from 'react';
@@ -98,12 +99,30 @@ const applyModeParam = () => {
   const m = params.get('mode');
   if (m === 'web' || m === 'document') useEditorStore.getState().setMode(m);
 };
+/** ?cell=1,0[;1,1] → 选中当前表格节点的这些单元格（截图/核对单元格格式用） */
+const applyCellParam = () => {
+  const want = params.get('cell');
+  if (!want) return;
+  const s = useEditorStore.getState();
+  const id = s.doc.selectedIds[0];
+  if (!id) return;
+  s.selectTableCells(
+    id,
+    want
+      .split(';')
+      .map((x) => x.trim())
+      .filter(Boolean),
+  );
+};
 if (params.get('demo')) {
   void import('./store/demo')
     .then((m) => {
       m.seedDemo();
       applyModeParam();
-      setTimeout(applySelectParam, 120);
+      setTimeout(() => {
+        applySelectParam();
+        setTimeout(applyCellParam, 80);
+      }, 120);
     })
     .catch((e: unknown) => log.error('boot', '示例文档加载失败', { error: String(e) }));
 } else {

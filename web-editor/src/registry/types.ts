@@ -231,6 +231,7 @@ export interface EditorDocument {
  *   image                   图片地址（可本地选图转 data:URL）
  *   frame                   位置尺寸 x/y/w/h（px），Web 模式绝对定位
  *   children                容器子项列表（增删/排序/进入选中）
+ *   cells                   表格单元格：选中格子后填背景色（编辑器态选择 + 文档态颜色）
  */
 export type PropControlType =
   | 'text'
@@ -248,7 +249,9 @@ export type PropControlType =
   | 'image'
   | 'unit'
   | 'frame'
-  | 'children';
+  | 'children'
+  /** 表格单元格：点选单元格后按格填背景色（+ 列宽自适应） */
+  | 'cells';
 
 export interface SelectOption {
   label: string;

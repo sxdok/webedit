@@ -15,6 +15,9 @@ import { CanvasPropertyPanel } from './CanvasPropertyPanel';
 
 const GROUP_ORDER = ['内容', '排版', '外观', '尺寸', '布局', '高级'];
 
+/** 默认只展开这个分组，其余分组默认折叠（与左侧组件面板"只展开通用"一致） */
+const DEFAULT_OPEN_GROUP = '内容';
+
 function groupOf(item: PropSchemaItem): string {
   return item.group || '内容';
 }
@@ -53,7 +56,8 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
   const canvas = useEditorStore((s) => s.doc.web.canvas);
   const [copied, setCopied] = useState(false);
   const [query, setQuery] = useState('');
-  const [closed, setClosed] = useState<Record<string, boolean>>({});
+  // 记录"哪些分组被手动展开/折叠"的覆盖值；没记录的按默认（只有「内容」展开）
+  const [toggled, setToggled] = useState<Record<string, boolean>>({});
 
   const ctx: RenderContext = useMemo(
     () => ({
@@ -159,12 +163,12 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
       )}
 
       {sections.map(([group, items]) => {
-        const open = !closed[group];
+        const open = toggled[group] ?? group === DEFAULT_OPEN_GROUP;
         return (
-          <div key={group} className="mb-1.5" data-prop-group="1">
+          <div key={group} className="mb-1.5" data-prop-group="1" data-group-name={group} data-group-open={open ? '1' : '0'}>
             <button
               type="button"
-              onClick={() => setClosed((s) => ({ ...s, [group]: !s[group] }))}
+              onClick={() => setToggled((s) => ({ ...s, [group]: !open }))}
               className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
             >
               {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}

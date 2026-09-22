@@ -61,6 +61,12 @@ export interface UIState {
   theme: 'light' | 'monokai';
   /** 文档模式当前页数（画布分页后回写，供页面属性面板显示） */
   docPageCount: number;
+  /**
+   * 表格**单元格选择**（编辑器态：不写进文档、不入导出、打印时也不显示）：
+   * nodeId = 哪张表，cells = 选中的 "行,列" 键集合（行列从 0 起，含表头时第 0 行就是表头行）。
+   * 用于「单元格背景色」按单元格填充 —— 颜色写进表格的 cellFills 属性（那是文档数据）。
+   */
+  tableCells: { nodeId: string; cells: string[] } | null;
 }
 
 const initialUI: UIState = {
@@ -76,6 +82,7 @@ const initialUI: UIState = {
   registryVersion: 0,
   theme: 'light',
   docPageCount: 1,
+  tableCells: null,
 };
 
 /* ══════════════ 初始文档 ══════════════ */
@@ -108,6 +115,10 @@ export interface EditorStore {
 
   /* 模式 */
   setMode(mode: EditorMode): void;
+
+  /* 表格单元格选择（编辑器态，见 UIState.tableCells） */
+  selectTableCells(nodeId: string, cells: string[]): void;
+  clearTableCells(): void;
 
   /* 组件操作（自动路由到当前模式的数据） */
   addComponent(type: string, parentId?: string | null, index?: number): string | null;
@@ -222,6 +233,8 @@ export const useEditorStore = create<EditorStore>()(
         log.action('setMode', { from: get().doc.mode, to: mode });
         if (get().doc.mode === mode) return;
         commit(set, get, (doc) => ({ ...doc, mode, selectedIds: [] }));
+        // 换模式后画布内容变了，单元格选择随之失效
+        set((s) => ({ ui: { ...s.ui, tableCells: null } }));
         gate.reset();
       },
 
@@ -323,8 +336,19 @@ export const useEditorStore = create<EditorStore>()(
 
       selectComponent: (ids) => {
         log.debug('store', 'selectComponent', { count: ids.length });
-        set((s) => ({ doc: { ...s.doc, selectedIds: ids } }));
+        set((s) => ({
+          doc: { ...s.doc, selectedIds: ids },
+          // 选中的不再是同一张表 → 清掉单元格选择（避免"给别的表填色"的错觉）
+          ui: s.ui.tableCells && !ids.includes(s.ui.tableCells.nodeId) ? { ...s.ui, tableCells: null } : s.ui,
+        }));
       },
+
+      selectTableCells: (nodeId, cells) => {
+        log.debug('store', 'selectTableCells', { nodeId, count: cells.length });
+        set((s) => ({ ui: { ...s.ui, tableCells: cells.length ? { nodeId, cells } : null } }));
+      },
+
+      clearTableCells: () => set((s) => ({ ui: { ...s.ui, tableCells: null } })),
 
       toggleSelect: (id) => {
         log.debug('store', 'toggleSelect', { id });

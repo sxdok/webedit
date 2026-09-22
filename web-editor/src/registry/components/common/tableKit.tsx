@@ -51,6 +51,48 @@ export function parseTableData(raw: unknown): string[][] {
     .map((l) => l.split('|').map((c) => c.trim()));
 }
 
+/**
+ * 单元格级格式（Excel 的"单元格覆盖表格默认"）：`{ "行,列": { 各覆盖项 } }`。
+ * 行列从 0 起，**含表头时第 0 行就是表头行**（与"数据"文本域的第一行一致）。
+ * 没写的项就沿用表格级属性（cellAlign / fontSize / cellPadding / headerBackground），
+ * 与 Excel 里"单元格格式覆盖列/表默认格式"是同一套逻辑。
+ */
+export interface CellStyle {
+  background?: string;
+  color?: string;
+  /** pt */
+  fontSize?: number;
+  bold?: boolean;
+  align?: 'left' | 'center' | 'right';
+  /** px */
+  padding?: number;
+}
+
+const CELL_ALIGNS = ['left', 'center', 'right'] as const;
+
+export function parseCellStyles(raw: unknown): Record<string, CellStyle> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const out: Record<string, CellStyle> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^\d+,\d+$/.test(k) || !v || typeof v !== 'object' || Array.isArray(v)) continue;
+    const src = v as Record<string, unknown>;
+    const st: CellStyle = {};
+    const bg = String(src.background ?? '').trim();
+    if (bg) st.background = bg;
+    const color = String(src.color ?? '').trim();
+    if (color) st.color = color;
+    const fs = Number(src.fontSize);
+    if (Number.isFinite(fs) && fs > 0) st.fontSize = fs;
+    if (src.bold === true) st.bold = true;
+    const align = String(src.align ?? '');
+    if ((CELL_ALIGNS as readonly string[]).includes(align)) st.align = align as CellStyle['align'];
+    const pad = Number(src.padding);
+    if (Number.isFinite(pad) && pad >= 0 && src.padding !== '' && src.padding != null) st.padding = pad;
+    if (Object.keys(st).length) out[k] = st;
+  }
+  return out;
+}
+
 export function renderTable(props: ComponentProps, ctx: RenderContext, forceVariant?: TableVariant): React.ReactNode {
   const rows = parseTableData(props.data);
   const variant = forceVariant ?? (asString(props.variant, 'normal') as TableVariant);
@@ -61,9 +103,16 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   const fontSize = asNumber(props.fontSize, 10.5);
   const align = asString(props.cellAlign, 'left') as React.CSSProperties['textAlign'];
   const [head, ...body] = rows;
-  // 列宽 / 行高（对齐 A4 编辑器的表格属性）
+  // 列宽 / 行高（对齐 A4 编辑器的表格属性）+ 单元格级格式（Excel 式覆盖）
   const colWidths = parseColWidths(props.colWidths);
   const rowH = parseRowHeight(props.rowHeight);
+  const styles = parseCellStyles(props.cellStyles);
+  // 兼容旧数据：早期只有"按格填背景"（cellFills），读进来当背景覆盖
+  const legacyFills = (props.cellFills && typeof props.cellFills === 'object' ? props.cellFills : {}) as Record<string, unknown>;
+  for (const [k, v] of Object.entries(legacyFills)) {
+    const c = String(v ?? '').trim();
+    if (/^\d+,\d+$/.test(k) && c && !styles[k]?.background) styles[k] = { ...(styles[k] ?? {}), background: c };
+  }
   const maxCols = rows.reduce((n, r) => Math.max(n, r.length), 0);
   const colCount = Math.max(1, maxCols, colWidths.length);
 
@@ -98,6 +147,20 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   if (variant === 'threeLine') headCell.borderBottom = `1px solid ${asString(props.headerColor, '#1f2329')}`;
   if (variant === 'hLines') headCell.borderBottom = `1.5px solid ${bc}`;
 
+  /** 单元格级覆盖：以表格级样式为底，再叠加该格的 CellStyle（Excel 的"单元格覆盖默认"） */
+  const styleFor = (key: string, base: React.CSSProperties): React.CSSProperties => {
+    const st = styles[key];
+    if (!st) return base;
+    const out: React.CSSProperties = { ...base };
+    if (st.background) out.background = st.background;
+    if (st.color) out.color = st.color;
+    if (st.fontSize) out.fontSize = ctx.mode === 'document' ? ctx.ptToPx(st.fontSize) : st.fontSize;
+    if (st.bold) out.fontWeight = 700;
+    if (st.align) out.textAlign = st.align;
+    if (typeof st.padding === 'number') out.padding = st.padding;
+    return out;
+  };
+
   const stripe = asBool(props.stripe, true) && variant === 'normal';
 
   return (
@@ -112,7 +175,7 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
         <thead>
           <tr>
             {head.map((c, i) => (
-              <th key={i} style={headCell}>
+              <th key={i} data-cell={`0,${i}`} data-cell-row={0} data-cell-col={i} style={styleFor(`0,${i}`, headCell)}>
                 {c}
               </th>
             ))}
@@ -120,15 +183,25 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
         </thead>
       )}
       <tbody>
-        {(headerRow ? body : rows).map((r, ri) => (
-          <tr key={ri} style={{ background: stripe && ri % 2 ? '#fafcfe' : undefined }}>
-            {r.map((c, ci) => (
-              <td key={ci} style={cell}>
-                {c}
-              </td>
-            ))}
-          </tr>
-        ))}
+        {(headerRow ? body : rows).map((r, ri) => {
+          // 行号口径：含表头时第 0 行 = 表头，所以数据行从 1 开始 —— 与"数据"文本域的行一一对应
+          const rowIndex = headerRow ? ri + 1 : ri;
+          return (
+            <tr key={ri} style={{ background: stripe && ri % 2 ? '#fafcfe' : undefined }}>
+              {r.map((c, ci) => (
+                <td
+                  key={ci}
+                  data-cell={`${rowIndex},${ci}`}
+                  data-cell-row={rowIndex}
+                  data-cell-col={ci}
+                  style={styleFor(`${rowIndex},${ci}`, cell)}
+                >
+                  {c}
+                </td>
+              ))}
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -176,6 +249,13 @@ export function tableSchema(
       placeholder: '9',
     },
     { key: 'cellPadding', label: '内边距', control: 'number', group: GROUP.size, defaultValue: 6, min: 0, max: 24 },
+    {
+      key: 'cellStyles',
+      label: '单元格格式（先在画布上点选单元格）',
+      control: 'cells',
+      group: GROUP.content,
+      defaultValue: {},
+    },
     { key: 'cellAlign', label: '单元格对齐', control: 'align', group: GROUP.typography, defaultValue: 'left' },
     { key: 'fontSize', label: '字号', control: 'unit', group: GROUP.typography, defaultValue: 10.5, unit: 'pt', min: 6, max: 24 },
     { key: 'stripe', label: '斑马纹（仅全框线）', control: 'switch', group: GROUP.appearance, defaultValue: true },

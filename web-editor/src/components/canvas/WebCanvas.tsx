@@ -11,6 +11,7 @@ import { GridOverlay } from './GridOverlay';
 import { GuideLines } from './GuideLines';
 import { ContainerHighlight } from './InsertIndicator';
 import { SelectionBox } from './SelectionBox';
+import { TableOverlay } from './TableOverlay';
 import type { CanvasInteractionApi } from './useCanvasInteraction';
 
 /** 计算节点在画布坐标系里的绝对框（容器内子元素要累加父级偏移） */
@@ -73,6 +74,24 @@ export function WebCanvas({
 }) {
   const doc = useEditorStore((s) => s.doc);
   const forest = useMemo(() => getForest(doc), [doc]);
+  const selectTableCells = useEditorStore((s) => s.selectTableCells);
+  const tableCellSel = useEditorStore((s) => s.ui.tableCells);
+
+  /* 表格单元格点选（捕获阶段，先于 NodeView 的选中处理） */
+  const onCellPointerDownCapture = (e: React.PointerEvent) => {
+    const cell = (e.target as HTMLElement).closest?.('[data-cell]') as HTMLElement | null;
+    if (!cell) return;
+    const id = (cell.closest('[data-node-id]') as HTMLElement | null)?.getAttribute('data-node-id');
+    if (!id) return;
+    const key = cell.dataset.cell ?? '';
+    const same = tableCellSel?.nodeId === id;
+    const cur = same ? tableCellSel.cells : [];
+    const next = e.shiftKey && same ? (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]) : [key];
+    selectTableCells(id, next);
+    if (!selectedIds.includes(id)) onSelect(id, false);
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   const primaryId = selectedIds[0];
   const primaryFrame = primaryId ? absoluteFrame(forest, primaryId) : null;
@@ -108,6 +127,7 @@ export function WebCanvas({
           // 只在空白处起框选（点在元素上由 NodeView 处理）
           if (e.target === e.currentTarget) it.onCanvasPointerDown(e);
         }}
+        onPointerDownCapture={onCellPointerDownCapture}
         onDragOver={it.onDragOver}
         onDrop={it.onDrop}
       >
@@ -175,6 +195,9 @@ export function WebCanvas({
             onHandleDown={(e, dir) => it.onHandlePointerDown(e, dir, primaryId)}
           />
         )}
+
+        {/* 表格覆盖层：单元格选框 + 列宽拖拽手柄（编辑态，no-print） */}
+        <TableOverlay nodeId={showChrome ? primaryId ?? null : null} zoom={zoom} />
       </div>
 
       <div className="no-print py-2 text-center text-2xs text-gray-400">

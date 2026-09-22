@@ -735,6 +735,139 @@ async function interactionChecks(): Promise<Result[]> {
       cols2[0] === '35mm' && cols2[1] === '65mm' && cols2.length >= 3,
       `[${cols2.join(', ')}]`,
     );
+
+    /* ── 单元格选择 → 按单元格填背景色 → 列宽拖拽手柄 ── */
+    const colSpecOf = (id: string): number[] => {
+      const n = S().doc.document.components.find((x) => x.id === id);
+      return String(n?.props.colWidths ?? '')
+        .split(',')
+        .map((s) => Number.parseFloat(s))
+        .filter((v) => !Number.isNaN(v));
+    };
+    S().updateProps(tRef, { colWidths: '20,40,40', rowHeight: '', cellStyles: {} });
+    await wait(340);
+
+    const td = document.querySelector(`[data-node-id="${tRef}"] tbody tr td`) as HTMLElement | null;
+    if (td) {
+      const r = td.getBoundingClientRect();
+      pe('pointerdown', r.left + r.width / 2, r.top + r.height / 2, td);
+      pe('pointerup', r.left + r.width / 2, r.top + r.height / 2, td);
+      await wait(260);
+      const sel = S().ui.tableCells;
+      const cellKey = td.dataset.cell ?? '';
+      const rectEl = document.querySelector('[data-cell-selected="1"]');
+      const overlay = document.querySelector('[data-table-overlay="1"]') as HTMLElement | null;
+      add(
+        '表格单元格可点选（编辑器态选框 + 覆盖层 no-print）',
+        !!sel && sel.nodeId === tRef && cellKey !== '' && sel.cells.includes(cellKey) && !!rectEl && !!overlay?.classList.contains('no-print'),
+        `选中 ${sel?.cells.length ?? 0} 格 [${sel?.cells.join(' ') ?? ''}]；选框=${!!rectEl}、覆盖层 no-print=${!!overlay?.classList.contains('no-print')}`,
+      );
+
+      const json = S().exportJSON();
+      add(
+        '单元格选择不写进文档（不入导出/打印）',
+        !json.includes('tableCells'),
+        `导出 JSON ${json.length} 字节，含 tableCells=${json.includes('tableCells')}`,
+      );
+
+      /* Excel 式单元格格式：改哪项就作用到**选中的格**，同表其它格不受影响 */
+      const cell2 = document.querySelector(`[data-node-id="${tRef}"] tbody tr td:nth-child(2)`) as HTMLElement | null;
+      const ta2Before = cell2 ? getComputedStyle(cell2).textAlign : '';
+      (document.querySelector('[data-cell-bold="1"]') as HTMLButtonElement | null)?.click();
+      (document.querySelector('[data-cell-align="center"]') as HTMLButtonElement | null)?.click();
+      await wait(280);
+      const fw = getComputedStyle(td).fontWeight;
+      const ta = getComputedStyle(td).textAlign;
+      const ta2 = cell2 ? getComputedStyle(cell2).textAlign : '';
+      add(
+        '单元格格式只作用于选中格（加粗/居中，不是整表）',
+        fw === '700' && ta === 'center' && ta2 === ta2Before,
+        `选中格 字重=${fw} 对齐=${ta}；同表另一格 对齐=${ta2}（改前 ${ta2Before}）`,
+      );
+
+      // 底色：走面板上的真实颜色控件（原生 setter + input 事件 → React onChange）
+      const bgInput = document.querySelector('[data-cell-bg="1"]') as HTMLInputElement | null;
+      const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      if (bgInput && nativeSetter) {
+        nativeSetter.call(bgInput, '#ff0000');
+        bgInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      await wait(280);
+      const bg = getComputedStyle(td).backgroundColor;
+      add('单元格底色（选中格 → 颜色控件即时生效）', bg === 'rgb(255, 0, 0)', `目标 #ff0000 → 实际 ${bg || '(空)'}`);
+
+      const json2 = S().exportJSON();
+      add(
+        '单元格格式是文档数据（cellStyles 进导出，与"选择"区分开）',
+        json2.includes('cellStyles') && !json2.includes('tableCells'),
+        `导出含 cellStyles=${json2.includes('cellStyles')}、含 tableCells=${json2.includes('tableCells')}`,
+      );
+
+      (document.querySelector('[data-cell-clear="1"]') as HTMLButtonElement | null)?.click();
+      await wait(260);
+      const bgAfter = getComputedStyle(td).backgroundColor;
+      const fwAfter = getComputedStyle(td).fontWeight;
+      add(
+        '清除选中格式后回落到表格级默认',
+        bgAfter === 'rgba(0, 0, 0, 0)' && fwAfter !== '700',
+        `底色 ${bgAfter}、字重 ${fwAfter}`,
+      );
+    } else {
+      add('表格单元格可点选（编辑器态选框 + 覆盖层 no-print）', false, '找不到 td');
+      add('单元格选择不写进文档（不入导出/打印）', false, '找不到 td');
+      add('单元格格式只作用于选中格（加粗/居中，不是整表）', false, '找不到 td');
+      add('单元格底色（选中格 → 颜色控件即时生效）', false, '找不到 td');
+      add('单元格格式是文档数据（cellStyles 进导出，与"选择"区分开）', false, '找不到 td');
+      add('清除选中格式后回落到表格级默认', false, '找不到 td');
+    }
+
+    const before = colSpecOf(tRef);
+    const handle = document.querySelector('[data-col-handle="1"][data-col-index="0"]') as HTMLElement | null;
+    if (handle) {
+      const tableEl = document.querySelector(`[data-node-id="${tRef}"] table`) as HTMLTableElement | null;
+      const pxBefore = tableEl ? [...tableEl.rows[0].cells].map((c) => c.offsetWidth) : [];
+      const hr = handle.getBoundingClientRect();
+      const y = hr.top + Math.max(4, hr.height / 2);
+      const dxScreen = 63 - 3;
+      pe('pointerdown', hr.left + 3, y, handle);
+      pe('pointermove', hr.left + 63, y, window);
+      pe('pointerup', hr.left + 63, y, window);
+      await wait(300);
+      const after = colSpecOf(tRef);
+      const sum = after.reduce((a, b) => a + b, 0);
+      const pxAfter = tableEl ? [...tableEl.rows[0].cells].map((c) => c.offsetWidth) : [];
+      add(
+        '表格列宽可拖拽（真实 PointerEvent，只动相邻两列）',
+        after.length === 3 && after[0] > before[0] + 3 && after[1] < before[1] - 3 && Math.abs(sum - 100) < 2,
+        `${before.join('/')} → ${after.join('/')}（合计 ${sum.toFixed(1)}%）` +
+          `；诊断 zoom=${S().zoom} 手柄屏幕位移=${dxScreen}px 表格布局宽=${tableEl?.offsetWidth ?? 0}px` +
+          ` 单元格像素=${pxBefore.join('/')} → ${pxAfter.join('/')}`,
+      );
+    } else {
+      add('表格列宽可拖拽（真实 PointerEvent，只动相邻两列）', false, '找不到列宽手柄（表格未选中或未显示 chrome）');
+    }
+
+    /* ── 属性分组抽屉：默认只展开「内容」，点标题可切换 ── */
+    const groupEls = [...document.querySelectorAll('[data-prop-group="1"]')] as HTMLElement[];
+    const openNames = groupEls.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
+    const listCount = document.querySelectorAll('[data-prop-list="1"]').length;
+    add(
+      '属性分组默认折叠（只展开「内容」）',
+      groupEls.length >= 3 && openNames.length === 1 && openNames[0] === '内容' && listCount === 1,
+      `${groupEls.length} 个分组，展开「${openNames.join('/') || '无'}」，渲染的属性列表 ${listCount} 个`,
+    );
+    const target = '[data-prop-group="1"][data-group-name="外观"]';
+    let expandWorks = false;
+    const head = document.querySelector(target) as HTMLElement | null;
+    if (head) {
+      (head.querySelector('button') as HTMLButtonElement).click();
+      await wait(200);
+      expandWorks = !!document.querySelector(`${target} [data-prop-list="1"]`);
+      // 折回去，保持"只有内容展开"的初始状态
+      (document.querySelector(`${target} button`) as HTMLButtonElement).click();
+      await wait(140);
+    }
+    add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「外观」后展开=${expandWorks}`);
   } else {
     add('表格列宽生效（colgroup 20%/50%/30%）', false, 'addComponent(table) 失败');
     add('表格行高生效（纯数字按 mm）', false, 'addComponent(table) 失败');
@@ -808,6 +941,11 @@ async function interactionChecks(): Promise<Result[]> {
         continue;
       }
       await wait(55);
+      // 属性分组默认只展开「内容」；审计要量全部属性行，先把折叠的分组点开
+      document.querySelectorAll('[data-prop-group="1"]').forEach((g) => {
+        if (!g.querySelector('[data-prop-list="1"]')) (g.querySelector('button') as HTMLButtonElement | null)?.click();
+      });
+      await wait(35);
       const rowEls = document.querySelectorAll('[data-prop-row="1"]');
       const panelNow = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
       if (!rowEls.length) {

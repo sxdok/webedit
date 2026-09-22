@@ -19,6 +19,7 @@ import { mmToPx } from '../../utils/units';
 import { useEditorStore } from '../../store/editorStore';
 import { NodeView } from './NodeView';
 import { InsertIndicator } from './InsertIndicator';
+import { TableOverlay } from './TableOverlay';
 import type { CanvasInteractionApi } from './useCanvasInteraction';
 
 const RELAYOUT_MS = 120;
@@ -68,6 +69,25 @@ export function PaperCanvas({
   const contentWidth = Math.max(40, w - pad.left - pad.right);
   const contentHeight = Math.max(40, h - pad.top - pad.bottom);
   const visible = nodes.filter((n) => !n.hidden);
+
+  /* ── 表格单元格：点选（捕获阶段，先于 NodeView 的选中处理）── */
+  const selectTableCells = useEditorStore((s) => s.selectTableCells);
+  const tableCellSel = useEditorStore((s) => s.ui.tableCells);
+  const onCellPointerDownCapture = (e: React.PointerEvent) => {
+    const cell = (e.target as HTMLElement).closest?.('[data-cell]') as HTMLElement | null;
+    if (!cell) return;
+    const id = (cell.closest('[data-node-id]') as HTMLElement | null)?.getAttribute('data-node-id');
+    if (!id) return;
+    const key = cell.dataset.cell ?? '';
+    const same = tableCellSel?.nodeId === id;
+    const cur = same ? tableCellSel.cells : [];
+    const next = e.shiftKey && same ? (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]) : [key];
+    selectTableCells(id, next);
+    if (!selectedIds.includes(id)) onSelect(id, false);
+    // 单元格点击不要再触发"选中/拖动整张表"
+    e.preventDefault();
+    e.stopPropagation();
+  };
 
   /* ── 离屏测量 → 切页 ── */
   const measureRef = useRef<HTMLDivElement>(null);
@@ -324,11 +344,14 @@ export function PaperCanvas({
             }}
             className="paper-shadow relative mb-4 shrink-0"
             style={{ width: w, height: h, background: page.background }}
+            onPointerDownCapture={onCellPointerDownCapture}
           >
             {pageChrome(i, slices.length)}
             {renderFlow(indices, i)}
             {/* 页脚排在内容之后（打印成流时顺序才对，见 pageChrome 里的说明） */}
             {page.showFooter && labelOf(i + 1) !== '' && band(pageBand(page, 'footer'), 'foot', labelOf(i + 1), slices.length)}
+            {/* 表格覆盖层：单元格选框 + 列宽拖拽手柄（编辑态，no-print） */}
+            <TableOverlay nodeId={showChrome ? (selectedIds[0] ?? null) : null} zoom={zoom} />
           </div>
         ))}
 
