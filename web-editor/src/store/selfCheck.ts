@@ -8,6 +8,7 @@
  */
 import { Type } from 'lucide-react';
 import { getAllComponents, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
+import { COMPONENT_MODULES, collectComponents } from '../registry/components';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
 import { pageLabel, type ComponentDefinition } from '../registry/types';
 import { createInitialDocument, useEditorStore } from './editorStore';
@@ -48,6 +49,16 @@ function finish(): void {
   // eslint-disable-next-line no-console
   console.log(title, results);
   renderReport(title);
+  // 自检结果也落盘到运行目录（logs/check-YYYY-MM-DD.log）——由启动器的 /__log 写；没有接口就静默跳过
+  void log.saveReport(
+    'check',
+    [
+      `# 自检结果 ${new Date().toLocaleString()}`,
+      `# ${title}`,
+      `# URL: ${location.href}`,
+      ...results.map((r) => `${r.pass ? 'PASS' : 'FAIL'}  ${r.name}${r.note ? `  → ${r.note}` : ''}`),
+    ].join('\n'),
+  );
 }
 
 function renderReport(title: string): void {
@@ -1143,6 +1154,47 @@ async function interactionChecks(): Promise<Result[]> {
         `${audit.length} 个组件；自有属性 ${audit[0]?.own ?? 0}–${audit[audit.length - 1]?.own ?? 0} 个；` +
           `仅通用属性的 ${zero.length} 个${zero.length ? `：${zero.map((z) => z.type).join(' ')}` : ''}；` +
           `偏少(≤2)：${thin.map((t) => `${t.type}:${t.own}`).join(' ') || '无'}`,
+      );
+    }
+
+    /* ── 组件注册表由**目录自动发现**（加/改组件不再需要动框架文件）── */
+    {
+      const liveSet = new Set(getLiveTypes());
+      const discovered = collectComponents(COMPONENT_MODULES);
+      const files = Object.keys(COMPONENT_MODULES);
+      const builtins = getAllComponents().filter((d) => !d.type.startsWith('__') && !liveSet.has(d.type));
+      const allRegistered = discovered.every((d) => getComponent(d.type)?.type === d.type);
+      add(
+        '组件注册表由目录自动发现（新增/删除组件无需改框架清单）',
+        discovered.length > 0 && builtins.length === discovered.length && allRegistered && files.every((f) => f.endsWith('.tsx')),
+        `目录发现 ${files.length} 个 .tsx → ${discovered.length} 个组件定义；注册表中内建 ${builtins.length} 个（一致=${builtins.length === discovered.length}）、全部已注册=${allRegistered}`,
+      );
+    }
+
+    /* ── 日志/诊断落盘到**运行目录**（启动器提供 /__log；否则如实退回 localStorage）── */
+    {
+      const info = log.remoteInfo();
+      const saved = await log.flushRemote();
+      const httpLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+      const ok = info.enabled ? !!saved?.ok && (saved.bytes ?? 0) > 0 : !httpLocal;
+      add(
+        '日志落盘到运行目录（启动器 /__log；无接口时如实退回本地存储）',
+        ok,
+        info.enabled
+          ? `已落盘：${saved?.file ?? info.file}（${saved?.bytes ?? 0} 字节）`
+          : `未启用（页面来自 ${location.protocol}${location.host}，无 /__log 接口）→ 退回 localStorage；本轮按"非启动器托管"判定`,
+      );
+      const report = buildDiagnosticReport();
+      add(
+        '诊断报告包含「日志落盘」段与路径',
+        report.includes('【日志落盘】') && report.includes(info.dir || '—'),
+        `报告 ${report.length} 字符，含落盘段=${report.includes('【日志落盘】')}，路径=${info.dir || '(未启用)'}`,
+      );
+      const rep = info.enabled ? await log.saveReport('diagnostic', report) : null;
+      add(
+        '诊断报告可写入运行目录（logs/diagnostic-*.log）',
+        info.enabled ? !!rep?.ok && (rep.bytes ?? 0) > 0 : !httpLocal,
+        info.enabled ? `已写入 ${rep?.file}（${rep?.bytes} 字节）` : `未启用（页面来自 ${location.protocol}${location.host}）`,
       );
     }
   } else {

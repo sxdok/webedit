@@ -29,6 +29,14 @@ const levelParam = params.get('log');
 if (levelParam === 'debug' || levelParam === 'info' || levelParam === 'warn' || levelParam === 'error') {
   log.setLevel(levelParam as LogLevel);
 }
+// 落盘探测：启动器托管时日志/诊断写到「运行目录/logs/」，否则退回 localStorage（如实记一条）
+void log.initRemote().then((ok) => {
+  const info = log.remoteInfo();
+  log.info('boot', ok ? '日志落盘已启用（写入运行目录）' : '日志落盘未启用，退回浏览器本地存储', {
+    目录: info.dir || '(无 /__log 接口)',
+    文件: info.file || '-',
+  });
+});
 log.info('boot', '编辑器启动', {
   恢复历史日志: restored,
   日志级别: log.getLevel(),

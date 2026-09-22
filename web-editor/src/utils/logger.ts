@@ -3,6 +3,9 @@
  *   · 分级（debug/info/warn/error）+ 作用域 + 结构化数据，带时间戳；
  *   · 内存环形缓冲（默认 500 条，可订阅）；
  *   · 关键级别落 localStorage（默认保留尾部 200 条）——刷新/崩溃后仍能拿到现场；
+ *   · **落盘到运行目录**：启动器（启动编辑器.py）提供 `/__log`，日志按天追加到
+ *     `<运行目录>/logs/editor-YYYY-MM-DD.log`；没有该接口（file:// 或别的静态服务器）时
+ *     自动退回 localStorage 并在诊断报告里如实标注；
  *   · 捕获 window.onerror / unhandledrejection；
  *   · dump() 输出可直接粘给他人定位问题的文本报告。
  * 用法：log.info('store', 'setMode', { mode })、log.action('addComponent', {...})、log.error(...)
@@ -74,6 +77,99 @@ function persistTail(): void {
   }
 }
 
+/* ══════════════ 落盘到运行目录（启动器的 /__log） ══════════════ */
+
+const REMOTE_INFO_URL = '/__loginfo';
+const REMOTE_POST_URL = '/__log';
+const FLUSH_MS = 1200;
+const MAX_QUEUE = 400;
+
+export interface RemoteInfo {
+  /** 是否由启动器托管（有 /__log 接口） */
+  enabled: boolean;
+  /** 运行目录下的日志目录 */
+  dir: string;
+  /** 今天的文件名 */
+  file: string;
+  /** 还没送出去的行数 */
+  pending: number;
+  /** 是否曾经落盘失败并已退回本地存储 */
+  failed: boolean;
+}
+
+export interface RemoteResult {
+  ok: boolean;
+  file: string;
+  bytes: number;
+  count: number;
+}
+
+let remoteEnabled = false;
+let remoteDir = '';
+let remoteFile = '';
+let remoteFailed = false;
+let flushTimer: number | null = null;
+const outbox: string[] = [];
+
+function formatEntry(e: LogEntry): string {
+  const d = new Date(e.t);
+  const p = (n: number, w = 2) => String(n).padStart(w, '0');
+  // ★本地时间：日志文件用 UTC 会与文件时间戳差时区（曾被自己抓到差 8 小时）
+  const ts =
+    `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ` +
+    `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+  const data = stringifyData(e.data);
+  return `${ts} ${e.level.toUpperCase().padEnd(5)} [${e.scope}] ${e.msg}${data ? '  ' + data : ''}`;
+}
+
+async function postLog(kind: string, lines: string[]): Promise<RemoteResult | null> {
+  if (!remoteEnabled || !lines.length) return null;
+  try {
+    const res = await fetch(REMOTE_POST_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, lines }),
+      keepalive: true,
+    });
+    const json = (await res.json()) as RemoteResult & { error?: string };
+    if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
+    remoteFile = json.file;
+    return json;
+  } catch (e) {
+    remoteFailed = true;
+    remoteEnabled = false; // 不再反复重试，避免每次日志都打网络
+    console.warn('[logger] 日志落盘失败，已退回浏览器本地存储', e);
+    return null;
+  }
+}
+
+function scheduleFlush(): void {
+  if (flushTimer != null || !remoteEnabled) return;
+  flushTimer = window.setTimeout(() => {
+    flushTimer = null;
+    const lines = outbox.splice(0, outbox.length);
+    void postLog('editor', lines);
+  }, FLUSH_MS);
+}
+
+/** 启动时探测一次：由启动器托管才启用落盘 */
+async function initRemote(): Promise<boolean> {
+  if (typeof fetch !== 'function' || typeof location === 'undefined') return false;
+  if (!/^https?:$/.test(location.protocol)) return false; // file:// 没有接口
+  try {
+    const res = await fetch(REMOTE_INFO_URL, { cache: 'no-store' });
+    if (!res.ok) return false;
+    const j = (await res.json()) as { enabled?: boolean; dir?: string; today?: string };
+    if (!j?.enabled) return false;
+    remoteEnabled = true;
+    remoteDir = j.dir ?? '';
+    remoteFile = j.today ?? '';
+    return true;
+  } catch {
+    return false; // 别的静态服务器：/__loginfo 可能是 HTML 或 404
+  }
+}
+
 function emit(level: LogLevel, scope: string, msg: string, data?: unknown): void {
   const entry: LogEntry = { t: Date.now(), level, scope, msg, data: data === undefined ? undefined : summarize(data) };
   buffer.push(entry);
@@ -88,6 +184,12 @@ function emit(level: LogLevel, scope: string, msg: string, data?: unknown): void
     else console.debug(tag, ...payload);
   }
   if (LEVEL_WEIGHT[level] >= LEVEL_WEIGHT.warn) persistTail();
+  // 落盘：debug 只在把级别调到 debug 时也一起写，避免文件被调试噪声淹没
+  if (remoteEnabled && LEVEL_WEIGHT[level] >= LEVEL_WEIGHT[minLevel === 'debug' ? 'debug' : 'info']) {
+    outbox.push(formatEntry(entry));
+    if (outbox.length > MAX_QUEUE) outbox.splice(0, outbox.length - MAX_QUEUE);
+    scheduleFlush();
+  }
   listeners.forEach((fn) => {
     try {
       fn(entry);
@@ -138,6 +240,30 @@ export const log = {
     emit('info', 'logger', `日志级别设为 ${l}`);
   },
   getLevel: (): LogLevel => minLevel,
+
+  /* ── 落盘到运行目录（启动器的 /__log；不可用时退回 localStorage） ── */
+  initRemote,
+  remoteInfo: (): RemoteInfo => ({
+    enabled: remoteEnabled,
+    dir: remoteDir,
+    file: remoteFile,
+    pending: outbox.length,
+    failed: remoteFailed,
+  }),
+  /** 立刻把待写队列刷到运行目录的 editor 日志；返回落盘结果（未启用时返回 null）
+   *  ★只写 editor：以前允许传 kind，结果把普通日志刷进了 check-*.log（自检结果反而没落盘）。 */
+  async flushRemote(): Promise<RemoteResult | null> {
+    if (flushTimer != null) {
+      window.clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    const lines = outbox.splice(0, outbox.length);
+    return postLog('editor', lines);
+  },
+  /** 把一段文本（如诊断报告）单独写成一个文件条目 */
+  async saveReport(kind: 'diagnostic' | 'check', text: string): Promise<RemoteResult | null> {
+    return postLog(kind, text.split('\n'));
+  },
 
   /** 从 localStorage 恢复上次会话尾部的日志（崩溃后仍能看到现场） */
   restorePersisted(): number {
@@ -194,7 +320,10 @@ export function installGlobalDiagnostics(): () => void {
       stack: r instanceof Error ? r.stack?.split('\n').slice(0, 6).join('\n') : undefined,
     });
   };
-  const onBeforeUnload = () => persistTail();
+  const onBeforeUnload = () => {
+    persistTail();
+    void log.flushRemote(); // keepalive 提交，尽量把最后的日志留下
+  };
 
   window.addEventListener('error', onError);
   window.addEventListener('unhandledrejection', onRejection);

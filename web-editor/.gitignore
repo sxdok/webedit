@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .vite/
+__pycache__/
+*.pyc
+# 日志/诊断落盘目录（运行时产物，按天生成，不进版本库）
+logs/

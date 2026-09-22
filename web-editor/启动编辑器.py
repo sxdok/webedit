@@ -16,8 +16,16 @@
     -b, --build       启动前先构建（npm run build）
     -q, --no-browser  不自动打开浏览器
     -c, --check       打开 ?check=1（自检报告渲染在页面右下角）
+
+日志/诊断：
+    前端日志与诊断报告会 POST 到本服务的 **/__log**，按天追加到**运行目录**下的
+    `logs/editor-YYYY-MM-DD.log`（诊断报告写到 `logs/diagnostic-*.log`，本服务自身的访问/错误
+    日志写到 `logs/server-*.log`）。`GET /__loginfo` 可查当前目录与文件大小。
+    直接双击 dist/index.html（file://）或换用别的静态服务器时没有这个接口，
+    前端会自动退回"浏览器本地存储（localStorage visual-editor-log-v1）"并如实提示。
 """
 import argparse
+import datetime
 import http.server
 import io
 import json
@@ -34,6 +42,30 @@ import webbrowser
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIST = os.path.join(ROOT, "dist")
 INDEX = os.path.join(DIST, "index.html")
+# ★日志/诊断落盘目录：按常见软件的习惯放在**运行目录**下（这里是本脚本所在目录）
+LOG_DIR = os.path.join(ROOT, "logs")
+LOG_KINDS = ("editor", "diagnostic", "check", "server")
+MAX_BODY = 512 * 1024  # 单次写入上限，防止异常客户端把磁盘写满
+
+
+def log_path(kind: str) -> str:
+    """按天分文件：logs/editor-2026-09-23.log"""
+    day = datetime.date.today().isoformat()
+    return os.path.join(LOG_DIR, "%s-%s.log" % (kind, day))
+
+
+def append_log(kind: str, lines) -> dict:
+    """把若干行追加到运行目录的日志文件，返回文件信息"""
+    if kind not in LOG_KINDS:
+        kind = "editor"
+    os.makedirs(LOG_DIR, exist_ok=True)
+    path = log_path(kind)
+    with open(path, "a", encoding="utf-8") as f:
+        for ln in lines:
+            f.write(str(ln).rstrip("\r\n") + "\n")
+    st = os.stat(path)
+    return {"file": path, "bytes": st.st_size, "count": len(lines)}
+
 
 
 def components_dir():
@@ -100,7 +132,59 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
+        # 日志落盘信息：前端启动时探测一次，诊断报告里会显示这个路径
+        if self.path.split("?", 1)[0] == "/__loginfo":
+            files = []
+            try:
+                for f in sorted(os.listdir(LOG_DIR)):
+                    p = os.path.join(LOG_DIR, f)
+                    st = os.stat(p)
+                    files.append({"name": f, "bytes": st.st_size, "mtime": int(st.st_mtime)})
+            except OSError:
+                files = []
+            body = json.dumps(
+                {"enabled": True, "dir": LOG_DIR, "today": os.path.basename(log_path("editor")), "files": files},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
         super().do_GET()
+
+    def do_POST(self):
+        """前端日志/诊断报告落盘：POST /__log  {"kind":"editor","lines":[...]}"""
+        if self.path.split("?", 1)[0] != "/__log":
+            self.send_error(404, "not found")
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        if n <= 0 or n > MAX_BODY:
+            self.send_error(413, "bad length")
+            return
+        try:
+            payload = json.loads(self.rfile.read(n).decode("utf-8"))
+            kind = str(payload.get("kind") or "editor")
+            lines = payload.get("lines") or []
+            if isinstance(lines, str):
+                lines = lines.splitlines()
+            lines = [str(x) for x in lines][:2000]
+            info = append_log(kind, lines) if lines else {"file": log_path(kind), "bytes": 0, "count": 0}
+            body = json.dumps({"ok": True, **info}, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+        except Exception as e:  # 落盘失败要如实回错，前端会记一条 error
+            body = json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False).encode("utf-8")
+            self.send_response(500)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
 
     def send_head(self):
         raw = urllib.parse.unquote(self.path.split("?", 1)[0])
@@ -134,7 +218,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def log_message(self, fmt, *args):
-        pass  # 静默
+        # 服务自身的访问/错误也落盘到运行目录（logs/server-*.log），同时保留控制台输出
+        try:
+            append_log("server", ["%s  %s  %s" % (datetime.datetime.now().strftime("%H:%M:%S"), self.address_string(), fmt % args)])
+        except Exception:
+            pass
+        sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), fmt % args))
 
 
 def main():
@@ -155,6 +244,12 @@ def main():
     httpd.daemon_threads = True
     url = "http://127.0.0.1:%d/%s" % (port, "?check=1" if a.check else "")
 
+    if port != a.port:
+        # ★常见陷阱：上一次的启动器还开着（关窗口/Ctrl+C 之外的强杀不会带走它），
+        #   本脚本会静默换端口，于是你打开的其实是**旧版本**。这里必须说清楚。
+        print("   ⚠ 端口 %d 已被占用（很可能是上一次的启动器还开着），已改用 %d。" % (a.port, port))
+        print("     请先关掉那个旧窗口/进程，否则你看到的可能是旧版本，且 /__log 等接口也不会有。")
+
     n = 0
     try:
         n = len([f for f in os.listdir(os.path.join(ROOT, "src", "registry", "components"))
@@ -167,6 +262,7 @@ def main():
     print("   地址    : %s" % url)
     print("   产物    : %s" % DIST)
     print("   组件目录: src/registry/components/（common / document / web 共 %d 组）" % n)
+    print("   日志    : %s" % LOG_DIR)
     print("   停止    : 本窗口 Ctrl+C")
     print("   提示    : 开发模式请用 npm run dev（需要 esbuild 子进程权限）")
     print("-" * 64)

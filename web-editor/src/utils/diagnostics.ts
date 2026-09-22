@@ -83,10 +83,20 @@ function table(obj: Record<string, unknown>): string {
 /** 生成完整诊断报告文本（可直接复制给别人） */
 export function buildDiagnosticReport(): string {
   const s = snapshot();
+  const r = log.remoteInfo();
   return [
     '================ 可视化编辑器 诊断报告 ================',
     '【运行环境】',
     table(s.env),
+    '',
+    '【日志落盘】',
+    table({
+      落盘状态: r.enabled ? '启用（写入运行目录）' : r.failed ? '写入失败，已退回浏览器本地存储' : '未启用（非启动器托管）',
+      日志目录: r.dir || '—',
+      今日文件: r.file || '—',
+      待写行数: String(r.pending),
+      兜底存储: `localStorage['visual-editor-log-v1']（尾部 ${200} 条）`,
+    }),
     '',
     '【编辑器状态】',
     table(s.editor),
@@ -101,6 +111,18 @@ export function buildDiagnosticReport(): string {
     s.logs,
     '================ 报告结束 ================',
   ].join('\n');
+}
+
+/** 把诊断报告保存到运行目录（启动器的 logs/）；没有接口时退回下载 */
+export async function saveDiagnosticReportToRunDir(): Promise<{ ok: boolean; file?: string; bytes?: number }> {
+  const text = buildDiagnosticReport();
+  const r = await log.saveReport('diagnostic', text);
+  if (r?.ok) {
+    log.info('diagnostics', '诊断报告已写入运行目录', { file: r.file, bytes: r.bytes });
+    return { ok: true, file: r.file, bytes: r.bytes };
+  }
+  await copyDiagnosticReport();
+  return { ok: false };
 }
 
 /** 一键复制报告；失败时退回下载 */

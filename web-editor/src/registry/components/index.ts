@@ -1,123 +1,61 @@
 /**
- * 职责：组件注册入口。所有组件在这里统一注册——新增组件只需在 common/document/ppt/web 下写一个文件，
- *       把它的 ComponentDefinition 加进 ALL_COMPONENTS，面板与画布自动支持（supportedModes 决定出现在哪些模式）。
+ * 职责：组件注册入口 —— **按目录自动发现，不维护清单**。
  *
- * 当前清单（45 个）：
- *   通用 13：标题 / 正文段落 / 图片 / 图片并排 / 表格 / 三线表 / 两列参数表 / 明细表 / 核对表 /
- *            分割线 / 提示示意警示框 / 徽章按键标签 / 链接
- *   文档专用 18：列表 / 引用块 / 代码块 / 分栏 / 页码 / 日期 / 签名区 / 间隔块 / 脚注 / 印章 / 分页符 /
- *               封面 / 目录 / 导语 / 摘要 / 关键词 / 定义列表 / 核对清单
- *   PPT 专用 10：幻灯封面 / 要点列表 / 数据卡片 / 时间轴 / 流程步骤 / 左右对比 / 团队卡片 / 引用页 / 结束页 / 柱状图
- *   Web 专用 4：按钮 / 输入框 / 容器 / 卡片
+ * 为什么这么做（用户要求）：加/改一个组件时**只动它自己的文件**，不碰框架。
+ * 以前这里是"import 45 个组件 + 手写 ALL_COMPONENTS 数组"，加一个组件就要改这个文件，
+ * 既容易漏、又让"改组件"变成"改框架"。
+ *
+ * 现在的机制：
+ *   · `import.meta.glob` 把 `components/**\/*.tsx` 全部静态导入（eager，构建期就确定，无运行时成本）；
+ *   · 对每个模块，挑出**看起来是组件定义**的导出（有 string 的 `type` + function 的 `render`）自动注册；
+ *     所以 `tableKit.tsx` / `shared.ts` 这类工具模块不会被误注册，不需要维护排除清单；
+ *   · 文件名以 `_` 开头会被忽略（放组件私有辅助文件用）；
+ *   · 面板里的同一分类内按**文件路径字母序**排列 —— 想固定顺序就给文件名加数字前缀（如 `10-table.tsx`）。
+ *
+ * 新增组件 = 在 common/ document/ ppt/ web/ 下加一个 `.tsx`，导出 `xxxComponent: ComponentDefinition`。
+ * 外部（热加载）组件走另一条链：`public/组件/*.js` + `/__components`（见 registry/live.ts）。
  *
  * ★去重记录（功能重复的组件已合并/删除，避免"同一个能力两条路"）：
- *   · 独立「题注」组件已删除 —— 图题由 image 的 caption 属性承载，表题由 table 的 caption 属性承载
- *     （与"容器自带题注"统一，不再单列一个组件）；
- *   · 独立「富文本」组件已删除 —— paragraph 的 html 属性本身就是富文本（rich 开关控制按 HTML 还是纯文本渲染），
- *     两者是同一条渲染路径，保留 paragraph 一个入口；
- *   · 页眉页脚已是**页面属性**（不是组件）；页码/日期是否也收进页面属性见 README「未做项」的待定项。
+ *   · 独立「题注」组件已删除 —— 图题由 image 的 caption 属性承载，表题由 table 的 caption 属性承载；
+ *   · 独立「富文本」组件已删除 —— paragraph 的 html 属性本身就是富文本（rich 开关控制按 HTML 还是纯文本渲染）；
+ *   · 页眉页脚已是**页面属性**（不是组件）；页码/日期是否收进页面属性见 README「未做项」的待定项。
  */
 import { registerComponents } from '../index';
 import type { ComponentDefinition } from '../types';
+import { log } from '../../utils/logger';
 
-// 通用
-import { headingComponent } from './common/heading';
-import { paragraphComponent } from './common/paragraph';
-import { imageComponent } from './common/image';
-import { imagePairComponent } from './common/imagePair';
-import { tableComponent } from './common/table';
-import { checkTableComponent, detailTableComponent, paramTableComponent, threeLineTableComponent } from './common/tablePreset';
-import { dividerComponent } from './common/divider';
-import { calloutComponent } from './common/callout';
-import { badgeComponent } from './common/badge';
-import { linkComponent } from './common/link';
-// 文档专用
-import { listComponent } from './document/list';
-import { quoteComponent } from './document/quote';
-import { codeComponent } from './document/code';
-import { columnsComponent } from './document/columns';
-import { pageNumberComponent } from './document/pageNumber';
-import { dateComponent } from './document/dateField';
-import { signatureComponent } from './document/signature';
-import { spacerComponent } from './document/spacer';
-import { footnoteComponent } from './document/footnote';
-import { stampComponent } from './document/stamp';
-import { pageBreakComponent } from './document/pageBreak';
-import { coverComponent } from './document/cover';
-import { tocComponent } from './document/toc';
-import { leadComponent } from './document/lead';
-import { abstractComponent } from './document/abstract';
-import { keywordsComponent } from './document/keywords';
-import { defListComponent } from './document/defList';
-import { checkListComponent } from './document/checkList';
-// PPT 专用
-import { slideTitleComponent } from './ppt/slideTitle';
-import { bulletsComponent } from './ppt/bullets';
-import { kpiCardsComponent } from './ppt/kpiCards';
-import { timelineComponent } from './ppt/timeline';
-import { processComponent } from './ppt/process';
-import { compareComponent } from './ppt/compare';
-import { teamComponent } from './ppt/team';
-import { quoteSlideComponent } from './ppt/quoteSlide';
-import { endSlideComponent } from './ppt/endSlide';
-import { chartBarComponent } from './ppt/chartBar';
-// Web 专用
-import { buttonComponent } from './web/button';
-import { inputComponent } from './web/input';
-import { containerComponent } from './web/container';
-import { cardComponent } from './web/card';
+/** 判定"这个导出是不是一个组件定义"（够用且宽松：type 是字符串 + render 是函数） */
+function isComponentDefinition(v: unknown): v is ComponentDefinition {
+  if (!v || typeof v !== 'object') return false;
+  const d = v as Record<string, unknown>;
+  return typeof d.type === 'string' && d.type !== '' && typeof d.render === 'function';
+}
 
-export const ALL_COMPONENTS: ComponentDefinition[] = [
-  // 通用（两种模式）
-  headingComponent,
-  paragraphComponent,
-  imageComponent,
-  imagePairComponent,
-  tableComponent,
-  threeLineTableComponent,
-  paramTableComponent,
-  detailTableComponent,
-  checkTableComponent,
-  dividerComponent,
-  calloutComponent,
-  badgeComponent,
-  linkComponent,
-  // 文档专用
-  listComponent,
-  quoteComponent,
-  codeComponent,
-  columnsComponent,
-  pageNumberComponent,
-  dateComponent,
-  signatureComponent,
-  spacerComponent,
-  footnoteComponent,
-  stampComponent,
-  pageBreakComponent,
-  coverComponent,
-  tocComponent,
-  leadComponent,
-  abstractComponent,
-  keywordsComponent,
-  defListComponent,
-  checkListComponent,
-  // PPT 专用
-  slideTitleComponent,
-  bulletsComponent,
-  kpiCardsComponent,
-  timelineComponent,
-  processComponent,
-  compareComponent,
-  teamComponent,
-  quoteSlideComponent,
-  endSlideComponent,
-  chartBarComponent,
-  // Web 专用
-  buttonComponent,
-  inputComponent,
-  containerComponent,
-  cardComponent,
-];
+/** 目录里发现的所有组件模块（自检用它证明"注册表由目录驱动"，而不是手写清单） */
+export const COMPONENT_MODULES: Record<string, unknown> = import.meta.glob('./**/*.tsx', {
+  eager: true,
+  import: '*',
+});
+
+/** 从模块集合里挑出全部组件定义（保持 glob 的文件路径顺序，便于定位） */
+export function collectComponents(modules: Record<string, unknown>): ComponentDefinition[] {
+  const out: ComponentDefinition[] = [];
+  for (const [path, mod] of Object.entries(modules)) {
+    const file = path.split('/').pop() ?? path;
+    if (file.startsWith('_')) continue; // 组件私有辅助文件
+    const found = Object.values(mod as Record<string, unknown>).filter(isComponentDefinition);
+    if (found.length === 0) {
+      // 工具模块（如 tableKit.tsx）本来就不导出组件定义，属正常；用 debug 级别留痕、不刷警告。
+      // 想彻底跳过：文件名以 `_` 开头。
+      log.debug('registry', `组件目录里的文件没有导出组件定义（按工具模块跳过）：${path}`);
+      continue;
+    }
+    out.push(...found);
+  }
+  return out;
+}
+
+export const ALL_COMPONENTS: ComponentDefinition[] = collectComponents(COMPONENT_MODULES);
 
 export function registerAllComponents(): void {
   registerComponents(ALL_COMPONENTS);

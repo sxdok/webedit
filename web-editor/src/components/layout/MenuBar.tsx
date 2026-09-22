@@ -20,6 +20,7 @@ import {
 import { flatten } from '../../store/treeUtils';
 import { downloadText, pickTextFile } from '../../utils/download';
 import { log } from '../../utils/logger';
+import { saveDiagnosticReportToRunDir } from '../../utils/diagnostics';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { fitZoom } from '../canvas/fitZoom';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
@@ -190,6 +191,16 @@ export function MenuBar() {
       },
     },
     { key: 'logdump', label: '下载日志文件', onClick: () => downloadText(`editor-log-${Date.now()}.txt`, log.dump(), 'text/plain') },
+    {
+      key: 'saverun',
+      label: '保存诊断报告到运行目录',
+      onClick: () => {
+        void saveDiagnosticReportToRunDir().then((r) => {
+          if (r.ok) window.alert(`诊断报告已写入运行目录：\n${r.file}\n（${r.bytes} 字节）`);
+          else window.alert('没有 /__log 接口（不是启动器托管）：已改为复制到剪贴板 / 下载。');
+        });
+      },
+    },
     { key: 'about', label: '关于：布局参照 Qt Designer，双模式可视化编辑器', disabled: true },
   ];
 

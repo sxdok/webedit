@@ -1,0 +1,11 @@
+PASS=86 FAIL=0 pages=3
+  check: 86/86 全部通过
+     PASS 默认进入文档模式 → document
+  PASS 组件注册表由目录自动发现（新增/删除组件无需改框架清单） → 目录发现 43 个 .tsx → 45 个组件定义；注
+     册表中内建 45 个（一致=true）、全部已注册=true
+  PASS 日志落盘到运行目录（启动器 /__log；无接口时如实退回本地存储） → 已落盘：E:\可视化编辑器\web-
+     editor\logs\editor-2026-09-23.log（28192 字节）
+  PASS 诊断报告包含「日志落盘」段与路径 → 报告 42565 字符，含落盘段=true，路径=E:\可视化编辑器\web-
+     editor\logs
+  PASS 诊断报告可写入运行目录（logs/diagnostic-*.log） → 已写入 E:\可视化编辑器\web-
+     editor\logs\diagnostic-2026-09-23.log（49742 字节）
