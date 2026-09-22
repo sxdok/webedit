@@ -2,7 +2,15 @@
  * 职责：未选中组件时的「页面属性」（文档模式）：纸张尺寸、方向、页边距、背景色、默认字体与行距。
  * 只读写 store 的 document.page，不涉及具体组件。
  */
-import { PAGE_SIZES, pageBand, type PageBandConfig, type PageSizeKey } from '../../registry/types';
+import {
+  PAGE_SIZES,
+  pageBand,
+  pageLabel,
+  pageNumbering,
+  type PageBandConfig,
+  type PageNumberingConfig,
+  type PageSizeKey,
+} from '../../registry/types';
 import { useEditorStore } from '../../store/editorStore';
 
 const rowCls = 'mb-2 flex items-center gap-2';
@@ -136,6 +144,9 @@ export function PagePropertyPanel() {
   const foot = pageBand(page, 'footer');
   const setBand = (which: 'header' | 'footer', patch: Partial<PageBandConfig>) =>
     setPageProp(which, { ...(which === 'header' ? head : foot), ...patch });
+  // 三段式页码：numbering 是嵌套对象，整块替换（setPageProp 是浅合并）
+  const numbering = pageNumbering(page);
+  const setNumbering = (patch: Partial<PageNumberingConfig>) => setPageProp('numbering', { ...numbering, ...patch });
 
   return (
     <div className="px-3 py-2">
@@ -223,6 +234,49 @@ export function PagePropertyPanel() {
         <p className="text-2xs leading-relaxed text-gray-400">
           内容超出纸张版心会自动排到下一页；要在这里手动换页就先选中某个组件、再从左侧「文档专用 →
           分页符」双击插入到指定位置。
+        </p>
+      </div>
+
+      {/* 三段式页码（对齐 A4 编辑器的分节编号：封面无页码 → 目录罗马数字 → 正文阿拉伯数字） */}
+      <div className="mb-3 rounded border border-line px-2 py-1.5">
+        <div className="mb-1 flex items-center justify-between text-2xs text-gray-500">
+          <span>分节页码（三段式）</span>
+          <span className="truncate text-primary" title="前几页的实际显示效果">
+            {Array.from({ length: Math.min(pageCount, 5) }, (_, i) => pageLabel(i + 1, numbering) || '无').join(' · ')}
+            {pageCount > 5 ? ' …' : ''}
+          </span>
+        </div>
+        <label className="mb-1 flex items-center justify-between text-2xs text-gray-500">
+          <span>首页（封面）不显示页码</span>
+          <input
+            type="checkbox"
+            checked={numbering.hideFirstPage}
+            onChange={(e) => setNumbering({ hideFirstPage: e.target.checked })}
+          />
+        </label>
+        <div className="mb-1 flex items-center gap-2 text-2xs text-gray-500">
+          <span className="w-28 shrink-0">目录页数（罗马数字）</span>
+          <input
+            type="number"
+            min={0}
+            max={20}
+            className="h-6 w-12 shrink-0 rounded border border-line bg-white px-1 text-center text-xs"
+            value={numbering.frontMatterPages}
+            onChange={(e) => setNumbering({ frontMatterPages: Math.max(0, Number(e.target.value) || 0) })}
+          />
+          <span className="w-20 shrink-0 text-right">正文起始页</span>
+          <input
+            type="number"
+            min={1}
+            max={999}
+            className="h-6 w-12 shrink-0 rounded border border-line bg-white px-1 text-center text-xs"
+            value={numbering.bodyStartPage}
+            onChange={(e) => setNumbering({ bodyStartPage: Math.max(1, Number(e.target.value) || 1) })}
+          />
+        </div>
+        <p className="text-2xs leading-relaxed text-gray-400">
+          例：首页不显示 + 目录 1 页 + 正文起始 1 → 封面无、第 2 页 I、第 3 页起 1、2、3…；
+          {`{page}`} 会换成这里算出的页码。不显示页码的页，其页眉/页脚整块不渲染（同 Word「首页不同」）。
         </p>
       </div>
 

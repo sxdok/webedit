@@ -9,7 +9,7 @@
 import { Type } from 'lucide-react';
 import { getAllComponents, getComponent, getComponentsByMode, registerComponent } from '../registry';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
-import type { ComponentDefinition } from '../registry/types';
+import { pageLabel, type ComponentDefinition } from '../registry/types';
 import { createInitialDocument, useEditorStore } from './editorStore';
 import { HISTORY_LIMIT } from './history';
 import { mmToPx } from '../utils/units';
@@ -558,6 +558,40 @@ async function interactionChecks(): Promise<Result[]> {
     /第 1 页 \/ 共 \d+ 页/.test(footText) && /\d{4}-\d{2}-\d{2}/.test(footText) && footText.includes('誉创'),
     footText || '未渲染页脚',
   );
+
+  /* ── 三段式页码：封面无页码 / 目录罗马数字 / 正文阿拉伯数字（合入自 A4 编辑器）── */
+  const SEC = { hideFirstPage: true, frontMatterPages: 1, bodyStartPage: 1 };
+  add(
+    '三段式页码计算（封面空 / 目录罗马 / 正文阿拉伯）',
+    pageLabel(1, SEC) === '' &&
+      pageLabel(2, SEC) === 'I' &&
+      pageLabel(3, SEC) === '1' &&
+      pageLabel(4, SEC) === '2' &&
+      pageLabel(1, { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 }) === '1',
+    `封面「${pageLabel(1, SEC)}」/ 第2页「${pageLabel(2, SEC)}」/ 第3页「${pageLabel(3, SEC)}」/ 第4页「${pageLabel(4, SEC)}」`,
+  );
+
+  // 端到端：造多页文档 → 首页页脚整块不渲染、第 2 页 I、第 3 页 1
+  S().clearAll();
+  for (let i = 0; i < 12; i++) {
+    const pid = S().addComponent('paragraph');
+    if (pid) S().updateProps(pid, { html: `三段式页码自检：把内容推到多页的示例文字。`.repeat(12) });
+  }
+  S().setPageProp('numbering', SEC);
+  await wait(620);
+  const papers3 = document.querySelectorAll('[data-paper]');
+  const footAt = (i: number) =>
+    ((papers3[i]?.querySelector('.page-foot')?.textContent ?? '') as string).replace(/\s+/g, ' ').trim();
+  const f1 = footAt(0);
+  const f2 = footAt(1);
+  const f3 = footAt(2);
+  add(
+    '三段式页码端到端（封面无页脚 / 第2页 I / 第3页 1）',
+    papers3.length >= 3 && f1 === '' && /第 I 页/.test(f2) && /第 1 页/.test(f3),
+    `${papers3.length} 页：首页「${f1}」/ 第2页「${f2}」/ 第3页「${f3}」`,
+  );
+  S().setPageProp('numbering', { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 });
+  await wait(200);
 
   /* ── 分页：分页符 / 上下边距计入高度 / 点空白回页面属性 ── */
   S().setMode('document');

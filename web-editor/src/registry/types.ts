@@ -67,6 +67,73 @@ export interface DocumentPageConfig {
   header: PageBandConfig;
   /** 页脚区域（页面属性） */
   footer: PageBandConfig;
+  /** 三段式页码（封面无页码 → 目录罗马数字 → 正文阿拉伯数字），对齐 A4 编辑器 #selftest 的"三段式页码" */
+  numbering: PageNumberingConfig;
+}
+
+/* ══════════════ 三段式页码 ══════════════ */
+
+export interface PageNumberingConfig {
+  /** 首页（封面）不显示页码 */
+  hideFirstPage: boolean;
+  /** 封面之后、按罗马数字编号的页数（目录节） */
+  frontMatterPages: number;
+  /** 正文节从第几页开始计数 */
+  bodyStartPage: number;
+}
+
+/** 读取页码分节配置（兼容旧文档：老数据没有这个字段） */
+export function pageNumbering(page: DocumentPageConfig): PageNumberingConfig {
+  const raw = (page as unknown as Record<string, unknown>).numbering as Partial<PageNumberingConfig> | undefined;
+  return { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1, ...(raw ?? {}) };
+}
+
+const ROMAN_TABLE: [number, string][] = [
+  [1000, 'M'],
+  [900, 'CM'],
+  [500, 'D'],
+  [400, 'CD'],
+  [100, 'C'],
+  [90, 'XC'],
+  [50, 'L'],
+  [40, 'XL'],
+  [10, 'X'],
+  [9, 'IX'],
+  [5, 'V'],
+  [4, 'IV'],
+  [1, 'I'],
+];
+
+export function toRoman(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '';
+  let v = Math.floor(n);
+  let out = '';
+  for (const [num, sym] of ROMAN_TABLE) {
+    while (v >= num) {
+      out += sym;
+      v -= num;
+    }
+  }
+  return out;
+}
+
+/**
+ * 物理第 index 页（1 基）应显示的页码文字。返回空串表示该页不显示页码。
+ * 规则（与 Word 的分节编号一致）：
+ *   ① hideFirstPage 时第 1 页（封面）不显示；
+ *   ② 封面之后 frontMatterPages 页用罗马数字（I、II…）；
+ *   ③ 其余为正文，从 bodyStartPage 开始按阿拉伯数字连续编号。
+ */
+export function pageLabel(index: number, cfg: PageNumberingConfig): string {
+  const front = Math.max(0, Math.floor(cfg.frontMatterPages || 0));
+  const coverOffset = cfg.hideFirstPage ? 1 : 0;
+  if (cfg.hideFirstPage && index <= 1) return '';
+  const bodyStartIndex = 1 + coverOffset + front;
+  if (index >= bodyStartIndex) {
+    const start = Math.max(1, Math.floor(cfg.bodyStartPage || 1));
+    return String(index - bodyStartIndex + start);
+  }
+  return toRoman(index - coverOffset);
 }
 
 /** 读取页眉/页脚配置（兼容旧文档：老数据没有这两个字段） */
@@ -84,8 +151,8 @@ export function pageBand(page: DocumentPageConfig, which: 'header' | 'footer'): 
   return raw ? { ...fallback, ...raw } : fallback;
 }
 
-/** 页眉/页脚变量替换 */
-export function fillBandTokens(text: string, page: number, total: number): string {
+/** 页眉/页脚变量替换（page 可以是数字，也可以是分节计算后的页码文字，如罗马数字） */
+export function fillBandTokens(text: string, page: number | string, total: number | string): string {
   const d = new Date();
   const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return text
@@ -267,6 +334,7 @@ export function createDefaultPageConfig(): DocumentPageConfig {
       showBorder: true,
       offset: 12.7,
     },
+    numbering: { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 },
   };
 }
 

@@ -8,6 +8,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   fillBandTokens,
   pageBand,
+  pageLabel,
+  pageNumbering,
   type ComponentNode,
   type DocumentPageConfig,
   type PageBandConfig,
@@ -226,8 +228,9 @@ export function PaperCanvas({
     </div>
   );
 
-  /** 页眉/页脚：页面级设置（读页面配置，支持 {page}/{total}/{date} 变量，左/中/右三段） */
-  const band = (cfg: PageBandConfig, place: 'head' | 'foot', pageNo: number, total: number) => (
+  /** 页眉/页脚：页面级设置（读页面配置，支持 {page}/{total}/{date} 变量，左/中/右三段）
+   *  pageText 是"分节计算后的页码文字"（可能是罗马数字，也可能是空串=该页不显示页码） */
+  const band = (cfg: PageBandConfig, place: 'head' | 'foot', pageText: string, total: number) => (
     <div
       className={`page-${place} absolute ${
         cfg.showBorder ? (place === 'head' ? 'border-b border-gray-300' : 'border-t border-dashed border-gray-300') : ''
@@ -244,11 +247,15 @@ export function PaperCanvas({
         gap: 12,
       }}
     >
-      <span style={{ flex: 1, textAlign: 'left' }}>{fillBandTokens(cfg.left, pageNo, total)}</span>
-      <span style={{ flex: 1, textAlign: 'center' }}>{fillBandTokens(cfg.center, pageNo, total)}</span>
-      <span style={{ flex: 1, textAlign: 'right' }}>{fillBandTokens(cfg.right, pageNo, total)}</span>
+      <span style={{ flex: 1, textAlign: 'left' }}>{fillBandTokens(cfg.left, pageText, total)}</span>
+      <span style={{ flex: 1, textAlign: 'center' }}>{fillBandTokens(cfg.center, pageText, total)}</span>
+      <span style={{ flex: 1, textAlign: 'right' }}>{fillBandTokens(cfg.right, pageText, total)}</span>
     </div>
   );
+
+  /** 三段式页码：物理第 i 页 → 该页应显示的页码文字（空串 = 不显示，如封面） */
+  const numbering = pageNumbering(page);
+  const labelOf = (i: number) => pageLabel(i, numbering);
 
   const pageChrome = (pageNo: number, total: number) => (
     <>
@@ -262,7 +269,8 @@ export function PaperCanvas({
           <div className="no-print pointer-events-none absolute border-t border-dashed border-primary/20" style={{ left: 0, top: h - pad.bottom, width: w }} />
         </>
       )}
-      {page.showHeader && band(pageBand(page, 'header'), 'head', pageNo, total)}
+      {/* 页码为空（如封面）时整块页眉/页脚不渲染，等同 Word 的"首页不同"，避免出现"第  页 / 共 N 页" */}
+      {page.showHeader && labelOf(pageNo) !== '' && band(pageBand(page, 'header'), 'head', labelOf(pageNo), total)}
       {/* ★页脚必须排在"内容"之后：屏幕上它是绝对定位看不出差别，
           但打印时会被退化成普通流，写在内容前就会印到标题上面（用户反馈过）。 */}
     </>
@@ -320,7 +328,7 @@ export function PaperCanvas({
             {pageChrome(i, slices.length)}
             {renderFlow(indices, i)}
             {/* 页脚排在内容之后（打印成流时顺序才对，见 pageChrome 里的说明） */}
-            {page.showFooter && band(pageBand(page, 'footer'), 'foot', i + 1, slices.length)}
+            {page.showFooter && labelOf(i + 1) !== '' && band(pageBand(page, 'footer'), 'foot', labelOf(i + 1), slices.length)}
           </div>
         ))}
 

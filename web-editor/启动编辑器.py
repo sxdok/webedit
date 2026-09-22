@@ -85,7 +85,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*a, directory=DIST, **kw)
 
     def do_GET(self):
-        # 外部（热加载）组件清单：dist/组件/*.js
+        # 外部（热加载）组件清单：components_dir()/*.js（优先 public/组件，即源目录）
         if self.path.split("?", 1)[0] == "/__components":
             d = components_dir()
             try:
