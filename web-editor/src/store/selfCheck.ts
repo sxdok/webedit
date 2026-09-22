@@ -1191,19 +1191,22 @@ async function interactionChecks(): Promise<Result[]> {
 
     /* ── 说明默认隐藏、悬停弹气泡（不是原生 title）──
        触发点在 Tooltip 的包装元素上（[data-tip]）；宽行式属性的 [data-prop-label] 是它的父节点，
-       往父节点派发事件不会冒泡到子节点，所以必须打在包装元素上。 */
+       往父节点派发事件不会冒泡到子节点，所以必须打在包装元素上。
+       规格：延迟 400ms 弹出、深色底 rgba(0,0,0,.82)、内容含 中文名 + key + 默认值。 */
     {
       const label = document.querySelector('[data-prop-label="1"]') as HTMLElement | null;
       const trigger = (label?.querySelector('[data-tip="1"]') as HTMLElement | null) ?? label;
       const txt = (label?.textContent ?? '').trim();
       const hidden = !!label && !txt.includes('（') && !txt.includes('每行一条');
       trigger?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-      await wait(160);
+      await wait(560); // > 400ms 延迟
       const tip = document.querySelector('[data-tooltip="1"]') as HTMLElement | null;
+      const tipText = tip?.textContent ?? '';
+      const dark = tip ? getComputedStyle(tip).backgroundColor : '';
       add(
-        '属性说明默认隐藏、鼠标悬停弹气泡（不走原生 title）',
-        hidden && !!tip && (tip.textContent ?? '').includes('每行一条'),
-        `属性名只显示=「${txt}」；气泡=${tip ? `「${tip.textContent}」` : '未弹出'}`,
+        '属性说明默认隐藏、悬停弹气泡（400ms 延迟 / 深色底 / 含 key 与默认值，不走原生 title）',
+        hidden && !!tip && tipText.includes('每行一条') && tipText.includes('data') && tipText.includes('默认值') && dark === 'rgba(0, 0, 0, 0.82)',
+        `属性名只显示=「${txt}」；气泡=${tip ? `「${tipText}」底色 ${dark}` : '未弹出'}`,
       );
       trigger?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
       await wait(80);

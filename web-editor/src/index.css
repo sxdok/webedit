@@ -289,3 +289,16 @@ html[data-theme='monokai'] .zoom-pill {
 html[data-theme='monokai'] .zoom-pill button:hover {
   background: #3e3d32;
 }
+
+/* ══════════ 右侧属性编辑器（Qt Designer 风格）：行/分组样式 ══════════
+   规格：行高 28px、左列 96px 属性名、悬停整行 #f2f4f7、改动后闪 #e6f4ff(150ms)、
+        分组标题高 26px、底色 #eef0f3。深色主题给对应覆盖，避免依赖工具类重映射。 */
+.prop-row { border-radius: 4px; transition: background-color .12s ease; }
+.prop-row:hover { background: #f2f4f7; }
+.prop-row-flash { background: #e6f4ff !important; }
+.prop-group-head { height: 26px; background: #eef0f3; }
+.prop-group-head:hover { background: #e6e9ee; }
+[data-theme='monokai'] .prop-row:hover { background: #2f3129; }
+[data-theme='monokai'] .prop-row-flash { background: #24405e !important; }
+[data-theme='monokai'] .prop-group-head { background: #34352c; }
+[data-theme='monokai'] .prop-group-head:hover { background: #3e3d32; }

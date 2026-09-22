@@ -5,14 +5,14 @@
  * 面板代码不感知任何具体组件字段（§四）。
  */
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Layers, Search } from 'lucide-react';
+import { Copy, Layers, Search } from 'lucide-react';
 import { getComponent } from '../../registry';
 import type { ComponentNode, PropSchemaItem, RenderContext } from '../../registry/types';
 import { selectMode, selectPrimarySelected, useEditorStore } from '../../store/editorStore';
 import { PropertyControl } from '../property-controls';
 import { PagePropertyPanel } from './PagePropertyPanel';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
-import { Tooltip } from '../ui/Tooltip';
+import { PropertyGroup } from './PropertyGroup';
 
 export const GROUP_ORDER = ['表格', '单元格', '内容', '排版', '外观', '尺寸', '布局', '高级'];
 
@@ -191,32 +191,24 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
       {sections.map(([group, items]) => {
         const open = toggled[group] ?? (group === defaultOpenGroup || (group === '单元格' && cellGroupOpen));
         return (
-          <div key={group} className="mb-1.5" data-prop-group="1" data-group-name={group} data-group-open={open ? '1' : '0'}>
-            <button
-              type="button"
-              onClick={() => setToggled((s) => ({ ...s, [group]: !open }))}
-              className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
-            >
-              {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              <Tooltip text={GROUP_HINTS[group]} side="right">
-                <span className={`flex-1 ${GROUP_HINTS[group] ? 'cursor-help' : ''}`}>{group}</span>
-              </Tooltip>
-              <span className="text-2xs font-normal text-gray-400">{items.length}</span>
-            </button>
-            {open && (
-              <div className="mt-1" data-prop-list="1">
-                {items.map((item) => (
-                  <PropertyControl
-                    key={item.key}
-                    item={item}
-                    value={node.props[item.key]}
-                    nodeId={node.id}
-                    onChange={(v) => updateProps(node.id, { [item.key]: v })}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+          <PropertyGroup
+            key={group}
+            name={group}
+            count={items.length}
+            open={open}
+            hint={GROUP_HINTS[group]}
+            onToggle={() => setToggled((s) => ({ ...s, [group]: !open }))}
+          >
+            {items.map((item) => (
+              <PropertyControl
+                key={item.key}
+                item={item}
+                value={node.props[item.key]}
+                nodeId={node.id}
+                onChange={(v) => updateProps(node.id, { [item.key]: v })}
+              />
+            ))}
+          </PropertyGroup>
         );
       })}
     </div>

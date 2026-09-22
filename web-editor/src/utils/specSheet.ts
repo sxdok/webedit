@@ -14,7 +14,8 @@
  */
 import { CATEGORY_ORDER, type ComponentDefinition, type PropSchemaItem } from '../registry/types';
 import { getAllComponents } from '../registry';
-import { IMPLEMENTED_CONTROLS, isWideControl, splitLabel } from '../components/property-controls';
+import { IMPLEMENTED_CONTROLS, isWideControl } from '../components/property-controls';
+import { splitLabel } from './label';
 import { DEFAULT_OPEN_GROUP, GROUP_HINTS, GROUP_ORDER } from '../components/panels/PropertyPanel';
 
 /** 注册表统一补的通用属性（不是组件自己的属性） */

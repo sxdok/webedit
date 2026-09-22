@@ -25,7 +25,14 @@ function ComponentItem({ def }: { def: ComponentDefinition }) {
   const Icon = def.icon;
   return (
     <Tooltip
-      text={`${def.label}${def.description ? `（${def.description}）` : ''}\n${defaultSizeText(def)} · 拖到画布插入 / 双击追加`}
+      content={{
+        name: def.label,
+        keyText: def.type,
+        detail: [
+          def.description ?? '',
+          `${defaultSizeText(def)} · 拖到画布插入 / 双击追加`,
+        ].filter(Boolean),
+      }}
       side="right"
     >
     <button

@@ -1,0 +1,29 @@
+feat(web-editor): 属性编辑器按 Qt Designer 规格 阶段一（Tooltip / PropertyRow / PropertyGroup / 骨架）
+
+按「右侧属性编辑器（Qt Designer 风格 · Schema 驱动）」提示词分阶段实现，本轮只做阶段一。
+
+1) Tooltip 升到规格（§7）
+- 延迟 400ms 弹出、移出立即消失；跟随鼠标右下 12px，靠近视口边缘自动翻转
+- 深色底 rgba(0,0,0,.82)、白字、圆角 6px、内边距 8/10、最大宽 280px
+- 内容结构：中文名（粗）+ key（等宽小字）+ 说明 + 默认值 / 取值范围 / 单位
+- 仍用 position:fixed（面板是 overflow:auto，绝对定位会被裁）
+
+2) 新增 panels/PropertyRow.tsx（§3/§5）
+- 行高 28px、左列固定 96px 属性名、右列 flex-1；悬停整行 #f2f4f7；超长省略
+- 编辑反馈：值变化后整行闪 #e6f4ff 150ms
+- 行级 memo（只在该行 item/value 变化时重渲染）
+- 保留 data-prop-row / data-prop-label 标记（自检的排版审计依赖它们）
+
+3) 新增 panels/PropertyGroup.tsx（§3）
+- 标题高 26px、▶/▼ 三角、12px 半粗 #6b7280、右侧项数、点击整行折叠、悬停弹分组用途说明
+- 保留 data-prop-group / data-group-name / data-group-open / data-prop-list 标记
+
+4) PropertyPanel 改用上述两件；property-controls 的行视觉统一交给 PropertyRow；
+   splitLabel 移到 utils/label.ts（避免 面板↔控件集 循环 import）
+5) index.css 增加 .prop-row / .prop-row-flash / .prop-group-head（含 Monokai 覆盖）
+
+验证：heading 的 8 项属性（内容 2 展开 + 排版 3/外观 1/尺寸 2 折叠）截图核对；
+      自检 91/91，其中气泡断言按新规格加强为「400ms 延迟 + 深色底 + 含 key 与默认值」。
+      另在 README 记入阶段进度表、规格差距表、以及两处按架构做的偏离（Tooltip 放 ui/、控件本体气泡延后）。
+
+阶段 二~六（控件分文件与交互细化 / 抽屉与分类策略 / 表格专项 / 性能与持久化 / 验收）待确认后继续。
