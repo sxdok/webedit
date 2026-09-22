@@ -16,7 +16,7 @@ const DEFAULT_DATA: string[][] = [
 export const tableComponent: ComponentDefinition = {
   type: 'table',
   label: '表格',
-  category: '通用',
+  category: 'Excel 表格',
   supportedModes: ['document', 'web'],
   icon: TableIcon,
   description: '真实 table 元素：全框线 / 三线表 / 横线表，可设表头、斑马纹、对齐',

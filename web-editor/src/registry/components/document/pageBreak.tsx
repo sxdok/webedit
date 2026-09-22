@@ -17,7 +17,7 @@ const schema: PropSchemaItem[] = [
 export const pageBreakComponent: ComponentDefinition = {
   type: 'pageBreak',
   label: '分页符',
-  category: '文档专用',
+  category: '布局分页',
   supportedModes: ['document'],
   icon: Scissors,
   description: '强制另起一页（屏幕显示虚线标记，打印不出现）',

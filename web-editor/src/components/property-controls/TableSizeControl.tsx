@@ -16,6 +16,7 @@
 import { useEffect, useState } from 'react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
+import { mmToPx } from '../../utils/units';
 import { parseCellStyles, parseTableData, type CellStyle } from '../../registry/components/common/tableKit';
 import type { ControlProps } from './index';
 
@@ -167,6 +168,26 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     return Math.min(max, n);
   };
   const commit = () => applySize(clamp(rowInput, dim.rows, MAX_ROWS), clamp(colInput, dim.cols, MAX_COLS));
+
+  /** 列宽自适应（整表操作）：先清空列宽让浏览器按内容排版，量出实际列宽后写回百分比（短列 13mm 保底） */
+  const autofit = () => {
+    if (!nodeId) return;
+    updateProps(nodeId, { colWidths: '' });
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const table = document.querySelector(`[data-node-id="${nodeId}"] table`) as HTMLTableElement | null;
+        const firstRow = table?.rows?.[0];
+        if (!table || !firstRow || !firstRow.cells.length) return;
+        const widths = [...firstRow.cells].map((c) => c.offsetWidth);
+        const sum = widths.reduce((a, b) => a + b, 0) || table.offsetWidth;
+        if (!sum) return;
+        const minPct = (mmToPx(13) / sum) * 100;
+        const pcts = widths.map((w) => Math.max(minPct, (w / sum) * 100));
+        const total = pcts.reduce((a, b) => a + b, 0);
+        updateProps(nodeId, { colWidths: pcts.map((p) => ((p / total) * 100).toFixed(1)).join(',') });
+      }),
+    );
+  };
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       (e.target as HTMLInputElement).blur();
@@ -235,6 +256,9 @@ export function TableSizeControl({ nodeId }: ControlProps) {
         </button>
         <button type="button" data-table-del-col="1" className={btn} disabled={!range || dim.cols - colsSelected < 1} onClick={deleteColsAt}>
           删除列
+        </button>
+        <button type="button" className={`${btn} ml-auto`} title="按内容重算各列宽度（整表操作）" onClick={autofit}>
+          列宽自适应
         </button>
       </div>
 

@@ -10,7 +10,7 @@ import { Type } from 'lucide-react';
 import { getAllComponents, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
 import { COMPONENT_MODULES, collectComponents } from '../registry/components';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
-import { pageLabel, type ComponentDefinition } from '../registry/types';
+import { CATEGORY_ORDER, pageLabel, type ComponentDefinition } from '../registry/types';
 import { createInitialDocument, useEditorStore } from './editorStore';
 import { HISTORY_LIMIT } from './history';
 import { mmToPx } from '../utils/units';
@@ -955,11 +955,11 @@ async function interactionChecks(): Promise<Result[]> {
     const openNames = groupEls.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
     const listCount = document.querySelectorAll('[data-prop-list="1"]').length;
     add(
-      '属性分组默认折叠（只展开「内容」）',
-      groupEls.length >= 3 && openNames.length === 1 && openNames[0] === '内容' && listCount === 1,
+      '属性分组默认折叠（只展开「表格」组）',
+      groupEls.length >= 3 && openNames.length === 1 && openNames[0] === '表格' && listCount === 1,
       `${groupEls.length} 个分组，展开「${openNames.join('/') || '无'}」，渲染的属性列表 ${listCount} 个`,
     );
-    const target = '[data-prop-group="1"][data-group-name="外观"]';
+    const target = '[data-prop-group="1"][data-group-name="尺寸"]';
     let expandWorks = false;
     const head = document.querySelector(target) as HTMLElement | null;
     if (head) {
@@ -970,7 +970,7 @@ async function interactionChecks(): Promise<Result[]> {
       (document.querySelector(`${target} button`) as HTMLButtonElement).click();
       await wait(140);
     }
-    add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「外观」后展开=${expandWorks}`);
+    add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「尺寸」后展开=${expandWorks}`);
 
     /* ── 表格行 / 列数量：输入（回车提交）与 ＋/− 按钮都要真改数据 ──
        （自带一张 3×3 表并选中，保证面板里确实有行列数量控件） */
@@ -1157,7 +1157,41 @@ async function interactionChecks(): Promise<Result[]> {
       );
     }
 
-    /* ── 组件注册表由**目录自动发现**（加/改组件不再需要动框架文件）── */
+    /* ── 分类规范：只用约定的分类、每类都有组件（拼错分类名会静默多出一个分组）── */
+    {
+      const known = CATEGORY_ORDER as readonly string[];
+      const cats = new Map<string, number>();
+      getAllComponents()
+        .filter((d) => !d.type.startsWith('__'))
+        .forEach((d) => cats.set(d.category, (cats.get(d.category) ?? 0) + 1));
+      const unknown = [...cats.keys()].filter((c) => !known.includes(c));
+      const empty = known.filter((c) => !cats.has(c));
+      add(
+        '组件分类规范：只用约定分类，且每类都有组件',
+        unknown.length === 0 && empty.length === 0,
+        `${cats.size} 类：${[...cats.entries()].map(([c, n]) => `${c} ${n}`).join(' / ')}；未登记 ${unknown.length}${unknown.length ? `（${unknown.join(',')}）` : ''}、空分类 ${empty.length}${empty.length ? `（${empty.join(',')}）` : ''}`,
+      );
+    }
+
+    /* ── 说明默认隐藏、悬停弹气泡（不是原生 title）──
+       触发点在 Tooltip 的包装元素上（[data-tip]）；宽行式属性的 [data-prop-label] 是它的父节点，
+       往父节点派发事件不会冒泡到子节点，所以必须打在包装元素上。 */
+    {
+      const label = document.querySelector('[data-prop-label="1"]') as HTMLElement | null;
+      const trigger = (label?.querySelector('[data-tip="1"]') as HTMLElement | null) ?? label;
+      const txt = (label?.textContent ?? '').trim();
+      const hidden = !!label && !txt.includes('（') && !txt.includes('每行一条');
+      trigger?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+      await wait(160);
+      const tip = document.querySelector('[data-tooltip="1"]') as HTMLElement | null;
+      add(
+        '属性说明默认隐藏、鼠标悬停弹气泡（不走原生 title）',
+        hidden && !!tip && (tip.textContent ?? '').includes('每行一条'),
+        `属性名只显示=「${txt}」；气泡=${tip ? `「${tip.textContent}」` : '未弹出'}`,
+      );
+      trigger?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      await wait(80);
+    }
     {
       const liveSet = new Set(getLiveTypes());
       const discovered = collectComponents(COMPONENT_MODULES);
@@ -1174,15 +1208,32 @@ async function interactionChecks(): Promise<Result[]> {
     /* ── 日志/诊断落盘到**运行目录**（启动器提供 /__log；否则如实退回 localStorage）── */
     {
       const info = log.remoteInfo();
-      const saved = await log.flushRemote();
+      await log.flushRemote(); // 先把待写队列推出去（可能为空，这是正常的）
       const httpLocal = /^https?:$/.test(location.protocol) && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
-      const ok = info.enabled ? !!saved?.ok && (saved.bytes ?? 0) > 0 : !httpLocal;
+      // 落盘是否真的成功，用 /__loginfo 看**磁盘上今天的文件**有没有内容（比"本次 flush 的字节数"可靠：
+      // 空闲时队列本来就是空的）
+      let diskBytes = -1;
+      let diskFile = '';
+      if (info.enabled) {
+        try {
+          const j = (await (await fetch('/__loginfo', { cache: 'no-store' })).json()) as {
+            today?: string;
+            files?: { name: string; bytes: number }[];
+          };
+          const today = j.files?.find((f) => f.name === j.today);
+          diskBytes = today?.bytes ?? 0;
+          diskFile = today?.name ?? '';
+        } catch {
+          diskBytes = -1;
+        }
+      }
+      const ok = info.enabled ? diskBytes > 0 : !httpLocal;
       add(
         '日志落盘到运行目录（启动器 /__log；无接口时如实退回本地存储）',
         ok,
         info.enabled
-          ? `已落盘：${saved?.file ?? info.file}（${saved?.bytes ?? 0} 字节）`
-          : `未启用（页面来自 ${location.protocol}${location.host}，无 /__log 接口）→ 退回 localStorage；本轮按"非启动器托管"判定`,
+          ? `运行目录文件 ${diskFile || info.file} = ${diskBytes} 字节（目录 ${info.dir}）`
+          : `未启用（页面来自 ${location.protocol}//${location.host}，无 /__log 接口）→ 退回 localStorage；本轮按"非启动器托管"判定`,
       );
       const report = buildDiagnosticReport();
       add(

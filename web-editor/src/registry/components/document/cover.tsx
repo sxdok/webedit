@@ -73,7 +73,7 @@ const propSchema: PropSchemaItem[] = [
 export const coverComponent: ComponentDefinition = {
   type: 'cover',
   label: '封面',
-  category: '文档专用',
+  category: '布局分页',
   supportedModes: ['document', 'web'],
   icon: PanelTop,
   description: '封面版式：主标题 / 副标题 / 单位 / 日期 + 色线（分节页码尚未实现）',

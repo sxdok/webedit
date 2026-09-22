@@ -18,7 +18,7 @@
   K.register({
     type: 'liveDisclaimer',
     label: '免责声明',
-    category: '文档专用',
+    category: 'Word 常用',
     supportedModes: ['document', 'web'],
     icon: 'ShieldCheck',
     description: '【外部热加载】小字免责声明块',

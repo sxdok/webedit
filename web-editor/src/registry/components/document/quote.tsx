@@ -20,7 +20,7 @@ const schema: PropSchemaItem[] = [
 export const quoteComponent: ComponentDefinition = {
   type: 'quote',
   label: '引用块',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: QuoteIcon,
   description: '文档引用块：左边框 + 出处，适合标准条文/原文',

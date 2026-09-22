@@ -47,7 +47,7 @@ const propSchema: PropSchemaItem[] = [
 export const abstractComponent: ComponentDefinition = {
   type: 'abstract',
   label: '摘要',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: FileText,
   description: '文档/章节开头的摘要框（浅底 + 边框 + 标签）',

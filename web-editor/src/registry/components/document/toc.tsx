@@ -81,7 +81,7 @@ const propSchema: PropSchemaItem[] = [
 export const tocComponent: ComponentDefinition = {
   type: 'toc',
   label: '目录',
-  category: '文档专用',
+  category: '布局分页',
   supportedModes: ['document', 'web'],
   icon: ListOrdered,
   description: '带点线引导的目录；条目与页码为填写式（未与标题自动联动）',

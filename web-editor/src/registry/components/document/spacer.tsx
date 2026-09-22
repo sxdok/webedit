@@ -14,7 +14,7 @@ const schema: PropSchemaItem[] = [
 export const spacerComponent: ComponentDefinition = {
   type: 'spacer',
   label: '间隔块',
-  category: '文档专用',
+  category: '布局分页',
   supportedModes: ['document', 'web'],
   icon: MoveVertical,
   description: '文档间隔：按 mm 撑开高度',

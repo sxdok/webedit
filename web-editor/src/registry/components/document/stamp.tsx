@@ -30,7 +30,7 @@ const schema: PropSchemaItem[] = [
 export const stampComponent: ComponentDefinition = {
   type: 'stamp',
   label: '印章',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: Stamp,
   description: '印章占位：圆形/方形、可旋转、可实心',

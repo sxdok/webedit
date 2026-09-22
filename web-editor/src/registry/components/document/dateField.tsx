@@ -43,7 +43,7 @@ function formatDate(fmt: string, d: Date): string {
 export const dateComponent: ComponentDefinition = {
   type: 'date',
   label: '日期',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: CalendarDays,
   description: '日期行：可固定文本或按格式取当天',

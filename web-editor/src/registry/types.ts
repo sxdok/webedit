@@ -307,11 +307,13 @@ export interface ComponentDefinition {
 
 /** 左侧面板的分组顺序（未列出的分组排在最后，按字母序） */
 export const CATEGORY_ORDER = [
+  'Word 常用',
+  'Excel 表格',
   '通用',
-  '文档专用',
-  'Web 专用 / 基础控件',
-  'Web 专用 / 布局容器',
-  'Web 专用 / 展示组件',
+  '布局分页',
+  'PPT 专用',
+  'Web 控件',
+  'Web 容器',
 ] as const;
 
 /* ══════════════ 默认值工厂 ══════════════ */

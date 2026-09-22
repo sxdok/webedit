@@ -42,7 +42,7 @@ const propSchema: PropSchemaItem[] = [
 export const keywordsComponent: ComponentDefinition = {
   type: 'keywords',
   label: '关键词',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: Hash,
   description: '一行"关键词：a；b；c"，每行填一个关键词',

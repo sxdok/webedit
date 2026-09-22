@@ -66,7 +66,7 @@ const propSchema: PropSchemaItem[] = [
 export const checkListComponent: ComponentDefinition = {
   type: 'checkList',
   label: '核对清单',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: CircleCheckBig,
   description: '空心方框 + 条目的核对清单（适合待确认项 / 检查项）',

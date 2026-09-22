@@ -21,7 +21,7 @@ const SIZES = [
 export const buttonComponent: ComponentDefinition = {
   type: 'button',
   label: '按钮',
-  category: 'Web 专用 / 基础控件',
+  category: 'Web 控件',
   supportedModes: ['web'],
   icon: MousePointerClick,
   description: '真实 button 元素，5 种变体 / 3 种尺寸，可设圆角与颜色',

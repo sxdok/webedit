@@ -41,7 +41,7 @@ const propSchema: PropSchemaItem[] = [
 export const leadComponent: ComponentDefinition = {
   type: 'lead',
   label: '导语',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: AlignLeft,
   description: '章节开头的导语/提要：段首无缩进、字号略大',

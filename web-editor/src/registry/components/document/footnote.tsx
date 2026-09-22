@@ -21,7 +21,7 @@ const schema: PropSchemaItem[] = [
 export const footnoteComponent: ComponentDefinition = {
   type: 'footnote',
   label: '脚注',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: Asterisk,
   description: '文档脚注：序号 + 小字说明 + 细分隔线',

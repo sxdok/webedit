@@ -51,7 +51,7 @@ const propSchema: PropSchemaItem[] = [
 export const defListComponent: ComponentDefinition = {
   type: 'defList',
   label: '定义列表',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: List,
   description: '术语 — 解释 的对照列表，每行填"术语|解释"',

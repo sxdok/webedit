@@ -45,7 +45,7 @@ const schema: PropSchemaItem[] = [
 export const columnsComponent: ComponentDefinition = {
   type: 'columns',
   label: '分栏',
-  category: '文档专用',
+  category: '布局分页',
   supportedModes: ['document', 'web'],
   icon: Columns3,
   isContainer: true,

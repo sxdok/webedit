@@ -20,7 +20,7 @@ const schema: PropSchemaItem[] = [
 export const codeComponent: ComponentDefinition = {
   type: 'code',
   label: '代码块',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: Code2,
   description: '文档代码块：等宽字体、浅底、可标语言',

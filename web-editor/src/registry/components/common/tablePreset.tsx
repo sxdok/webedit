@@ -58,7 +58,7 @@ function presetProps(data: string[][], variant: string, colWidths = '', rowHeigh
 export const threeLineTableComponent: ComponentDefinition = {
   type: 'threeLineTable',
   label: '三线表',
-  category: '通用',
+  category: 'Excel 表格',
   supportedModes: ['document', 'web'],
   icon: TableIcon,
   description: '学术/技术文档常用：只有顶线、表头线、底线',
@@ -71,7 +71,7 @@ export const threeLineTableComponent: ComponentDefinition = {
 export const paramTableComponent: ComponentDefinition = {
   type: 'paramTable',
   label: '两列参数表',
-  category: '通用',
+  category: 'Excel 表格',
   supportedModes: ['document', 'web'],
   icon: LayoutDashboard,
   description: '参数 — 取值 的两列对照表（列宽 35% / 65%）',
@@ -84,7 +84,7 @@ export const paramTableComponent: ComponentDefinition = {
 export const detailTableComponent: ComponentDefinition = {
   type: 'detailTable',
   label: '明细表',
-  category: '通用',
+  category: 'Excel 表格',
   supportedModes: ['document', 'web'],
   icon: List,
   description: '序号 / 名称 / 规格 / 数量 / 备注 的明细表（列宽 8/30/30/12/20）',
@@ -97,7 +97,7 @@ export const detailTableComponent: ComponentDefinition = {
 export const checkTableComponent: ComponentDefinition = {
   type: 'checkTable',
   label: '核对表',
-  category: '通用',
+  category: 'Excel 表格',
   supportedModes: ['document', 'web'],
   icon: ShieldCheck,
   description: '序号 / 核对项 / 结果 / 备注 的核对表（列宽 8/52/12/28）',

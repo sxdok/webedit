@@ -11,6 +11,10 @@ import type { ComponentProps, PropSchemaItem, RenderContext } from '../types';
 import { asBool, asEnum, asNumber, asString } from '../../utils/id';
 
 export const GROUP = {
+  /** ★表格专用：整张表的属性（含默认格式） */
+  whole: '表格',
+  /** ★表格专用：只作用于画布上选中的单元格 */
+  cell: '单元格',
   content: '内容',
   typography: '排版',
   appearance: '外观',

@@ -21,7 +21,7 @@ const schema: PropSchemaItem[] = [
 export const signatureComponent: ComponentDefinition = {
   type: 'signature',
   label: '签名区',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: PenLine,
   description: '签署栏：甲方/乙方签字 + 日期，带下划线',

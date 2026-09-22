@@ -16,6 +16,7 @@ import { SpacingControl } from './SpacingControl';
 import { ChildrenControl } from './ChildrenControl';
 import { TableCellsControl } from './TableCellsControl';
 import { TableSizeControl } from './TableSizeControl';
+import { Tooltip } from '../ui/Tooltip';
 
 export interface ControlProps {
   item: PropSchemaItem;
@@ -65,9 +66,9 @@ const WIDE_CONTROLS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * 把 schema 里的长标签拆成"主名 + 提示"：
+ * 把 schema 里的长标签拆成"主名 + 说明"：
  *   『数据（每行一条，用 | 分列）』→ short=数据、hint=每行一条，用 | 分列
- * 这样紧凑列表的左列只需要 ~4 个汉字宽，且信息不丢失（hint 显示在右侧 / 全称在 title）。
+ * 界面上**只显示主名**（说明默认隐藏），鼠标移到属性名上弹气泡显示完整说明。
  */
 export function splitLabel(label: string): { short: string; hint: string } {
   const m = label.match(/^([^（(]+)[（(]([^）)]*)[）)]\s*$/);
@@ -75,14 +76,19 @@ export function splitLabel(label: string): { short: string; hint: string } {
   return { short: label.trim(), hint: '' };
 }
 
+/** 属性名的统一样式：可悬停（虚线提示"这里有说明"）、超长省略 */
+const LABEL_CLS = 'cursor-help truncate border-b border-dotted border-line text-2xs text-gray-500';
+
 function Field({ label, children, wide }: { label: string; children: React.ReactNode; wide?: boolean }) {
   const { short, hint } = splitLabel(label);
+  const tip = hint ? `${short}（${hint}）` : label;
   if (wide) {
     return (
       <div className="mb-1.5" data-prop-row="1" data-prop-wide="1">
-        <div className="mb-0.5 flex items-baseline gap-1 text-2xs" data-prop-label="1" title={label}>
-          <span className="shrink-0 text-gray-500">{short}</span>
-          {hint && <span className="truncate text-gray-400">{hint}</span>}
+        <div className="mb-0.5 flex items-baseline gap-1 text-2xs" data-prop-label="1">
+          <Tooltip text={tip}>
+            <span className={LABEL_CLS}>{short}</span>
+          </Tooltip>
         </div>
         {children}
       </div>
@@ -90,9 +96,11 @@ function Field({ label, children, wide }: { label: string; children: React.React
   }
   return (
     <div className="mb-1 flex items-center gap-2" data-prop-row="1">
-      <span className="w-16 shrink-0 truncate text-2xs text-gray-500" data-prop-label="1" title={label}>
-        {short}
-      </span>
+      <Tooltip text={tip}>
+        <span className={`w-16 shrink-0 ${LABEL_CLS}`} data-prop-label="1">
+          {short}
+        </span>
+      </Tooltip>
       <div className="flex min-w-0 flex-1 items-center gap-1">{children}</div>
     </div>
   );

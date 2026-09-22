@@ -8,7 +8,7 @@ import { asBool, asNumber, asString } from '../../../utils/id';
 export const cardComponent: ComponentDefinition = {
   type: 'card',
   label: '卡片',
-  category: 'Web 专用 / 布局容器',
+  category: 'Web 容器',
   supportedModes: ['web'],
   icon: CreditCard,
   isContainer: true,

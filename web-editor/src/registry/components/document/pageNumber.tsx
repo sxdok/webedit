@@ -40,7 +40,7 @@ const FORMATS: Record<string, (p: number, t: number) => string> = {
 export const pageNumberComponent: ComponentDefinition = {
   type: 'pageNumber',
   label: '页码',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: Hash,
   description: '页码行：第 N 页 / 共 M 页 等四种格式',

@@ -14,7 +14,7 @@ const SIZES = [
 export const inputComponent: ComponentDefinition = {
   type: 'input',
   label: '输入框',
-  category: 'Web 专用 / 基础控件',
+  category: 'Web 控件',
   supportedModes: ['web'],
   icon: TextCursorInput,
   description: '真实 input 外观，支持前后缀、尺寸、圆角',

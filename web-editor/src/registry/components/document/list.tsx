@@ -8,7 +8,7 @@ import { asBool, asNumber } from '../../../utils/id';
 export const listComponent: ComponentDefinition = {
   type: 'list',
   label: '列表',
-  category: '文档专用',
+  category: 'Word 常用',
   supportedModes: ['document'],
   icon: ListIcon,
   description: '项目符号或编号列表，每行一项',

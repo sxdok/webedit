@@ -31,7 +31,7 @@
   K.register({
     type: 'liveCompareCard',
     label: '参数对比卡',
-    category: '文档专用',
+    category: 'Word 常用',
     supportedModes: ['document', 'web'],
     icon: 'Table',
     description: '【外部热加载】两列参数对照卡，可高亮一侧',

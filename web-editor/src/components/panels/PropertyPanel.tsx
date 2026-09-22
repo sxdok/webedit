@@ -12,11 +12,27 @@ import { selectMode, selectPrimarySelected, useEditorStore } from '../../store/e
 import { PropertyControl } from '../property-controls';
 import { PagePropertyPanel } from './PagePropertyPanel';
 import { CanvasPropertyPanel } from './CanvasPropertyPanel';
+import { Tooltip } from '../ui/Tooltip';
 
-const GROUP_ORDER = ['内容', '排版', '外观', '尺寸', '布局', '高级'];
+const GROUP_ORDER = ['表格', '单元格', '内容', '排版', '外观', '尺寸', '布局', '高级'];
 
-/** 默认只展开这个分组，其余分组默认折叠（与左侧组件面板"只展开通用"一致） */
-const DEFAULT_OPEN_GROUP = '内容';
+/** 默认只展开这个分组，其余分组默认折叠（与左侧组件面板"只展开一类"一致） */
+const DEFAULT_OPEN_GROUP = '表格';
+
+/**
+ * 分组说明（默认隐藏，鼠标悬停分组标题时弹气泡）——重点把"整表属性 vs 单元格属性"讲清楚，
+ * 这也是用户明确要求的：右侧属性里必须一眼看出改的是整体还是某个单元格。
+ */
+const GROUP_HINTS: Record<string, string> = {
+  表格: '整张表格的属性。下面「单元格」组里针对个别格子做的设置会覆盖这里的默认值。',
+  单元格: '只作用于画布上选中的单元格（点选/拖选一片）。没被覆盖的项沿用「表格」组的默认值。',
+  内容: '组件的内容与文字。',
+  排版: '字体、字号、行距、字距、对齐等文字样式。',
+  外观: '背景、边框、圆角、阴影等外观。',
+  尺寸: '宽高与上下边距。',
+  布局: '位置与排布方式。',
+  高级: '不常用项。',
+};
 
 function groupOf(item: PropSchemaItem): string {
   return item.group || '内容';
@@ -56,8 +72,12 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
   const canvas = useEditorStore((s) => s.doc.web.canvas);
   const [copied, setCopied] = useState(false);
   const [query, setQuery] = useState('');
-  // 记录"哪些分组被手动展开/折叠"的覆盖值；没记录的按默认（只有「内容」展开）
+  // 记录"哪些分组被手动展开/折叠"的覆盖值；没记录的按默认
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
+  // ★选中了单元格时，「单元格」组**临时默认展开**：用户点了格子就该看到格式控件。
+  //   注意用"派生默认值"而不是写 state——否则展开状态会一直留着（选中取消后也收不回去）。
+  const tableCells = useEditorStore((s) => s.ui.tableCells);
+  const cellGroupOpen = !!tableCells && tableCells.nodeId === node?.id;
 
   const ctx: RenderContext = useMemo(
     () => ({
@@ -163,7 +183,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
       )}
 
       {sections.map(([group, items]) => {
-        const open = toggled[group] ?? group === DEFAULT_OPEN_GROUP;
+        const open = toggled[group] ?? (group === DEFAULT_OPEN_GROUP || (group === '单元格' && cellGroupOpen));
         return (
           <div key={group} className="mb-1.5" data-prop-group="1" data-group-name={group} data-group-open={open ? '1' : '0'}>
             <button
@@ -172,7 +192,9 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
               className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
             >
               {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              <span className="flex-1">{group}</span>
+              <Tooltip text={GROUP_HINTS[group]} side="right">
+                <span className={`flex-1 ${GROUP_HINTS[group] ? 'cursor-help' : ''}`}>{group}</span>
+              </Tooltip>
               <span className="text-2xs font-normal text-gray-400">{items.length}</span>
             </button>
             {open && (

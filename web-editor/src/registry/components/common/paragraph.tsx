@@ -9,7 +9,7 @@ import { asBool, asEnum, asNumber, asString } from '../../../utils/id';
 export const paragraphComponent: ComponentDefinition = {
   type: 'paragraph',
   label: '正文段落',
-  category: '通用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: AlignLeft,
   description: '富文本段落，首行缩进用 text-indent 实现',

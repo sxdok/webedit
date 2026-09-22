@@ -40,7 +40,7 @@ function containerStyle(props: ComponentProps): React.CSSProperties {
 export const containerComponent: ComponentDefinition = {
   type: 'container',
   label: '容器',
-  category: 'Web 专用 / 布局容器',
+  category: 'Web 容器',
   supportedModes: ['web'],
   icon: Box,
   isContainer: true,

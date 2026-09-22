@@ -8,6 +8,7 @@ import { getCategoriesByMode } from '../../registry';
 import type { ComponentDefinition } from '../../registry/types';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { selectMode, useEditorStore } from '../../store/editorStore';
+import { Tooltip } from '../ui/Tooltip';
 
 export const DRAG_MIME = 'application/x-editor-component';
 
@@ -23,10 +24,13 @@ function ComponentItem({ def }: { def: ComponentDefinition }) {
   const addComponent = useEditorStore((s) => s.addComponent);
   const Icon = def.icon;
   return (
+    <Tooltip
+      text={`${def.label}${def.description ? `（${def.description}）` : ''}\n${defaultSizeText(def)} · 拖到画布插入 / 双击追加`}
+      side="right"
+    >
     <button
       type="button"
       draggable
-      title={`${def.label}｜${def.description ?? ''}\n${defaultSizeText(def)}\n拖到画布插入 · 双击追加`}
       onDoubleClick={() => addComponent(def.type)}
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_MIME, def.type);
@@ -40,6 +44,7 @@ function ComponentItem({ def }: { def: ComponentDefinition }) {
       </span>
       <span className="truncate">{def.label}</span>
     </button>
+    </Tooltip>
   );
 }
 
@@ -81,8 +86,15 @@ export function ComponentPanel() {
   const registryVersion = useEditorStore((s) => s.ui.registryVersion);
   const bumpRegistry = useEditorStore((s) => s.bumpRegistry);
   const [query, setQuery] = useState('');
-  // 默认只展开「通用」，其余分类折叠（点分类标题展开）
-  const [closed, setClosed] = useState<Record<string, boolean>>({ 文档专用: true, 'PPT 专用': true, 'Web 专用 / 基础控件': true, 'Web 专用 / 布局容器': true, 'Web 专用 / 展示组件': true });
+  // 默认只展开「Word 常用」（最常用的一类），其余分类折叠（点分类标题展开）
+  const [closed, setClosed] = useState<Record<string, boolean>>({
+    'Excel 表格': true,
+    通用: true,
+    布局分页: true,
+    'PPT 专用': true,
+    'Web 控件': true,
+    'Web 容器': true,
+  });
   const [reloading, setReloading] = useState(false);
 
   const categories = useMemo(() => {

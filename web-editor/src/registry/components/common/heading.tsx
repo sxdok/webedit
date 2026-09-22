@@ -18,7 +18,7 @@ const LEVELS = [
 export const headingComponent: ComponentDefinition = {
   type: 'heading',
   label: '标题',
-  category: '通用',
+  category: 'Word 常用',
   supportedModes: ['document', 'web'],
   icon: HeadingIcon,
   description: '真实 h1–h6 语义标签，字号按 pt 换算',

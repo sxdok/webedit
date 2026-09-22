@@ -5,14 +5,13 @@
  *   · **选中了哪些单元格** = 编辑器态，存在 store.ui.tableCells 里，**不写进文档、不进导出、打印不显示**；
  *   · **单元格格式** = 文档数据，写进表格的 cellStyles 属性（`{ "行,列": { 覆盖项 } }`），会导出、会打印。
  *
- * 交互与 Excel 一致：在画布上点选单元格（Shift 多选）→ 直接点这里的格式按钮，
- * **立刻作用到选中的格子上**（不需要"应用"按钮）；没被覆盖的项继续沿用表格级属性。
- * 另附「列宽自适应」（对齐 A4：先恢复自动布局，量出实际列宽再写回百分比，短列 13mm 保底）。
+ * 交互与 Excel 一致：在画布上点选单元格（可拖选一片）→ 直接点这里的格式按钮，
+ * **立刻作用到选中的格子上**（不需要"应用"按钮）；没被覆盖的项继续沿用「表格」组的默认值。
+ * （「列宽自适应」属整表操作，已移到同组的「行 / 列数量与增删」控件里，本控件只管单元格。）
  */
 import { AlignCenter, AlignLeft, AlignRight, Bold, Paintbrush, Trash2 } from 'lucide-react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
-import { mmToPx } from '../../utils/units';
 import { asNumber, asString } from '../../utils/id';
 import { parseCellStyles, type CellStyle } from '../../registry/components/common/tableKit';
 import type { ControlProps } from './index';
@@ -74,26 +73,6 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
     onChange(next);
     // 旧键清掉，避免两份数据并存
     if (liveNode?.props.cellFills) updateProps(nodeId, { cellFills: null });
-  };
-
-  /** 列宽自适应：先清空列宽让浏览器按内容排版，量出实际列宽后写回百分比（短列 13mm 保底） */
-  const autofit = () => {
-    if (!nodeId) return;
-    updateProps(nodeId, { colWidths: '' });
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        const table = document.querySelector(`[data-node-id="${nodeId}"] table`) as HTMLTableElement | null;
-        const firstRow = table?.rows?.[0];
-        if (!table || !firstRow || !firstRow.cells.length) return;
-        const widths = [...firstRow.cells].map((c) => c.offsetWidth);
-        const sum = widths.reduce((a, b) => a + b, 0) || table.offsetWidth;
-        if (!sum) return;
-        const minPct = (mmToPx(13) / sum) * 100;
-        const pcts = widths.map((w) => Math.max(minPct, (w / sum) * 100));
-        const total = pcts.reduce((a, b) => a + b, 0);
-        updateProps(nodeId, { colWidths: pcts.map((p) => ((p / total) * 100).toFixed(1)).join(',') });
-      }),
-    );
   };
 
   const disabled = !cells.length;
@@ -203,13 +182,6 @@ export function TableCellsControl({ value, onChange, nodeId }: ControlProps) {
           清空全部
         </button>
         <span className="shrink-0 text-2xs text-gray-400">{filled} 格有覆盖</span>
-      </div>
-
-      <div className="flex items-center gap-1">
-        <span className="text-2xs text-gray-400">未覆盖的项沿用表格级属性</span>
-        <button type="button" className={`${btn} ml-auto`} title="按内容重算各列宽度" onClick={autofit}>
-          列宽自适应
-        </button>
       </div>
     </div>
   );
