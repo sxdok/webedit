@@ -1,3 +1,4 @@
+迁移记录（原始）—— 以下为 2026-09-23 迁移脚本的输出，原样保留
 迁移前 A4编辑器           0.4 MB /    70 文件
 迁移前 web-editor    103.0 MB /  7523 文件
 已建目标结构：E:\可视化编辑器
@@ -8,12 +9,12 @@
 目标总规模：121.1 MB / 7676 文件
 源目录是否已清空：A4编辑器=True web-editor=True
 
-── 迁移后验证（新位置实测）──
+── 迁移后验证（新位置实测，迁移当时）──
 web-editor：构建 OK（npm run build，新位置）；HTTP 200；/__components 3 个组件；?check=1 自检 50/50 通过
 A4编辑器：HTTP 200（29041 字节）；/__components 43 个组件；?selftest=1 自检 37/37 通过
 tools/check_print.py：端到端通过（打印 2 页、A4 595.0×841.9pt、内容起点 left=89.8/top=71.6、无界面残留、无空白页、主色图元 9 个）
 
-── 入口文件指纹（SHA256，便于日后核对是否被改动）──
+── 入口文件指纹（迁移当时）──
 087D173DE58623FF2831DB993FE736789529F3868DE40CEC353A9578F5544616  A4编辑器\a4_editor.html
 40C152F0CEF05862AD7801FBE018720EDC91BB1C6126F52433172E56C4FDDE44  A4编辑器\启动编辑器.py
 48FD91794102AC60A534970508EC69E0E704A8B352700C400641432FDBDAC1D2  web-editor\启动编辑器.py
@@ -28,3 +29,43 @@ AB5B24771F9B4BB7351374344B047F4B23C822CB983383660A1C7B45D3E7B32B  README.md
   web-editor
   迁移记录.txt
   README.md
+
+
+════════════════════════════════════════════════════════════════
+修正与复核（2026-09-23，独立复核 + 文档修正；过程见 复核记录.txt）
+════════════════════════════════════════════════════════════════
+
+【记账口径修正】原记录里"工具/脚本/证据"三项与总数偏松，实际为：
+  · tools             原记 1 个   → 实际 44 文件（check_print.py + tools\README.md + legacy-scripts 42）
+  · legacy-scripts    原记 41 个  → 实际 42 文件（41 个脚本 + README.md）——"41 个脚本"这一点正确
+  · docs\验证证据     原记 41 个  → 实际 42 文件
+  · 目标总规模        原记 7676   → 实际 7681（且原记录未计入根目录的 README.md 与 迁移记录.txt 两个文件）
+  两个应用本身的数目（70 / 7523）与下表全部指纹，迁移当时即精确无误。
+
+【复核实测（2026-09-23，新位置重跑）】
+  web-editor  构建通过（1682 模块，合入 A4 组件后）；HTTP 200；/__components 3 个；?check=1 → 52/52 全部通过
+  A4编辑器    HTTP 200；/__components 43 个；?selftest=1 → 37/37 通过
+  tools\check_print.py → 全部通过（2 页、A4、内容落在页边距、无界面残留、无空白页、主色图元 9 个）
+  入口指纹 6/6 与上表一致（复核当时）
+
+【当前指纹（2026-09-23 修正文档后重算；本文件自身不记指纹）】
+087D173DE58623FF2831DB993FE736789529F3868DE40CEC353A9578F5544616  A4编辑器\a4_editor.html
+40C152F0CEF05862AD7801FBE018720EDC91BB1C6126F52433172E56C4FDDE44  A4编辑器\启动编辑器.py
+F2A7CB07EC46D13BDF09E6024C16FCC977FE30C2D541DA9D2C8D3DC3B63151E7  A4编辑器\README.md
+DB667B5A5B6211A96C9E95EF75BE20963BFE98FE0A2D963CDEAAB1FBF9A52923  web-editor\启动编辑器.py
+8F7E7226B98369F175892B5C002AD208DE480D47C2CFF155048F67E7AD4C851E  web-editor\package.json
+7D92FD92CA4199D9B2CF2528B88099C6D8B4D2520203D2CAE884941244195CBE  web-editor\vite.config.ts
+67FB9F72821E15EF388AEAB5D6DB3B2ED87581C4D805B28954482B9289A02B27  web-editor\README.md
+E4491B3C53EC4951933FAF2E5D094DDDEFB51919D1F36DE0615ED0AC29DB02D7  tools\check_print.py
+9D619D6D087EC983F920CBA4C325CD6D7BEA5A34AA149DB36E32EEB7B283C436  tools\README.md
+0F4D6A50B5BCE5098C326B37C868489FFC90BB8647AC26AB8F63BA6A092AD24A  README.md
+6B142B0C67EA1402499C9D0D10B3DBAF59E97AB637441696C0F3A345C78AF27C  .gitignore
+
+【复核后发生的删除与改动（工作区已用 git 管理，全部可从历史取回）】
+  删除：A4编辑器\_bak_editor_pre_split.html、_bak_editor_pre_selftest6.html、_bak_pre_unify.html（均只存在于基线提交 f3a3cbc）
+        web-editor\src\registry\components\document\headerFooter.tsx.bak（同上）
+        web-editor\__pycache__\（旧位置遗留的字节码缓存，内含旧绝对路径字符串）
+  合入：web-editor 内置组件 31 → 47（A4 的 43 个组件全部有对应）；新增三段式页码（封面无 / 目录罗马 / 正文阿拉伯）
+  修正：web-editor\README.md 目录结构与阶段表、控件数（15→14）；A4编辑器\README.md 自测条数（34→37）与
+        "尚无列宽拖拽手柄"的错误表述；根 README 的记账口径与 git 说明
+  git ：基线 f3a3cbc = 迁移后未改动的快照；其后提交为本次修正与合入

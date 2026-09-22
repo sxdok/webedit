@@ -12,7 +12,6 @@ E:\可视化编辑器\
   │   ├── js\                 20 个功能模块
   │   ├── 组件\               运行时热加载组件目录（改完点「重载外部组件」，无需构建）
   │   ├── 启动编辑器.py        本地静态服务器（推荐用这个打开，组件热加载/端口可控）
-  │   ├── _bak_*.html         开发过程中的备份（可删）
   │   └── README.md           该应用的完整说明（功能/组件清单/自检/操作）
   ├── web-editor\            React + TypeScript 可视化编辑器（文档模式 / Web 模式双模）
   │   ├── src\                源码（registry 组件注册表 / store 状态 / canvas / panels）
@@ -26,7 +25,9 @@ E:\可视化编辑器\
   │   ├── legacy-scripts\    开发期间用过的一次性脚本与源材料缓存（详见其中 README）
   │   └── README.md
   ├── docs\验证证据\          自检报告、打印/界面截图与 PDF（本对话里引用的验证证据）
-  └── 迁移记录.txt            迁移时的规模核对记录
+  ├── 迁移记录.txt            迁移时的规模核对记录（含事后复核的修正）
+  ├── 复核记录.txt            对"工作区 vs 对话记录"的独立复核（实测数据 + 发现的偏差）
+  └── .gitignore              忽略 node_modules / dist / tsbuildinfo / __pycache__
 ```
 
 ## 怎么跑
@@ -61,5 +62,17 @@ cd E:\可视化编辑器\web-editor ; npm run build
 - 迁移时间：2026-09-23；来源：`E:\HikRobot\A4编辑器`、`E:\HikRobot\web-editor`（原目录已移走，不再保留副本）
 - 规模核对（迁移前后一致）：A4编辑器 0.4 MB / 70 文件；web-editor 103.0 MB / 7523 文件（含 node_modules 100.8 MB）
 - 另从 `E:\HikRobot\_萃取\newdoc` 收集：工具脚本 1 个、开发期脚本与源材料缓存 41 个、验证证据 41 个（截图/PDF）
+  —— 这三项是**迁移脚本当时的记账口径**，事后复核实际为：`tools` 44 文件（含 2 份 README）、`legacy-scripts` 42 文件（41 个脚本 + README）、`docs\验证证据` 42 文件；两个应用本身的数目与全部指纹当时即精确。详见 `迁移记录.txt` 的「修正与复核」段与 `复核记录.txt`。
 - 两个应用内部一律用相对路径 / `__file__` 定位，**已确认源码中没有写死旧绝对路径**（仅 README 里的命令示例已更新为新位置）
 - `tools\legacy-scripts` 里的历史脚本**保留了当初的绝对路径**（它们指向旧的 `E:\HikRobot\...` 源材料），仅作记录，重新运行前需按需改路径
+
+## 版本管理（git）
+
+本工作区自 2026-09-23 起用 git 管理（仓库级身份 `Sxdok <Sxdok@outlook.com>`），`node_modules` / `dist` / `*.tsbuildinfo` / `__pycache__` 已在 `.gitignore` 中排除。历史里的关键提交：
+
+| 提交 | 内容 |
+|---|---|
+| `f3a3cbc` | 迁移后的基线快照（两个编辑器 + 工具 + 证据，迁移后未改动）。**A4 编辑器原有的 3 个 `_bak_*.html` 备份只存在于这个提交里**，需要时 `git show f3a3cbc:"A4编辑器/_bak_editor_pre_split.html" > 文件名` 取回 |
+| 后续提交 | 文档描述修正、过时文件清理、A4 组件与三段式页码合入 web-editor（见 `git log`） |
+
+回滚点从"散落的 `_bak_*.html` 文件"改成了 git 历史。

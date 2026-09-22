@@ -58,29 +58,44 @@ web-editor/
 ├─ index.html
 ├─ vite.config.ts / tailwind.config.js / postcss.config.js
 ├─ tsconfig.json / tsconfig.app.json / tsconfig.node.json
+├─ 启动编辑器.py                    本地服务器（托管 dist + 提供 /__components + 直接服务 public/组件）
+├─ public/组件/                     外部（热加载）组件：普通 JS，改完点重载即生效
 └─ src/
-   ├─ main.tsx                      入口（挂载 + ?check=1 触发自检）
-   ├─ App.tsx                       ★四区布局外壳（菜单栏/工具栏/左中右/状态栏）
-   ├─ index.css                     Tailwind 入口 + 全局/面板/画布/打印样式
+   ├─ main.tsx                      入口（挂载 + URL 参数 ?check/?demo/?diag/?theme/?mode/?log/?scroll）
+   ├─ App.tsx                       ★四区布局外壳 + 动态 @page + 主题 data-theme
+   ├─ index.css                     Tailwind 入口 + 全局/面板/画布/深色主题/打印样式
    ├─ registry/
-   │   ├─ types.ts                  ★全部类型与常量（PAGE_SIZES / DEVICE_PRESETS / ComponentNode / PropSchemaItem / ComponentDefinition / RenderContext …）
+   │   ├─ types.ts                  ★全部类型与常量（PAGE_SIZES / DEVICE_PRESETS / ComponentNode / PropSchemaItem /
+   │   │                             DocumentPageConfig / PageBandConfig / PageNumberingConfig / pageLabel / pageBand …）
    │   ├─ index.ts                  ★组件注册表：registerComponent / getComponentsByMode / getCategoriesByMode
-   │   └─ components/index.ts       组件注册清单（阶段四填充）
+   │   ├─ live.ts                   外部组件热加载（EditorKit + /__components 清单 + 重载幂等）
+   │   └─ components/
+   │       ├─ index.ts              组件注册清单（**当前 47 个内置组件**）
+   │       ├─ shared.ts             ★通用属性片段与样式生成器（fontProps/boxProps/defaultsOf/typographyStyle…）
+   │       ├─ common/               14 个通用组件（tableKit 是表格渲染内核，tablePreset 是四个表格预设）
+   │       ├─ document/             19 个文档组件（含封面 / 目录 / 分页符 / 三段式页码所在的面板）
+   │       ├─ ppt/                  10 个 PPT 组件
+   │       └─ web/                  4 个 Web 组件
    ├─ store/
    │   ├─ editorStore.ts            ★中央状态（zustand + persist）：双模式数据、全部 action、历史、导入导出
-   │   ├─ treeUtils.ts              ★树纯函数（查找/插入/删除/移动/层级/复制）+ getForest/setForest 两模式统一入口
+   │   ├─ treeUtils.ts              ★树纯函数 + getForest/setForest 两模式统一入口
    │   ├─ history.ts                历史栈（上限 50）+ 300ms 防抖合并闸门
-   │   └─ selfCheck.ts              数据层自检（?check=1）
+   │   ├─ selfCheck.ts              `?check=1` 自检（52 条：数据/渲染/真实指针交互/分页与页码/打印/导出/热加载）
+   │   └─ demo.ts                   示例文档（`?demo=1`）
    ├─ utils/
-   │   ├─ units.ts                  mm/pt/px/% 换算（96DPI、1pt=96/72px）
-   │   ├─ id.ts                     ID 生成 + 属性取值守卫（asString/asNumber/asEnum…，避免 any）
-   │   └─ download.ts               下载/选文件/打印窗口
+   │   ├─ units.ts / id.ts / download.ts
+   │   ├─ logger.ts                 分级日志 + 500 条环形缓冲 + 尾部落盘
+   │   ├─ diagnostics.ts            诊断报告 / 状态快照
+   │   └─ export/                   docExport.ts（HTML / Word .doc）、reactExport.ts（React/TSX）
    └─ components/
        ├─ layout/                   MenuBar / ToolBar / StatusBar / ModeSwitcher / useShortcuts
-       ├─ panels/                   ComponentPanel / PropertyPanel / PagePropertyPanel / CanvasPropertyPanel / ComponentTree
-       ├─ canvas/                   Canvas（分派+缩放外壳）/ PaperCanvas / WebCanvas / NodeView / Ruler / fitZoom
-       ├─ property-controls/        Schema 驱动的控件集（text/textarea/number/slider/color/select/switch/align/unit/font/edge/frame/image）
-       └─ ui/                       Menu（下拉原语）/ Modal / ToolButton
+       ├─ panels/                   ComponentPanel / PropertyPanel / PagePropertyPanel / CanvasPropertyPanel /
+       │                            ComponentTree / DiagnosticsPanel
+       ├─ canvas/                   Canvas（分派 + 缩放外壳 + 标尺）/ PaperCanvas（多页分页）/ WebCanvas /
+       │                            NodeView / useCanvasInteraction / ResizeHandles / SelectionBox /
+       │                            GuideLines / InsertIndicator / GridOverlay / Ruler / fitZoom
+       ├─ property-controls/        Schema 驱动控件集（dispatcher + RichText / Spacing / Children）
+       └─ ui/                       Menu / Modal / ToolButton / ErrorBoundary
 ```
 
 ---
@@ -154,7 +169,18 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 导出 HTML | 单文件 `.html` | 自包含（组件内联样式 + 按需补一份最小 CSS，不依赖 Tailwind）；文档模式带 `@page` 与文档页边距；Web 模式是"设备尺寸容器 + 绝对定位"的忠实快照 |
 | 导出 Word（.doc） | `.doc` | Word 可直接打开的 HTML 版式，带 `xmlns:w` 命名空间与 `@page WordSection1`（纸张/页边距），段落/表格可继续编辑。Web 模式的绝对定位 Word 支持差，故按流输出 |
 | 导出 JSON / 导入 JSON | `.json` | 完整工程数据（两种模式内容） |
-| 导出 React 代码 | — | 阶段五剩余项，尚未实现 |
+| 导出 React 代码 | `.tsx` | 生成可独立使用的组件源码：语义标签 + Tailwind 任意值类（`absolute left-[120px]`、`w-[160px]`…）+ 内联样式兜底，不依赖本编辑器运行时 |
+
+### 页眉 / 页脚 / 页码（都是**页面属性**，不是组件）
+
+页眉页脚是页面级设置（组件只能活在版心内容流里，做不成真页眉页脚），在「页面属性」面板里编辑：
+
+- 每块都是**左 / 中 / 右三段**，可写变量：`{page}` 当前页码、`{total}` 总页数、`{date}` 当天日期；
+- 可设字号、颜色、分隔线、以及**位置**：页眉=距纸张上边缘、页脚=距纸张下边缘（mm，像 Word 的"页眉顶端距离/页脚底端距离"）；
+- **三段式页码**（对齐 A4 编辑器的分节编号）：勾「首页（封面）不显示页码」+ 填「目录页数（罗马数字）」+「正文起始页」，
+  例如封面 + 目录 1 页 + 正文从 1 开始 → 封面无、第 2 页 `I`、第 3 页起 `1、2、3…`。面板顶部会实时预览前 5 页的效果；
+- 算出为空页码的页（封面），其**页眉/页脚整块不渲染**（同 Word 的「首页不同」），不会出现"第 页 / 共 N 页"；
+- 导出 Word 时页眉页脚是真 Word 页眉页脚，变量写成 `PAGE` / `NUMPAGES` / `DATE` 域。
 
 ---
 
@@ -205,6 +231,8 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 - 清单：编辑器请求 `/__components` 拿文件列表（Vite dev 里由 `vite.config.ts` 的中间件提供；启动器里由 `启动编辑器.py` 提供；都没有时退回静态 `public/组件/_manifest.json`）；
 - 加载：对每个文件做**带时间戳的动态 import**（`?t=…`，绕开浏览器缓存），文件执行时自注册；
 - 服务：启动器**直接服务 `public/组件/`**（不是 dist 里的副本），所以「改文件 → 点重载」这条链路上没有任何构建步骤；
+  ⚠ 因此 `dist/组件/` 只是**构建时的复制副本**，运行时不会被服务 —— **改外部组件请改 `public/组件/`**，
+  改 `dist/组件/` 无效且下次构建会被覆盖；
 - 失败可见：某个文件加载失败会把**文件名 + 错误**写进日志，在 帮助 → 诊断信息 里能看到，不会静默消失。
 
 > 已实测：`public/组件/提示条.js` 改一个字符串，服务端返回内容立刻变化（3202 → 3217 B），**未构建、未重启**；自检里也有"外部组件已热加载 / 重载幂等"两三条断言。
@@ -259,10 +287,9 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 一 | 目录结构 + `registry/types.ts` + `store/editorStore.ts`（双模式 + 历史栈）+ `App.tsx` 四区骨架 | ✅ 完成（`tsc -b` 无错、`vite build` 通过、`?check=1` **12/12**） |
 | 二 | MenuBar（含模式切换）+ ComponentPanel（模式过滤）+ PropertyPanel（Schema 驱动）+ 控件集 | ✅ 完成（16 种控件全部实现；自检含"schema 里的控件都已实现"这条） |
 | 三 | Canvas 分派 + PaperCanvas 分页预览 + WebCanvas 拖拽/缩放/旋转/吸附/辅助线/框选/多选 | ✅ 完成（含离屏测量的多页分页、拖动排序插入指示线、容器落点高亮） |
-| 四 | 组件库（Word 常用 + PPT 常用 + Web 控件） | ✅ 完成 **31 个内置组件** + **3 个外部示例组件**（热加载）；属性统一走 shared 的通用片段 |
+| 四 | 组件库（Word 常用 + PPT 常用 + Web 控件） | ✅ 完成（当时 **31 个内置组件** + 3 个外部示例）；**后合入 A4 编辑器的组件后为 47 个内置**，见「十一、与 A4 编辑器的功能对照」 |
 | 五 | 组件树拖拽、导出 HTML/React、快捷键完善、持久化 | ✅ 完成：导出 HTML、导出 Word(.doc)、**导出 React/TSX**、组件树拖拽改层级、快捷键、持久化、日志诊断、组件热加载 |
-| 六 | 验收标准 1–10 逐条复核 | ✅ 见「十、验收标准对照」（每条都有对应断言或明确说明） |
-| 六 | 按验收标准 1–10 自测修复 | ⏳ 待做 |
+| 六 | 验收标准 1–10 逐条复核 | ✅ 完成：见「十、验收标准对照」；`?check=1` **52/52 全部通过**（含新增的三段式页码、热加载、导出、打印外壳等断言） |
 
 ---
 
@@ -278,7 +305,7 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 二 | 日志与诊断 | 模拟运行时错误被全局捕获（error 0→1）；诊断报告 4 段齐全（18KB）；缓冲 165 条、动作 18 个 |
 | 全阶段 | `?check=1` 自检 | 阶段一~二：23/23；补阶段三后 28/28；加热加载后 **31/31 全部通过** |
 | 三 | 交互（真实 PointerEvent） | Web 拖动 `x=176,y=144`、缩放手柄 `120×32 → 192×72`、框选选中；文档 **3 页自动分页**、拖动排序把第 2 项移到第 1 位 |
-| 四 | 组件库 | 面板 4 组：通用 7 / 文档专用 13 / PPT 专用 10 / Web 专用（另一模式 4）；**所有组件模板与 match 自洽、所有 schema 控件均已实现**（15 种控件、自动校验） |
+| 四 | 组件库 | 面板按模式过滤分组：通用 7 / 文档专用 13 / PPT 专用 10 / Web 专用（另一模式 4，为**当时的** 31 个组件）；自检自动遍历校验「所有组件 schema 的控件都已实现」——当前实际用到 **14 种**控件、已实现 **16 种**（另有 2 种暂未被任何 schema 使用） |
 | 修 | 标尺吸顶（用户反馈） | 标尺原先在 `transform: scale()` 层内，sticky 失效跟着内容滚 → 移到缩放层外 + 去掉画布容器上内边距；断言：滚动 420px 后**标尺与视口顶差 0px**；`?scroll=` 参数可复现核对 |
 | 加 | 深色主题（用户要求） | 断言：切 Monokai 后面板底色 `rgb(39,40,34)`、切回浅色 `rgb(255,255,255)`，属性面板控件同步变色；截图已核对 |
 | 修 | 组件面板底部按钮换行（用户反馈） | 「外部组件 3 · 重载」文字被折成两行 → 按钮加 `whitespace-nowrap` + `flex-none`、标签改「重载外部组件 (3)」，左侧计数文字改 `truncate` |
@@ -287,6 +314,7 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 五 | 导出 React / 组件树拖拽（本轮） | 自检「导出 React：含组件函数与默认导出」460 字节 / 「含 Tailwind 布局类」`absolute left-[120px]`+`w-[160px]` / 「不再是占位实现」；「组件树拖拽改层级」reparent 生效 + 可拖拽行 3/3 |
 | 修 | Web 模式导出取错数据源（本轮发现） | `doc.web.root` 是"画布根容器节点"，两个导出模块直接读它 → Web 模式导出内容为空/多包一层。改为由 store 用 `getForest(doc)` 传入顶层节点（utils 层保持纯函数，避免循环依赖）。**这是诊断断言暴露出来的真实 bug** |
 | 五 | 热加载 | 自检：外部组件 **3 个已加载**（liveNotice/liveCompareCard/liveDisclaimer）、17 个属性字段全部命中已实现控件、**重载幂等 3/3**；HTTP 层实测改文件即生效（3202→3217 B，未构建未重启） |
+| 合入 | **A4 编辑器组件 + 三段式页码（本轮）** | 内置组件 **31 → 47**（新增提示示意警示框/徽章按键标签/链接/图题表题/并排双图/封面/目录/导语/摘要/关键词/定义列表/核对清单 + 四个表格预设，表格四预设共用 `tableKit` 一份渲染内核）；三段式页码两条断言（纯函数 + DOM 端到端：首页无页脚 / 第 2 页 `I` / 第 3 页 `1`）全 PASS；`tsc -b` 0 错、`vite build` **1682 模块**、`?check=1` **52/52 全部通过** |
 
 ### 历史记录：阶段一
 
@@ -307,7 +335,7 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 2 | 文档模式渲染接近 A4 纸张（mm 单位、页边距、页眉页脚、自动分页） | ✅ | 自检「A4 纸张 794×1123px @96DPI」「文档模式自动分页（内容超出纸张）→ 3 页」「页脚变量替换生效」；纸张 210×297mm、版心 25.4/31.7mm |
 | 3 | Web 模式设备画布（预设尺寸、网格、安全区、绝对定位、容器嵌套） | ✅ | 自检「设备预设可切换（Mobile 375×812）」；面板/画布按 `supportedModes` 过滤；容器嵌套最深 2 层（示例） |
 | 4 | 组件注册表驱动：加组件不改动面板与画布代码 | ✅ | 自检「注册表按模式过滤组件」「所有组件 schema 的控件都已实现」；外部组件热加载（`external 3 个`）也走同一注册表 |
-| 5 | 属性面板由 schema 自动生成（含分组与控件类型） | ✅ | 自检「所有组件 schema 的控件都已实现 → 15 种控件」「外部组件 schema 与内置组件共用同一套控件」 |
+| 5 | 属性面板由 schema 自动生成（含分组与控件类型） | ✅ | 自检「所有组件 schema 的控件都已实现 → 14 种控件」（已实现 16 种）「外部组件 schema 与内置组件共用同一套控件」 |
 | 6 | 选中/悬停/拖拽/缩放/旋转/吸附/框选/多选可用（Web 模式） | ✅ | 自检「Web 拖动移动元素（真实 PointerEvent）」「Web 缩放手柄改变尺寸」「Web 框选能选中元素」；辅助线/网格/容器落点高亮 |
 | 7 | 文档模式可拖动排序、面板拖入按落点插入、分页符换页 | ✅ | 自检「文档模式拖动排序（插入指示线 + 真实 PointerEvent）」「分页符强制另起一页（纸张数 +1）」「上/下边距计入分页高度」 |
 | 8 | 撤销/重做覆盖所有改动，连续输入合并为一步 | ✅ | 自检「连续属性输入合并成一步」「历史栈上限 50 步」「模式切换可撤销/重做」 |
@@ -321,3 +349,80 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 - 导出的 HTML **不含页眉页脚**（浏览器打印的内容流无法让页眉页脚按页重复，Chrome 不支持 `@page` margin box）；编辑器内打印与 Word 导出都有页眉页脚。
 - 打印需按画布下方提示设置（A4、100%、边距"无/默认"、勾选背景图形）；否则浏览器可打印区不足会多出空白页。
 - 撤销栈上限 50 步（超出丢弃最早的记录）。
+- **图表按章编号（图 X-Y / 表 X-Y）未做**：题注组件（图题/表题）的编号是**手填**的，不会随章节自动重排。
+- **文档模式的表格列宽 / 图片宽度拖拽手柄未做**（A4 编辑器有）：目前只能用属性面板输入宽度。
+- **组件箱没有缩略图**（左侧面板用图标；A4 编辑器每张卡片会真渲染一份模板缩略图）。
+- **没有 Markdown 源码视图**，也不能 `?load=` 直接载入一份已有的 HTML 文档（A4 编辑器两项都有）。
+- **组件包导入/导出 UI 未做**：外部组件靠"放进 `public/组件/` + 点重载"这条链路（A4 编辑器有"加载/导出组件包、新建组件"）。
+
+> 上面这些是**与 A4 编辑器对照后仍未合入**的功能，逐条优先级与实现位置见「十一、与 A4 编辑器的功能对照」。
+
+---
+
+## 十一、与 A4 编辑器的功能对照
+
+对照对象：`../A4编辑器/`（43 个组件 + 富文本工具条 + 分节编号 + 拖拽手柄等）。本节回答"web-editor 是否全量包含 A4 的功能"。
+
+> 说明：下面"✅ 合入"都指**已在本工程实现并有对应断言/实测**；标 ⚠ 的是**语义等价但实现方式不同**；标 ❌ 的是**未合入**。
+> 对照依据是逐文件/逐功能核对（组件清单取自 `A4编辑器/组件/` 43 个文件与 `A4编辑器/README.md`）；其中"未发现某能力"是**检索级证据**，不排除换了命名实现。
+
+### 1. 组件对照（A4 43 个 → 本工程 47 个内置）
+
+| A4 组件 | 本工程 | 状态 |
+|---|---|---|
+| 一级/章节/小节/小标题（4 个） | `heading`（level 属性） | ✅ 合并为 1 个组件覆盖 4 级 |
+| 正文段落 / 编号列表 / 项目符号列表 / 代码块 / 引用块 / 脚注 | `paragraph` / `list` / `list` / `code` / `quote` / `footnote` | ✅ 已有 |
+| 导语 / 摘要 / 关键词 / 定义列表 / 核对清单 | `lead` / `abstract` / `keywords` / `defList` / `checkList` | ✅ **本轮合入** |
+| 步骤流程 | `ppt/process`（两种模式都可用） | ✅ 等价 |
+| 提示框 / 示意框 / 警示框 | `callout`（variant：提示/示意/警示） | ✅ **本轮合入**，3 个合并为 1 个 |
+| 表格 | `table`（线条风格可选） | ✅ 已有并扩展 |
+| 三线表 / 两列参数表 / 明细表 / 核对表 | `threeLineTable` / `paramTable` / `detailTable` / `checkTable` | ✅ **本轮合入**，四者与 `table` 共用一份渲染内核 `tableKit.tsx` |
+| 图片 / 图片+图题 | `image`（含 caption 属性） | ✅ 等价 |
+| 并排双图 | `imagePair` | ✅ **本轮合入** |
+| 图题 / 表题 | `caption`（kind：图题/表题） | ⚠ **本轮合入**，但**编号是手填**——自动"按章编号"未做 |
+| 分隔线 / 分页符 | `divider` / `pageBreak` | ✅ 已有 |
+| 封面（含分节）/ 封面副标题 / 封面色线 | `cover`（副标题、色线都是属性） | ⚠ 版式已合入；"封面不显示页码"改由三段式页码承担 |
+| 封面结束标记 | —（不需要独立组件） | ⚠ 由三段式页码的「目录页数」承担 |
+| 目录（含分节） | `toc` | ⚠ **本轮合入**版式；条目与页码是**填写式**，未与标题/分页自动联动 |
+| 两栏容器 / 三栏容器 | `columns`（栏数可调） | ✅ 合并 |
+| 卡片 / 时间轴 / 徽章 / 按键标签 / 链接 | `card` / `ppt/timeline` / `badge` / `badge` / `link` | ✅ 已有或**本轮合入**（徽章与按键标签合并为 `badge`） |
+
+**合计**：A4 的 43 个组件**全部有对应**（其中 12 组同族组件被合并），本工程总计 **47 个内置组件**（多出的部分来自 PPT 10 + Web 4 + 富文本/印章/日期/签名区/间隔块等本工程原有组件）。
+
+> ⚠ **我替你定的语义（A4 无对应证据，属我的选择）**：三个表格预设的默认线条风格（两列参数表用"横线表"、三线表用三线、明细表/核对表用全框线）、以及徽章/按键标签合并成 `badge`。
+
+### 2. 编辑器级功能对照（A4 → 本工程）
+
+| A4 编辑器功能 | 本工程 | 状态 |
+|---|---|---|
+| 三段式页码（封面无 → 目录罗马 → 正文阿拉伯） | 页面属性 →「分节页码」 | ✅ **本轮合入**（断言：纯函数 + DOM 端到端） |
+| 纸张纵横向、页边距、页眉页脚文字、首页不显示页码 | 页面属性（`orientation` / `margin` / `PageBandConfig` / `numbering.hideFirstPage`） | ✅ 已有 + 本轮补齐 |
+| 离屏测量自动分页、分页符换页 | `PaperCanvas` | ✅ 已有 |
+| 拖动排序 + 面板拖入按落点插入（插入指示线） | `PaperCanvas` + `useCanvasInteraction` | ✅ 已有 |
+| 属性表单分组 + 过滤框 + 常改在前 | `PropertyPanel` | ✅ 已有 |
+| 抽屉式分类组件箱（可折叠） | `ComponentPanel` | ✅ 已有 |
+| 单击选中 / 双击插入 / 拖入文档 | 组件面板 | ✅ 已有 |
+| 表格列宽 / 行高、图片宽度 | 仅属性面板输入 | ❌ **拖拽手柄未合入** |
+| 图表按章编号（图 X-Y / 表 X-Y）+ 重排编号 | — | ❌ **未合入**（题注编号手填） |
+| 组件箱缩略图（每张卡片真渲染模板） | — | ❌ **未合入**（用图标） |
+| 导入/导出组件包、新建组件 | 改为"目录热加载 + 重载" | ⚠ 能力**不等价**（A4 有 UI 化的导入导出/新建） |
+| Markdown 源码视图（文档 ↔ Markdown） | — | ❌ **未合入** |
+| `?load=` 载入任意已有 HTML 文档 | — | ❌ **未合入**（本工程只导入自己的 JSON） |
+| 富文本工具条（层级/字体/段落/表格/列表） | `richtext` 组件自带工具条；块级属性走属性面板 | ⚠ 实现方式不同，无独立工具条 |
+| 组件层自检 | `?check=1` **52 条** | ✅ 本工程覆盖更广（A4 为 37 条） |
+
+### 3. 反向：本工程有、A4 没有的
+
+双模式（文档 + Web 设备画布）、绝对定位/缩放/旋转/吸附/辅助线/框选/多选、组件树与拖拽改层级、
+撤销重做栈（50 步）、分级日志与诊断报告、深色主题（Monokai）、导出 React/TSX、导出/导入 JSON、
+外部组件热加载（改文件不构建）、PPT 组件组。
+
+### 4. 未合入项的优先级建议（**这是我的判断，不是既定需求**）
+
+| 优先级 | 项 | 建议落点 |
+|---|---|---|
+| 高 | 图表按章编号（图 X-Y / 表 X-Y） | 渲染前遍历文档、按 heading(level=1) 计章号，经 `RenderContext` 注入给 `caption`/`table` |
+| 高 | 文档模式表格列宽 / 图片宽度拖拽手柄 | 复用 `ResizeHandles` + `useCanvasInteraction`，把按下位置映射到 colgroup / 图片 mm 宽 |
+| 中 | 组件箱缩略图 | `ComponentPanel` 内用 `definition.render()` 真渲染（需隔离指针事件，避免误点选/误拖） |
+| 中 | Markdown 源码视图 / `?load=` | 需要文档 ↔ Markdown 双向映射（A4 自己也记录了"不无损"），工作量最大 |
+| 低 | 组件包导入导出 UI | 现有的「放进 `public/组件/` + 点重载」已覆盖主要场景，UI 只是便利性 |
