@@ -33,12 +33,14 @@ const CHECK_DATA: string[][] = [
   ['2', '—', '√', '—'],
 ];
 
-function presetProps(data: string[][], variant: string) {
+function presetProps(data: string[][], variant: string, colWidths = '', rowHeight = '') {
   return {
     data,
     headerRow: true,
     variant,
     width: 100,
+    colWidths,
+    rowHeight,
     cellPadding: 6,
     cellAlign: 'left',
     fontSize: 10.5,
@@ -69,10 +71,10 @@ export const paramTableComponent: ComponentDefinition = {
   category: '通用',
   supportedModes: ['document', 'web'],
   icon: LayoutDashboard,
-  description: '参数 — 取值 的两列对照表',
+  description: '参数 — 取值 的两列对照表（列宽 35% / 65%）',
   defaultFrame: { x: 40, y: 240, w: 420, h: 140 },
-  propSchema: tableSchema(PARAM_DATA, 'hLines'),
-  defaultProps: presetProps(PARAM_DATA, 'hLines'),
+  propSchema: tableSchema(PARAM_DATA, 'hLines', { colWidths: '35,65' }),
+  defaultProps: presetProps(PARAM_DATA, 'hLines', '35,65'),
   render: (props, ctx) => renderTable(props, ctx),
 };
 
@@ -82,10 +84,10 @@ export const detailTableComponent: ComponentDefinition = {
   category: '通用',
   supportedModes: ['document', 'web'],
   icon: List,
-  description: '序号 / 名称 / 规格 / 数量 / 备注 的明细表',
+  description: '序号 / 名称 / 规格 / 数量 / 备注 的明细表（列宽 8/30/30/12/20）',
   defaultFrame: { x: 40, y: 240, w: 600, h: 160 },
-  propSchema: tableSchema(DETAIL_DATA, 'normal'),
-  defaultProps: presetProps(DETAIL_DATA, 'normal'),
+  propSchema: tableSchema(DETAIL_DATA, 'normal', { colWidths: '8,30,30,12,20' }),
+  defaultProps: presetProps(DETAIL_DATA, 'normal', '8,30,30,12,20'),
   render: (props, ctx) => renderTable(props, ctx),
 };
 
@@ -95,9 +97,9 @@ export const checkTableComponent: ComponentDefinition = {
   category: '通用',
   supportedModes: ['document', 'web'],
   icon: ShieldCheck,
-  description: '序号 / 核对项 / 结果 / 备注 的核对表',
+  description: '序号 / 核对项 / 结果 / 备注 的核对表（列宽 8/52/12/28）',
   defaultFrame: { x: 40, y: 240, w: 560, h: 160 },
-  propSchema: tableSchema(CHECK_DATA, 'normal'),
-  defaultProps: presetProps(CHECK_DATA, 'normal'),
+  propSchema: tableSchema(CHECK_DATA, 'normal', { colWidths: '8,52,12,28' }),
+  defaultProps: presetProps(CHECK_DATA, 'normal', '8,52,12,28'),
   render: (props, ctx) => renderTable(props, ctx),
 };

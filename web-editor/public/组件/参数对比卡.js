@@ -67,9 +67,11 @@
             React.createElement(
               'tr',
               null,
-              React.createElement(head, { key: 'h0' }, '参数', 'none'),
-              React.createElement(head, { key: 'h1' }, asString(props.leftTitle), 'left'),
-              React.createElement(head, { key: 'h2' }, asString(props.rightTitle), 'right'),
+              // ★注意：head 是"返回元素的函数"，必须**调用**它，不能当成组件类型传给 createElement
+              //  （写 createElement(head, …) 会让 React 把 props 对象当 children 渲染 → 抛错）
+              head('参数', 'none'),
+              head(asString(props.leftTitle), 'left'),
+              head(asString(props.rightTitle), 'right'),
             ),
           ),
           React.createElement(

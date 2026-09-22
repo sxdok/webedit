@@ -5,6 +5,8 @@
  *   ?diag=1                     启动后打开诊断面板（日志/状态/环境）
  *   ?check=1                    运行自检并把结果写到标题、console 与右下角浮层
  *   ?demo=1                     灌入示例文档    ?mode=web|document  启动后切到指定模式
+ *   ?select=table              启动后选中第一个该类型的节点（也可给序号），用于核对属性面板排版
+ *   ?theme=monokai|light  ?scroll=N  ?printdebug=1
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -80,6 +82,18 @@ if (params.get('check')) {
 }
 
 // ?demo=1 → 灌入示例文档；随后（无论是否 demo）应用 ?mode=
+// ?select=<type|index> → 启动后选中一个节点（截图/核对属性面板排版用，例如 ?select=table）
+const applySelectParam = () => {
+  const want = params.get('select');
+  if (!want) return;
+  const s = useEditorStore.getState();
+  const doc = s.doc[s.doc.mode];
+  const list = Array.isArray((doc as { components?: unknown }).components)
+    ? ((doc as { components: { id: string; type: string }[] }).components ?? [])
+    : [];
+  const hit = list.find((n) => n.type === want) ?? list[Number(want)];
+  if (hit) s.selectComponent([hit.id]);
+};
 const applyModeParam = () => {
   const m = params.get('mode');
   if (m === 'web' || m === 'document') useEditorStore.getState().setMode(m);
@@ -89,6 +103,7 @@ if (params.get('demo')) {
     .then((m) => {
       m.seedDemo();
       applyModeParam();
+      setTimeout(applySelectParam, 120);
     })
     .catch((e: unknown) => log.error('boot', '示例文档加载失败', { error: String(e) }));
 } else {

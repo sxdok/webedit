@@ -3,10 +3,24 @@
  *       再套上选中/悬停/预览态的外壳；容器节点把 children 注入到容器元素**内部**（flex/grid 才生效）。
  * measure=true 时用于"离屏测量"（分页用），不带任何数据属性与交互，避免被交互逻辑命中。
  * 所见即所得：非选中、非悬停状态下不加任何编辑器专属边框（§五 渲染要求）。
+ *
+ * ★每个节点外面套一层**节点级错误边界**：某个组件（尤其是外部热加载组件）render 抛错时，
+ *   只把该节点降级成一块红色提示，不会把整个编辑器拖垮（内置组件与外部组件一视同仁）。
  */
-import { cloneElement, isValidElement, memo, type ReactElement, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import {
+  Component,
+  cloneElement,
+  isValidElement,
+  memo,
+  type ErrorInfo,
+  type ReactElement,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 import { getComponent } from '../../registry';
+import type { ComponentDefinition } from '../../registry/types';
 import { asNumber } from '../../utils/id';
+import { log } from '../../utils/logger';
 import type { ComponentNode, EditorMode, RenderContext } from '../../registry/types';
 
 export interface NodeViewProps {
@@ -22,6 +36,59 @@ export interface NodeViewProps {
   onNodePointerDown?: (e: ReactPointerEvent) => void;
   /** 离屏测量模式：无交互、无数据属性 */
   measure?: boolean;
+}
+
+/** 真正调用 def.render 的地方——必须是独立组件，否则 render 抛错时错误边界抓不到 */
+function NodeBody({
+  def,
+  props,
+  rctx,
+  childNodes,
+}: {
+  def: ComponentDefinition;
+  props: ComponentNode['props'];
+  rctx: RenderContext;
+  childNodes: ReactNode;
+}) {
+  const inner = def.render(props, rctx);
+  if (def.isContainer && isValidElement(inner)) {
+    return cloneElement(inner as ReactElement<{ children?: ReactNode }>, {}, childNodes);
+  }
+  return (
+    <>
+      {inner}
+      {childNodes}
+    </>
+  );
+}
+
+class NodeErrorBoundary extends Component<{ type: string; children: ReactNode }, { error: Error | null }> {
+  override state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    log.error('render', `组件渲染失败（已就地降级，不影响其它节点）：${this.props.type}`, {
+      error: error.message,
+      componentStack: info.componentStack,
+    });
+  }
+
+  override render(): ReactNode {
+    if (this.state.error) {
+      return (
+        <div
+          data-node-render-error={this.props.type}
+          className="rounded border border-red-300 bg-red-50 px-2 py-1 text-2xs text-red-600"
+        >
+          组件「{this.props.type}」渲染失败：{this.state.error.message}（已就隔离，其它内容不受影响）
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 function NodeViewInner({
@@ -48,7 +115,6 @@ function NodeViewInner({
 
   const selected = !measure && selectedIds.includes(node.id);
   const hovered = !measure && hoveredId === node.id;
-  const inner = def.render(node.props, { ...ctx, isSelected: selected });
   const chrome = showChrome && !measure ? (selected ? 'node-selected' : hovered ? 'node-hover' : '') : '';
 
   // ★上/下边距：所有组件统一属性（注册表自动补齐），在文档模式下按 mm 换算为 px 生效
@@ -89,15 +155,11 @@ function NodeViewInner({
       ))
     : null;
 
-  const content =
-    def.isContainer && isValidElement(inner) ? (
-      cloneElement(inner as ReactElement<{ children?: ReactNode }>, {}, childNodes)
-    ) : (
-      <>
-        {inner}
-        {childNodes}
-      </>
-    );
+  const content = (
+    <NodeErrorBoundary type={node.type}>
+      <NodeBody def={def} props={node.props} rctx={{ ...ctx, isSelected: selected }} childNodes={childNodes} />
+    </NodeErrorBoundary>
+  );
 
   const extra = measure
     ? { 'data-measure-item': '1' }

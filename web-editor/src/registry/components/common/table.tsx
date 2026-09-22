@@ -27,6 +27,8 @@ export const tableComponent: ComponentDefinition = {
     headerRow: true,
     variant: 'normal',
     width: 100,
+    colWidths: '',
+    rowHeight: '',
     cellPadding: 6,
     cellAlign: 'left',
     fontSize: 10.5,

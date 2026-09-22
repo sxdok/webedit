@@ -7,7 +7,7 @@
  * 对应验收标准：1、2、3、4、5、7、9、10。
  */
 import { Type } from 'lucide-react';
-import { getAllComponents, getComponent, getComponentsByMode, registerComponent } from '../registry';
+import { getAllComponents, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
 import { pageLabel, type ComponentDefinition } from '../registry/types';
 import { createInitialDocument, useEditorStore } from './editorStore';
@@ -702,6 +702,169 @@ async function interactionChecks(): Promise<Result[]> {
     vp.scrollTop = 0;
   } else {
     add('标尺滚动后吸顶（不跟随内容）', false, '找不到 #canvas-viewport');
+  }
+
+  /* ── 表格：列宽（colgroup）/ 行高（对齐 A4 编辑器表格属性）── */
+  S().setMode('document');
+  S().clearAll();
+  const tRef = S().addComponent('table');
+  if (tRef) {
+    S().updateProps(tRef, { colWidths: '20,50,30', rowHeight: '9' });
+    await wait(320);
+    const cols = document.querySelectorAll(`[data-node-id="${tRef}"] colgroup col`);
+    const widths = [...cols].map((c) => (c as HTMLElement).style.width);
+    add(
+      '表格列宽生效（colgroup 20%/50%/30%）',
+      widths.length === 3 && widths[0] === '20%' && widths[1] === '50%' && widths[2] === '30%',
+      `${widths.length} 列：[${widths.join(', ')}]`,
+    );
+    const firstCell = document.querySelector(`[data-node-id="${tRef}"] tbody tr td`) as HTMLElement | null;
+    add(
+      '表格行高生效（纯数字按 mm）',
+      firstCell?.style.height === '9mm',
+      `单元格 height=${firstCell?.style.height || '(空)'}`,
+    );
+    // mm 写法与"未给出的列保持自动"也要对（A4 同一套语义）
+    S().updateProps(tRef, { colWidths: '35mm, 65mm' });
+    await wait(240);
+    const cols2 = [...document.querySelectorAll(`[data-node-id="${tRef}"] colgroup col`)].map(
+      (c) => (c as HTMLElement).style.width,
+    );
+    add(
+      '表格列宽支持 mm 且列数不缩水',
+      cols2[0] === '35mm' && cols2[1] === '65mm' && cols2.length >= 3,
+      `[${cols2.join(', ')}]`,
+    );
+  } else {
+    add('表格列宽生效（colgroup 20%/50%/30%）', false, 'addComponent(table) 失败');
+    add('表格行高生效（纯数字按 mm）', false, 'addComponent(table) 失败');
+    add('表格列宽支持 mm 且列数不缩水', false, 'addComponent(table) 失败');
+  }
+
+  /* ── 节点级错误边界：某个组件 render 抛错时只降级该节点，不能把编辑器拖垮 ──
+     （这条是被"属性面板遍历全部组件"的审计逼出来的：外部组件 参数对比卡 的 render 抛错，
+       当时整个应用被顶层错误边界替换成错误页 → 画布/面板全部消失。） */
+  {
+    const badType = '__probe_throw';
+    registerComponent({
+      type: badType,
+      label: '探针·渲染抛错',
+      category: '通用',
+      supportedModes: ['document', 'web'],
+      icon: Type,
+      defaultProps: { text: 'x' },
+      propSchema: [],
+      render: () => {
+        throw new Error('探针故意抛错');
+      },
+    });
+    S().setMode('document');
+    S().clearAll();
+    const goodId = S().addComponent('paragraph');
+    const badId = S().addComponent(badType);
+    await wait(300);
+    const viewportAlive = !!document.getElementById('canvas-viewport');
+    const placeholder = document.querySelector('[data-node-render-error]');
+    const goodStillThere = !!(goodId && document.querySelector(`[data-node-id="${goodId}"]`));
+    add(
+      '组件渲染抛错只降级该节点（节点级错误边界，不拖垮编辑器）',
+      !!badId && viewportAlive && !!placeholder && goodStillThere,
+      `视口存活=${viewportAlive}、错误占位=${!!placeholder}、同页其它节点仍在=${goodStillThere}`,
+    );
+    unregisterComponent(badType);
+    S().clearAll();
+    await wait(120);
+  }
+
+  /* ── 属性面板紧凑排版：遍历**全部组件**，检查属性行不溢出、标签不折行 ──
+     注意：面板元素必须每轮**重新查询**（切换选中会让 React 重建这段 DOM，缓存旧引用会量到已卸载的 0×0 节点）。 */
+  {
+    const total = getAllComponents().length;
+    let comps = 0;
+    let rows = 0;
+    let wideRows = 0;
+    let maxRowH = 0;
+    const overflow: string[] = [];
+    const wrapped: string[] = [];
+    const tooTall: string[] = [];
+    const skipped: string[] = [];
+    const uniq = (a: string[]) => [...new Set(a)].slice(0, 4).join(' ');
+    const modeNow = () => S().doc.mode;
+
+    for (const def of getAllComponents()) {
+      const m = def.supportedModes.includes(modeNow()) ? modeNow() : def.supportedModes[0];
+      if (!m) {
+        skipped.push(`${def.type}:无可用模式`);
+        continue;
+      }
+      if (modeNow() !== m) {
+        S().setMode(m);
+        await wait(40);
+      }
+      S().clearAll();
+      const id = S().addComponent(def.type);
+      if (!id) {
+        skipped.push(`${def.type}:插入失败`);
+        continue;
+      }
+      await wait(55);
+      const rowEls = document.querySelectorAll('[data-prop-row="1"]');
+      const panelNow = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
+      if (!rowEls.length) {
+        skipped.push(`${def.type}:无可见属性`);
+        continue;
+      }
+      if (!panelNow || panelNow.clientWidth < 100) {
+        skipped.push(`${def.type}:面板未布局`);
+        continue;
+      }
+      comps += 1;
+      rowEls.forEach((r) => {
+        const el = r as HTMLElement;
+        rows += 1;
+        const h = el.getBoundingClientRect().height;
+        if (h > maxRowH) maxRowH = Math.round(h);
+        if (el.dataset.propWide === '1') wideRows += 1;
+        if (el.scrollWidth > el.clientWidth + 1) overflow.push(def.type);
+        const lab = el.querySelector('[data-prop-label="1"]') as HTMLElement | null;
+        if (lab && lab.getBoundingClientRect().height > 18) wrapped.push(def.type);
+        if (el.dataset.propWide !== '1' && h > 40) tooTall.push(def.type);
+      });
+    }
+
+    add(
+      '属性面板紧凑排版：无溢出 / 标签不折行 / 无超高行',
+      rows > 200 && overflow.length === 0 && wrapped.length === 0 && tooTall.length === 0,
+      `${comps} 个组件 / ${rows} 个属性行（整行式 ${wideRows}，最高行 ${maxRowH}px）；溢出 ${overflow.length}、折行 ${wrapped.length}、超高 ${tooTall.length}` +
+        (overflow.length ? `；溢出例：${uniq(overflow)}` : '') +
+        (wrapped.length ? `；折行例：${uniq(wrapped)}` : '') +
+        (tooTall.length ? `；超高例：${uniq(tooTall)}` : ''),
+    );
+    add(
+      '属性面板排版审计覆盖全部组件',
+      comps + skipped.length === total,
+      `可检查 ${comps}/${total}${skipped.length ? `；跳过：${uniq(skipped)}` : ''}`,
+    );
+    const scrollNow = document.querySelector('[data-props-scroll="1"]') as HTMLElement | null;
+    const alive = {
+      viewport: !!document.getElementById('canvas-viewport'),
+      nodes: document.querySelectorAll('[data-node-id]').length,
+      panels: document.querySelectorAll('[data-props-scroll]').length,
+      rightCollapsed: S().ui.rightCollapsed,
+      mode: S().doc.mode,
+      media: window.matchMedia('print').matches ? 'print' : 'screen',
+      lastType: [...S().doc.document.components, ...getForest(S().doc)].slice(-1)[0]?.type ?? '(空)',
+    };
+    add(
+      '属性面板无横向滚动（滚动容器未溢出）',
+      !!scrollNow && scrollNow.clientWidth > 100 && scrollNow.scrollWidth <= scrollNow.clientWidth + 1,
+      scrollNow
+        ? `clientWidth=${scrollNow.clientWidth} / scrollWidth=${scrollNow.scrollWidth}`
+        : `未找到滚动容器；诊断：视口=${alive.viewport} 画布节点=${alive.nodes} 面板数=${alive.panels} 右栏折叠=${alive.rightCollapsed} 模式=${alive.mode} 媒体=${alive.media} 最后类型=${alive.lastType}`,
+    );
+    S().clearAll();
+    S().setMode('document');
+    await wait(120);
   }
 
   return out;

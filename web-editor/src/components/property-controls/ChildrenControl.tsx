@@ -25,8 +25,9 @@ export function ChildrenControl({ nodeId }: { nodeId?: string }) {
   };
 
   return (
-    <div className="mb-2">
-      <span className="mb-1 block text-2xs text-gray-500">子组件（{children.length}）</span>
+    // 标签由外层 Field 渲染（紧凑列表），这里只出子项列表
+    <div>
+      <span className="mb-1 block text-2xs text-gray-400">容器内共 {children.length} 个</span>
       {children.length === 0 ? (
         <p className="rounded border border-dashed border-line px-2 py-1.5 text-2xs text-gray-400">
           容器内还没有子组件：从左侧组件面板拖到该容器上即可放入。

@@ -54,8 +54,8 @@ export function RichTextControl({ item, value, onChange }: ControlProps) {
   };
 
   return (
-    <div className="mb-1.5">
-      <span className="mb-0.5 block text-2xs text-gray-500">{item.label}</span>
+    // 标签由外层 Field 渲染（紧凑列表），这里只出编辑区
+    <div>
       <div className="overflow-hidden rounded border border-line bg-white">
         <div className="flex flex-wrap items-center gap-0.5 border-b border-line bg-gray-50 px-1 py-0.5">
           <button type="button" className={BTN} title="加粗" onClick={() => exec('bold')}>

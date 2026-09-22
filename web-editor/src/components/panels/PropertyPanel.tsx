@@ -38,7 +38,7 @@ export function PropertyPanel() {
         {selectedCount > 1 && <span className="text-2xs text-gray-400">多选 {selectedCount}</span>}
       </div>
 
-      <div className="thin-scroll flex-1 overflow-auto">
+      <div className="thin-scroll flex-1 overflow-auto" data-props-scroll="1">
         {node ? <NodeProperties node={node} mode={mode} /> : mode === 'document' ? <PagePropertyPanel /> : <CanvasPropertyPanel />}
       </div>
     </div>
@@ -97,7 +97,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
   }
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-2.5 py-1.5" data-props-panel="1">
       <div className="mb-2 flex items-center gap-1.5">
         <def.icon className="h-4 w-4 text-primary" />
         <span className="text-[13px] font-semibold text-gray-800">{def.label}</span>
@@ -144,13 +144,13 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
         </div>
       )}
 
-      <div className="mb-2 flex h-7 items-center gap-1.5 rounded border border-line bg-white px-2">
+      <div className="mb-1.5 flex h-6 items-center gap-1.5 rounded border border-line bg-white px-2">
         <Search className="h-3.5 w-3.5 text-gray-400" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="过滤属性…"
-          className="w-full border-0 text-[13px] outline-none placeholder:text-gray-300"
+          className="w-full min-w-0 border-0 text-xs outline-none placeholder:text-gray-300"
         />
       </div>
 
@@ -161,18 +161,18 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
       {sections.map(([group, items]) => {
         const open = !closed[group];
         return (
-          <div key={group} className="mb-2">
+          <div key={group} className="mb-1.5" data-prop-group="1">
             <button
               type="button"
               onClick={() => setClosed((s) => ({ ...s, [group]: !s[group] }))}
-              className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-1 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
+              className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
             >
               {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               <span className="flex-1">{group}</span>
               <span className="text-2xs font-normal text-gray-400">{items.length}</span>
             </button>
             {open && (
-              <div className="mt-1.5">
+              <div className="mt-1" data-prop-list="1">
                 {items.map((item) => (
                   <PropertyControl
                     key={item.key}
