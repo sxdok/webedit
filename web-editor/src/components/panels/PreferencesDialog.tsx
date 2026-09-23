@@ -22,7 +22,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
         <span className="text-[12px] font-semibold text-gray-700">{title}</span>
         {hint && <span className="text-2xs text-gray-400">{hint}</span>}
       </div>
-      <div className="rounded-md border border-line/80 bg-gray-50/50 px-2 py-1">{children}</div>
+      <div className="rounded-md border border-line bg-gray-50 px-2 py-1">{children}</div>
     </div>
   );
 }

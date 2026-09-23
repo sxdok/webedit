@@ -49,8 +49,10 @@ function ComponentThumbInner({
     <div
       data-comp-thumb={def.type}
       aria-hidden
-      className="pointer-events-none relative w-full select-none overflow-hidden rounded border border-line/70 bg-white"
-      style={{ height }}
+      className="pointer-events-none relative w-full select-none overflow-hidden rounded border border-line/70"
+      /* ★缩略图是"纸张预览"，**固定白底黑字**：暗色主题下也保持像一张纸，
+         否则深色主题里缩略图会跟着变暗、和纸张所见不一致。 */
+      style={{ height, background: '#fff', color: '#1f2329' }}
     >
       <div
         style={{

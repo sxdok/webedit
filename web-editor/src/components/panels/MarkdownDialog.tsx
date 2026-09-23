@@ -57,7 +57,7 @@ export function MarkdownDialog({ open, onClose }: { open: boolean; onClose: () =
 
       <div
         data-md-source="1"
-        className="thin-scroll max-h-[62vh] overflow-auto rounded border border-line bg-gray-50/60"
+        className="thin-scroll max-h-[62vh] overflow-auto rounded border border-line bg-gray-50"
       >
         <pre className="m-0 flex text-[11.5px] leading-5">
           <span className="select-none border-r border-line bg-gray-100 px-2 py-2 text-right text-gray-400">

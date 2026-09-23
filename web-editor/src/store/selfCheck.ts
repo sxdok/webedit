@@ -3473,6 +3473,107 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
+  /* 深色主题（Monokai）：新界面（首选项 / Markdown 视图）必须跟着适配
+     背景与文字的对比度用 WCAG 公式算，避免"看着能看"，实际是浅底浅字。 */
+  {
+    const parseRGB = (s: string): [number, number, number, number] => {
+      const m = /rgba?\(([^)]+)\)/.exec(s);
+      if (!m) return [255, 255, 255, 1];
+      const parts = m[1].split(',').map((x) => Number(x.trim()));
+      return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1];
+    };
+    const lum = ([r, g, b]: [number, number, number, number]): number => {
+      const f = (c: number): number => {
+        const v = c / 255;
+        return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const contrast = (a: [number, number, number, number], b: [number, number, number, number]): number => {
+      const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (l1 + 0.05) / (l2 + 0.05);
+    };
+    /** 一路往上找到第一个"实际有底色"的祖先（中间的容器多是透明） */
+    const effectiveBg = (el: HTMLElement): [number, number, number, number] => {
+      let cur: HTMLElement | null = el;
+      while (cur) {
+        const [r, g, b, a] = parseRGB(getComputedStyle(cur).backgroundColor);
+        if (a > 0.5) return [r, g, b, a];
+        cur = cur.parentElement;
+      }
+      return [255, 255, 255, 1];
+    };
+
+    S().setTheme('monokai');
+    await wait(320);
+    S().toggleUI('prefsOpen');
+    await wait(340);
+
+    const rows = [...document.querySelectorAll('[data-pref]')] as HTMLElement[];
+    const reports = rows.map((row) => {
+      const label = row.firstElementChild as HTMLElement | null;
+      const fg = parseRGB(getComputedStyle(label ?? row).color);
+      const bg = effectiveBg(row);
+      return { key: row.getAttribute('data-pref') ?? '', ratio: contrast(fg, bg), bgLum: lum(bg) };
+    });
+    const worst = [...reports].sort((a, b) => a.ratio - b.ratio)[0];
+    add(
+      '暗色主题：首选项每一项都是"深底浅字"（对比度 ≥ 3，没有残留浅色底板）',
+      rows.length >= 8 && reports.every((r) => r.ratio >= 3 && r.bgLum < 0.4),
+      `共 ${rows.length} 项；最低对比度 ${worst ? `${worst.ratio.toFixed(1)}（${worst.key}）` : '—'}；底板亮度范围 ${Math.min(...reports.map((r) => r.bgLum)).toFixed(2)}~${Math.max(...reports.map((r) => r.bgLum)).toFixed(2)}`,
+    );
+
+    const section = document.querySelector('[data-pref="compPreview"]')?.parentElement as HTMLElement | null;
+    const sectionBg = section ? parseRGB(getComputedStyle(section).backgroundColor) : ([255, 255, 255, 1] as [number, number, number, number]);
+    add(
+      '暗色主题：首选项分组底板不再是浅灰（原来是 bg-gray-50/50 这类"带透明度"的类没被主题覆盖）',
+      lum(sectionBg) < 0.4,
+      `分组底板 rgba=${sectionBg.map((v) => Math.round(v * 100) / 100).join(',')}、亮度 ${lum(sectionBg).toFixed(2)}（<0.4 才算深色）`,
+    );
+
+    S().toggleUI('prefsOpen');
+    await wait(220);
+
+    // Markdown 视图同样验一遍（它的源码区原来也是 bg-gray-50/60）
+    S().setMode('document');
+    S().clearAll();
+    const dm = S().addComponent('paragraph');
+    if (dm) S().updateProps(dm, { text: '暗色下的 Markdown 视图' });
+    await wait(320);
+    S().toggleUI('showMarkdown');
+    await wait(340);
+    const src = document.querySelector('[data-md-source="1"]') as HTMLElement | null;
+    const code = src?.querySelector('code') as HTMLElement | null;
+    const mdRatio = src && code ? contrast(parseRGB(getComputedStyle(code).color), effectiveBg(src)) : 0;
+    add(
+      '暗色主题：Markdown 源码视图同样是深底浅字（对比度 ≥ 3）',
+      !!src && mdRatio >= 3 && lum(effectiveBg(src)) < 0.4,
+      `源码区对比度 ${mdRatio.toFixed(1)}、底板亮度 ${lum(effectiveBg(src!)).toFixed(2)}`,
+    );
+    S().toggleUI('showMarkdown');
+    await wait(220);
+
+    // 缩略图是"纸张预览"，暗色下仍应是白底（否则和纸张所见不一致）
+    S().setCompPreview(true);
+    await wait(360);
+    const thumb = document.querySelector('[data-comp-thumb="heading"]') as HTMLElement | null;
+    const tb = thumb ? parseRGB(getComputedStyle(thumb).backgroundColor) : ([0, 0, 0, 1] as [number, number, number, number]);
+    add(
+      '暗色主题：组件缩略图仍是**白底纸张预览**（不跟着变暗）',
+      lum(tb) > 0.7,
+      `缩略图底色亮度 ${lum(tb).toFixed(2)}（>0.7 才算白底）`,
+    );
+    S().setCompPreview(false);
+
+    S().setTheme('light');
+    await wait(320);
+    add(
+      '主题可切回浅色（设置随 ui 持久化，自检结束还原为浅色）',
+      S().ui.theme === 'light' && document.documentElement.dataset.theme === 'light',
+      `ui.theme=${S().ui.theme}、html[data-theme]=${document.documentElement.dataset.theme}`,
+    );
+  }
+
   /* B10 Markdown 源码视图（文档 → Markdown，只读 + 一键复制） */
   {
     S().setMode('document');

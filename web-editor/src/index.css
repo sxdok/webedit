@@ -107,6 +107,20 @@ html[data-theme='monokai'] .bg-panel { background-color: var(--mk-bg); }
 html[data-theme='monokai'] .bg-canvasbg { background-color: #15160f; }
 html[data-theme='monokai'] .bg-gray-50,
 html[data-theme='monokai'] .bg-gray-100 { background-color: var(--mk-raised); }
+/* ★带透明度的变体（`/50` `/60` `/70`…）：Tailwind 会为每个不透明度生成**独立类名**
+   （`.bg-gray-50\/60`），所以上面的 `.bg-gray-50` 规则管不到它们 —— 必须逐个列出，
+   否则暗色下会留下一块块浅色底板（用户 2026-09-23 反馈"首选项页不适配暗色"就是这个原因）。
+   新增界面代码时：要么用不带 `/xx` 的类，要么把新的变体补到下面这两组里。 */
+html[data-theme='monokai'] .bg-gray-50\/40,
+html[data-theme='monokai'] .bg-gray-50\/50,
+html[data-theme='monokai'] .bg-gray-50\/60,
+html[data-theme='monokai'] .bg-gray-50\/70,
+html[data-theme='monokai'] .bg-gray-100\/50,
+html[data-theme='monokai'] .bg-gray-100\/60,
+html[data-theme='monokai'] .bg-gray-100\/70 { background-color: var(--mk-raised); }
+html[data-theme='monokai'] .bg-gray-200\/60,
+html[data-theme='monokai'] .bg-gray-200\/70 { background-color: #3e3d32; }
+
 html[data-theme='monokai'] .bg-gray-200 { background-color: #3e3d32; }
 html[data-theme='monokai'] .bg-gray-300 { background-color: #4b4c40; }
 html[data-theme='monokai'] .bg-gray-400 { background-color: #6b6c5e; }
@@ -125,6 +139,12 @@ html[data-theme='monokai'] .bg-primary\/10 { background-color: var(--mk-accent-s
 html[data-theme='monokai'] .border-line,
 html[data-theme='monokai'] .border-gray-200,
 html[data-theme='monokai'] .border-gray-300 { border-color: var(--mk-line); }
+/* 带透明度的描边同理（`.border-line\/70` 是独立类名）：分组分割线、卡片描边都走这里 */
+html[data-theme='monokai'] .border-line\/40,
+html[data-theme='monokai'] .border-line\/50,
+html[data-theme='monokai'] .border-line\/60,
+html[data-theme='monokai'] .border-line\/70,
+html[data-theme='monokai'] .border-line\/80 { border-color: var(--mk-line); }
 html[data-theme='monokai'] .border-primary { border-color: var(--mk-accent); }
 html[data-theme='monokai'] .text-gray-900,
 html[data-theme='monokai'] .text-gray-800,
