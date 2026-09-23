@@ -43,6 +43,12 @@ body {
 .ui-ink-3 { color: var(--ui-ink-3); }
 .ui-accent { color: var(--ui-accent); }
 
+/* 输入框组件（画布内容）的**占位文字颜色**：由组件内联的 `--input-ph` 决定，
+   不写死颜色 → 编辑器主题与主题重映射都碰不到它（用户 2026-09-24：占位字不该跟着编辑器主题变）。 */
+.input-ph::placeholder {
+  color: var(--input-ph, #9ca3af);
+}
+
 /* 面板内部滚动条细化 */
 .thin-scroll::-webkit-scrollbar {
   width: 8px;
@@ -132,6 +138,28 @@ html[data-theme='monokai'] {
   --mk-danger: #ff6188;
   --mk-warn: #fd971f;
   --mk-ok: #a6e22e;
+  /* ★下面这些"具体色值"也做成令牌：画布内容（纸张/设备画布/缩略图）要把整套令牌**还原成浅色**，
+     只要有一条规则写死颜色，那道还原就漏一处（见文件后面的「画布内容不跟主题」段）。 */
+  --mk-canvasbg: #15160f;
+  --mk-raise2: #3e3d32;
+  --mk-raise3: #4b4c40;
+  --mk-raise4: #6b6c5e;
+  --mk-ink-strong: #fff;
+  --mk-danger-soft: rgba(255, 97, 136, 0.22);
+  --mk-danger-tint: rgba(255, 97, 136, 0.16);
+  --mk-danger-line: rgba(255, 97, 136, 0.55);
+  --mk-danger-line-soft: rgba(255, 97, 136, 0.4);
+  --mk-accent-strong: rgba(102, 217, 239, 0.6);
+  --mk-accent-line-20: rgba(102, 217, 239, 0.2);
+  --mk-accent-line-30: rgba(102, 217, 239, 0.3);
+  --mk-accent-line-60: rgba(102, 217, 239, 0.6);
+  --mk-accent-ring: rgba(102, 217, 239, 0.25);
+  --mk-tint-blue: rgba(102, 217, 239, 0.14);
+  --mk-tint-emerald: rgba(166, 226, 46, 0.12);
+  --mk-tint-emerald-40: rgba(166, 226, 46, 0.1);
+  --mk-ok-line: rgba(166, 226, 46, 0.55);
+  --mk-tint-amber: rgba(253, 151, 31, 0.14);
+  --mk-tint-amber-40: rgba(253, 151, 31, 0.12);
   --ui: #272822;
   --ui2: #66d9ef;
   --bd: #3e3d32;
@@ -143,7 +171,7 @@ html[data-theme='monokai'] body {
 }
 html[data-theme='monokai'] .bg-white { background-color: var(--mk-surface); }
 html[data-theme='monokai'] .bg-panel { background-color: var(--mk-bg); }
-html[data-theme='monokai'] .bg-canvasbg { background-color: #15160f; }
+html[data-theme='monokai'] .bg-canvasbg { background-color: var(--mk-canvasbg); }
 html[data-theme='monokai'] .bg-gray-50,
 html[data-theme='monokai'] .bg-gray-100 { background-color: var(--mk-raised); }
 /* ★带透明度的变体（`/50` `/60` `/70`…）：Tailwind 会为每个不透明度生成**独立类名**
@@ -158,19 +186,19 @@ html[data-theme='monokai'] .bg-gray-100\/50,
 html[data-theme='monokai'] .bg-gray-100\/60,
 html[data-theme='monokai'] .bg-gray-100\/70 { background-color: var(--mk-raised); }
 html[data-theme='monokai'] .bg-gray-200\/60,
-html[data-theme='monokai'] .bg-gray-200\/70 { background-color: #3e3d32; }
+html[data-theme='monokai'] .bg-gray-200\/70 { background-color: var(--mk-raise2); }
 
-html[data-theme='monokai'] .bg-gray-200 { background-color: #3e3d32; }
-html[data-theme='monokai'] .bg-gray-300 { background-color: #4b4c40; }
-html[data-theme='monokai'] .bg-gray-400 { background-color: #6b6c5e; }
+html[data-theme='monokai'] .bg-gray-200 { background-color: var(--mk-raise2); }
+html[data-theme='monokai'] .bg-gray-300 { background-color: var(--mk-raise3); }
+html[data-theme='monokai'] .bg-gray-400 { background-color: var(--mk-raise4); }
 /* 菜单分隔线与悬停高亮（暗色下原来仍偏亮） */
-html[data-theme='monokai'] .bg-line { background-color: #4b4c40; }
+html[data-theme='monokai'] .bg-line { background-color: var(--mk-raise3); }
 html[data-theme='monokai'] .border-b.border-line,
 html[data-theme='monokai'] .border-t.border-line,
 html[data-theme='monokai'] .border-r.border-line,
 html[data-theme='monokai'] .border-l.border-line { border-color: var(--mk-line); }
 html[data-theme='monokai'] .hover\:bg-gray-100:hover,
-html[data-theme='monokai'] .hover\:bg-gray-200:hover { background-color: #3e3d32; }
+html[data-theme='monokai'] .hover\:bg-gray-200:hover { background-color: var(--mk-raise2); }
 html[data-theme='monokai'] .bg-primary { background-color: var(--mk-accent); }
 html[data-theme='monokai'] .bg-primary.text-white { color: #1e1f1c; }
 html[data-theme='monokai'] .bg-primary\/5,
@@ -198,54 +226,56 @@ html[data-theme='monokai'] .hover\:bg-gray-100:hover,
 html[data-theme='monokai'] .hover\:bg-gray-200\/70:hover { background-color: var(--mk-raised); }
 html[data-theme='monokai'] .hover\:bg-primary\/5:hover { background-color: var(--mk-accent-soft); }
 html[data-theme='monokai'] .hover\:text-primary:hover { color: var(--mk-accent); }
-html[data-theme='monokai'] .hover\:text-gray-900:hover { color: #fff; }
+html[data-theme='monokai'] .hover\:text-gray-900:hover { color: var(--mk-ink-strong); }
 html[data-theme='monokai'] .hover\:border-primary:hover { border-color: var(--mk-accent); }
-html[data-theme='monokai'] .bg-blue-50 { background-color: rgba(102, 217, 239, 0.14); }
+html[data-theme='monokai'] .bg-blue-50 { background-color: var(--mk-tint-blue); }
 html[data-theme='monokai'] .text-blue-600 { color: var(--mk-accent); }
-html[data-theme='monokai'] .bg-emerald-50 { background-color: rgba(166, 226, 46, 0.12); }
+html[data-theme='monokai'] .bg-emerald-50 { background-color: var(--mk-tint-emerald); }
 html[data-theme='monokai'] .text-emerald-600 { color: var(--mk-ok); }
-html[data-theme='monokai'] .bg-amber-50 { background-color: rgba(253, 151, 31, 0.14); }
+html[data-theme='monokai'] .bg-amber-50 { background-color: var(--mk-tint-amber); }
 html[data-theme='monokai'] .text-amber-600 { color: var(--mk-warn); }
-html[data-theme='monokai'] .bg-red-50 { background-color: rgba(255, 97, 136, 0.16); }
+html[data-theme='monokai'] .bg-red-50 { background-color: var(--mk-danger-tint); }
 html[data-theme='monokai'] .text-red-600,
 html[data-theme='monokai'] .text-red-500 { color: var(--mk-danger); }
-html[data-theme='monokai'] .hover\:bg-red-50:hover { background-color: rgba(255, 97, 136, 0.22); }
-html[data-theme='monokai'] .border-red-200 { border-color: rgba(255, 97, 136, 0.4); }
+html[data-theme='monokai'] .hover\:bg-red-50:hover { background-color: var(--mk-danger-soft); }
+html[data-theme='monokai'] .border-red-200 { border-color: var(--mk-danger-line-soft); }
 html[data-theme='monokai'] .border-dashed.border-line { border-color: var(--mk-line); }
 
 /* ────── 2026-09-24 暗色审计补齐（`npm run audit:dark` 扫出来的漏项）──────
    规则：Tailwind 的 `hover:` / `focus:` / `disabled:` / `group-hover:` / `/xx` 变体**都是独立类名**，
    基础类被重映射了不等于变体也被覆盖 —— 下面这些就是漏网的（漏一个就多一块浅色/错色）。 */
 /* 调色板半透明变体 */
-html[data-theme='monokai'] .bg-amber-50\/40 { background-color: rgba(253, 151, 31, 0.12); }
-html[data-theme='monokai'] .bg-emerald-50\/40 { background-color: rgba(166, 226, 46, 0.1); }
+html[data-theme='monokai'] .bg-amber-50\/40 { background-color: var(--mk-tint-amber-40); }
+html[data-theme='monokai'] .bg-emerald-50\/40 { background-color: var(--mk-tint-emerald-40); }
 html[data-theme='monokai'] .text-amber-700 { color: var(--mk-warn); }
 html[data-theme='monokai'] .text-emerald-500 { color: var(--mk-ok); }
-html[data-theme='monokai'] .border-emerald-400\/60 { border-color: rgba(166, 226, 46, 0.55); }
+html[data-theme='monokai'] .border-emerald-400\/60 { border-color: var(--mk-ok-line); }
 /* hover / disabled 变体 */
 html[data-theme='monokai'] .hover\:bg-gray-50:hover,
 html[data-theme='monokai'] .disabled\:bg-gray-50:disabled { background-color: var(--mk-raised); }
-html[data-theme='monokai'] .hover\:text-gray-700:hover { color: #fff; }
+html[data-theme='monokai'] .hover\:text-gray-700:hover { color: var(--mk-ink-strong); }
 html[data-theme='monokai'] .disabled\:text-gray-400:disabled { color: var(--mk-dim); }
-html[data-theme='monokai'] .hover\:bg-red-100:hover { background-color: rgba(255, 97, 136, 0.22); }
+html[data-theme='monokai'] .hover\:bg-red-100:hover { background-color: var(--mk-danger-soft); }
 html[data-theme='monokai'] .hover\:text-red-500:hover,
 html[data-theme='monokai'] .hover\:text-red-600:hover { color: var(--mk-danger); }
 html[data-theme='monokai'] .hover\:border-red-300:hover,
 html[data-theme='monokai'] .hover\:border-red-400:hover { border-color: var(--mk-danger); }
 html[data-theme='monokai'] .border-red-300,
-html[data-theme='monokai'] .border-red-400 { border-color: rgba(255, 97, 136, 0.55); }
+html[data-theme='monokai'] .border-red-400 { border-color: var(--mk-danger-line); }
 /* 主色（primary 基色是写死的 #1677ff）：焦点环、选中环、分隔描边在暗色下统一成 accent 青 */
 html[data-theme='monokai'] .focus\:border-primary:focus { border-color: var(--mk-accent); }
 html[data-theme='monokai'] .ring-primary { --tw-ring-color: var(--mk-accent); }
-html[data-theme='monokai'] .focus\:ring-primary\/20:focus { --tw-ring-color: rgba(102, 217, 239, 0.25); }
-html[data-theme='monokai'] .group:hover .group-hover\:bg-primary\/60 { background-color: rgba(102, 217, 239, 0.6); }
-html[data-theme='monokai'] .border-primary\/20 { border-color: rgba(102, 217, 239, 0.2); }
-html[data-theme='monokai'] .border-primary\/30 { border-color: rgba(102, 217, 239, 0.3); }
-html[data-theme='monokai'] .border-primary\/60 { border-color: rgba(102, 217, 239, 0.6); }
-/* 表单控件（属性面板的输入框/下拉/文本域统一跟随主题） */
-html[data-theme='monokai'] input,
-html[data-theme='monokai'] select,
-html[data-theme='monokai'] textarea {
+html[data-theme='monokai'] .focus\:ring-primary\/20:focus { --tw-ring-color: var(--mk-accent-ring); }
+html[data-theme='monokai'] .group:hover .group-hover\:bg-primary\/60 { background-color: var(--mk-accent-strong); }
+html[data-theme='monokai'] .border-primary\/20 { border-color: var(--mk-accent-line-20); }
+html[data-theme='monokai'] .border-primary\/30 { border-color: var(--mk-accent-line-30); }
+html[data-theme='monokai'] .border-primary\/60 { border-color: var(--mk-accent-line-60); }
+/* 表单控件（属性面板的输入框/下拉/文本域统一跟随主题）
+   ★**必须排除画布内容**（用户 2026-09-24：深色主题下画布里的 Web 输入框被这条规则涂黑了）：
+   画布里的 input 属于"成品"，颜色由组件自己的属性/内联样式决定。 */
+html[data-theme='monokai'] input:not(#canvas-viewport input):not([data-comp-thumb] input),
+html[data-theme='monokai'] select:not(#canvas-viewport select):not([data-comp-thumb] select),
+html[data-theme='monokai'] textarea:not(#canvas-viewport textarea):not([data-comp-thumb] textarea) {
   background-color: var(--mk-raised);
   color: var(--mk-ink);
   border-color: var(--mk-line);
@@ -258,6 +288,59 @@ html[data-theme='monokai'] .ruler-bg { background: #26271f; }
 html[data-theme='monokai'] .shadow-lg,
 html[data-theme='monokai'] .shadow-2xl { box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55); }
 html[data-theme='monokai'] .paper-shadow { box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6); }
+
+/* ══════════════ 画布内容不跟主题（★根治那类"深色主题把成品染黑"的问题）══════════════
+   范围：`#canvas-viewport`（纸张 + Web 设备画布 + 画布上的组件）与 `[data-comp-thumb]`（组件箱缩略图）。
+   做法：进了这些子树就把**整套主题令牌还原成浅色**（= 内容本来就该有的样子）。
+   为什么这样能根治：上面所有重映射规则写的都是 `var(--mk-*)` / `var(--ui-*)`（自定义属性**按继承就近取值**），
+   所以组件内部即便用了 `bg-white` / `border-line` / `text-gray-700` 这类被重映射的类，
+   在画布里也会解析回浅色 —— 不需要为每条规则再写一遍 `:not(画布)`。
+   ★新增重映射规则时**只准用令牌、不要写死颜色**，否则这里还原不到（`npm run audit:dark` 会盯着）。
+   用户 2026-09-24 反馈的就是这条：深色主题下 Web 输入框里那个真 `<input>` 被全局表单规则涂黑了。 */
+html[data-theme='monokai'] #canvas-viewport,
+html[data-theme='monokai'] [data-comp-thumb] {
+  --mk-canvasbg: #f0f1f3;
+  --mk-surface: #ffffff;
+  --mk-raised: #f3f4f6;
+  --mk-raise2: #e5e7eb;
+  --mk-raise3: #d1d5db;
+  --mk-raise4: #9ca3af;
+  --mk-line: #e5e7eb;
+  --mk-ink: #1f2329;
+  --mk-ink-strong: #111827;
+  --mk-muted: #6b7280;
+  --mk-dim: #9ca3af;
+  --mk-accent: #1677ff;
+  --mk-accent-soft: rgba(22, 119, 255, 0.08);
+  --mk-accent-strong: rgba(22, 119, 255, 0.6);
+  --mk-accent-line-20: rgba(22, 119, 255, 0.2);
+  --mk-accent-line-30: rgba(22, 119, 255, 0.3);
+  --mk-accent-line-60: rgba(22, 119, 255, 0.6);
+  --mk-accent-ring: rgba(22, 119, 255, 0.2);
+  --mk-danger: #ef4444;
+  --mk-danger-soft: rgba(239, 68, 68, 0.12);
+  --mk-danger-tint: rgba(239, 68, 68, 0.1);
+  --mk-danger-line: rgba(239, 68, 68, 0.45);
+  --mk-danger-line-soft: rgba(239, 68, 68, 0.3);
+  --mk-warn: #b45309;
+  --mk-ok: #047857;
+  --mk-ok-line: rgba(4, 120, 87, 0.45);
+  --mk-tint-blue: #eff6ff;
+  --mk-tint-emerald: #ecfdf5;
+  --mk-tint-emerald-40: rgba(4, 120, 87, 0.08);
+  --mk-tint-amber: #fffbeb;
+  --mk-tint-amber-40: rgba(180, 83, 9, 0.08);
+  /* 语义令牌同理（插件若在画布内容里用 .ui-* 类） */
+  --ui-bg: #f7f8fa;
+  --ui-surface: #ffffff;
+  --ui-raised: #f3f4f6;
+  --ui-line: #e5e7eb;
+  --ui-ink: #1f2329;
+  --ui-ink-2: #374151;
+  --ui-ink-3: #6b7280;
+  --ui-accent: #1677ff;
+  --ui-accent-soft: rgba(22, 119, 255, 0.08);
+}
 
 @media print {
   html,

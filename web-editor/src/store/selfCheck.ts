@@ -1559,6 +1559,67 @@ async function interactionChecks(): Promise<Result[]> {
     `深色 ${darkBg} / 浅色 ${lightBg}`,
   );
 
+  /* 画布内容**不跟**编辑器主题（用户 2026-09-24：深色主题下画布里的 Web 输入框被主题涂黑了） */
+  {
+    S().setTheme('light');
+    S().setMode('web');
+    S().clearAll();
+    const inNode = S().addComponent('input');
+    await wait(480);
+    const readInput = (): Record<string, string> | null => {
+      const el = document.querySelector(`[data-node-id="${inNode}"] input`) as HTMLElement | null;
+      const wrap = el?.parentElement;
+      if (!el || !wrap) return null;
+      const ci = getComputedStyle(el);
+      const cw = getComputedStyle(wrap);
+      return {
+        内层底色: ci.backgroundColor,
+        内层字色: ci.color,
+        外层底色: cw.backgroundColor,
+        外层字色: cw.color,
+        外层边框: cw.borderTopColor,
+        占位变量: ci.getPropertyValue('--input-ph').trim(),
+      };
+    };
+    const lightStyle = readInput();
+    S().setTheme('monokai');
+    await wait(340);
+    const darkStyle = readInput();
+    const sameStyle = !!lightStyle && JSON.stringify(lightStyle) === JSON.stringify(darkStyle);
+    add(
+      '画布内容不跟编辑器主题：切到深色主题后，画布里的 Web 输入框计算样式**一点不变**',
+      sameStyle,
+      sameStyle
+        ? `六项全等：${JSON.stringify(lightStyle)}`
+        : `浅色=${JSON.stringify(lightStyle)}；深色=${JSON.stringify(darkStyle)}`,
+    );
+
+    // 组件自己可调颜色（画布改深色后，输入框也能配深色）
+    if (inNode) {
+      S().updateProps(inNode, {
+        background: '#272822',
+        color: '#f8f8f2',
+        placeholderColor: '#a9a99c',
+        borderColor: '#3e3d32',
+        borderWidth: 2,
+      });
+    }
+    await wait(380);
+    const styled = readInput();
+    add(
+      '输入框能自己调颜色：背景 / 文字 / 占位 / 边框（深色画布上可配深色，且不受编辑器主题影响）',
+      styled?.外层底色 === 'rgb(39, 40, 34)' &&
+        styled?.内层字色 === 'rgb(248, 248, 242)' &&
+        styled?.外层边框 === 'rgb(62, 61, 50)' &&
+        styled?.占位变量 === '#a9a99c',
+      `背景=${styled?.外层底色} 文字=${styled?.内层字色} 边框=${styled?.外层边框} 占位=${styled?.占位变量}`,
+    );
+    S().setTheme('light');
+    S().setMode('document');
+    S().clearAll();
+    await wait(300);
+  }
+
   /**
    * ══ 暗色模式**自动审计**（用户 2026-09-24：「检查所有组件有没有正确适配暗色模式」）══
    *
