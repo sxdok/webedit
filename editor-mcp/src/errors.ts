@@ -7,6 +7,7 @@
  *   · 破坏性操作缺 `confirm: true` → CONFIRM_REQUIRED，且**不执行**。
  */
 import { log } from './log.js';
+import { config } from './config.js';
 
 export const ErrorCodes = {
   BRIDGE_OFFLINE: 'BRIDGE_OFFLINE',
@@ -71,8 +72,20 @@ export const ok = <T>(data: T, extra: Omit<ToolResult<T>, 'ok' | 'data'> = {}): 
 });
 
 /**
- * 所有 Tool handler 的统一外壳：捕获异常 → 结构化错误；
- * 顺带记审计日志（规格 §10）。
+ * 写操作的判定（规格 §10「写开关」）：`EDITOR_MCP_ALLOW_WRITE=false` 时这些动作一律拒绝。
+ * 放在这里集中判定，而不是散在每个 handler 里 —— 漏一个就等于开了后门。
+ */
+const WRITE_ACTION = /\.(create|add|set|update|remove|delete|duplicate|rename|move|reorder|insert|patch|clear|restore|save|reload|import)$/;
+
+export function isWriteTool(tool: string): boolean {
+  return WRITE_ACTION.test(tool);
+}
+
+/**
+ * 所有 Tool handler 的统一外壳：
+ *   · 写开关（ALLOW_WRITE=false → WRITE_DISABLED，读操作不受影响）；
+ *   · 捕获异常 → 结构化错误（支持 `CODE: message` 形式的消息，把错误码如实带出去）；
+ *   · 记审计日志（规格 §10）。
  */
 export async function runTool<T>(
   tool: string,
@@ -80,14 +93,30 @@ export async function runTool<T>(
   fn: () => Promise<ToolResult<T>>,
 ): Promise<ToolResult<T>> {
   const started = Date.now();
+  if (!config.allowWrite && isWriteTool(tool)) {
+    const res = fail(ErrorCodes.WRITE_DISABLED, `EDITOR_MCP_ALLOW_WRITE=false：${tool} 属于写操作，已拒绝`, '把环境变量设为 true（或删掉）再试；读操作不受影响。');
+    log.audit(tool, args, ErrorCodes.WRITE_DISABLED, Date.now() - started);
+    return res;
+  }
   try {
     const res = await fn();
     log.audit(tool, args, res.ok ? 'ok' : (res.error?.code ?? 'error'), Date.now() - started);
     return res;
   } catch (e) {
-    const err = e instanceof EditorMcpError ? e : new EditorMcpError(ErrorCodes.IO_ERROR, String((e as Error)?.message ?? e));
+    const err = toEditorError(e);
     log.error(`${tool} 失败：${err.code} ${err.message}`);
     log.audit(tool, args, err.code, Date.now() - started);
     return fail(err.code, err.message, err.hint);
   }
+}
+
+/** 把任意异常转成带错误码的 EditorMcpError：`CODE: message` 里的 CODE 会被认出来 */
+export function toEditorError(e: unknown): EditorMcpError {
+  if (e instanceof EditorMcpError) return e;
+  const msg = String((e as Error)?.message ?? e);
+  const m = msg.match(/^([A-Z][A-Z_]{2,}):\s*([\s\S]*)$/);
+  if (m && (Object.values(ErrorCodes) as string[]).includes(m[1])) {
+    return new EditorMcpError(m[1] as ErrorCode, m[2].trim() || m[1]);
+  }
+  return new EditorMcpError(ErrorCodes.IO_ERROR, msg);
 }

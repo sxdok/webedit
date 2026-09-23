@@ -127,6 +127,13 @@ export async function readDocument(docId: string): Promise<EditorDocument> {
   if (!parsed || typeof parsed !== 'object' || !parsed.document || !parsed.web) {
     throw new EditorMcpError(ErrorCodes.IO_ERROR, `${docId}.editor.json 结构不合法（缺 document/web）`);
   }
+  /**
+   * ★把 `id` 统一成**文件名**。
+   *   否则会出现"文件名是 A、JSON 里 id 是 B"，而 `commitDoc` 是按 `doc.id` 回写的 →
+   *   改动被写进另一个文件、原文件永远是空的（真踩过：node.add 返回了 id，文档里却一个节点都没有）。
+   *   顺手也自愈了从别处导入、id 与文件名不一致的文档。
+   */
+  if (parsed.id !== docId) parsed.id = docId;
   return parsed;
 }
 

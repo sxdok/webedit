@@ -1,16 +1,16 @@
 /**
- * 文档域 Tool：doc.*（规格 §5.1）。
+ * 文档域 Tools：doc.*（规格 §5.1）。
  *
- * 阶段一只实现 `doc.create`（规格「阶段一：注册 3 个 Tool：doc.create / component.list / plugin.list」），
- * 其余 doc.* 在阶段三补齐；这里已经把它接到**无头引擎**上，所以现在就能真正产出可被编辑器打开的文档。
- *
- * 降级语义（规格 §二）：Live Bridge 在阶段二接入；当前一律走无头，返回 `degraded: true`。
+ * 每个 Tool 都走 `viaBridge`：编辑器开着就同步到画布（Live），没开就操作磁盘文档（无头，degraded: true）。
  */
 import { z } from 'zod';
-import { ok, ErrorCodes, fail, runTool, type ToolResult } from '../errors.js';
+import { ok, ErrorCodes, fail, type ToolResult } from '../errors.js';
 import { config, safeName } from '../config.js';
-import { listDocuments, makeDocument, writeDocument } from '../bridge/headless.js';
-import { withBridge } from '../bridge/fallback.js';
+import { makeDocument, readDocument, writeDocument } from '../bridge/headless.js';
+import { commitDoc, docSummary, getCurrentDoc, listDocuments, setCurrentDoc } from '../engine/session.js';
+import { viaBridge } from './helper.js';
+
+const docIdParam = z.string().optional().describe('文档 id（文件名去掉 .editor.json）；缺省用"当前文档"');
 
 export const docCreateSchema = {
   title: z.string().optional().describe('文档标题，缺省「未命名文档」'),
@@ -26,33 +26,174 @@ export async function docCreate(args: {
   docId?: string;
   pageSize?: 'A4' | 'A3' | 'A5' | 'Letter' | 'Legal' | 'Custom';
   device?: 'Desktop' | 'Laptop' | 'Tablet' | 'Mobile' | 'Custom';
-}): Promise<ToolResult<{ docId: string; path?: string; mode: string; title: string; via: string }>> {
-  return runTool('doc.create', args, async () => {
-    // ① 先试 Live（编辑器实例）；② 不可用则无头写盘（规格 §二 的降级策略）
-    const res = await withBridge<{ docId: string; path?: string; mode?: string; title?: string }>(
-      'doc.create',
-      args as Record<string, unknown>,
-      async () => {
-        if (!config.allowWrite) {
-          throw new Error('WRITE_DISABLED: EDITOR_MCP_ALLOW_WRITE=false，写操作被拒绝');
-        }
-        const doc = makeDocument(args);
-        const docId = safeName(args.docId?.trim() || `${doc.title}-${Date.now().toString(36)}`);
-        if (!docId) throw new Error('IO_ERROR: 文档 id 不合法（安全化后为空）');
-        const file = await writeDocument(docId, doc);
-        return { docId, path: file, mode: doc.mode, title: doc.title };
-      },
-    );
-    const d = res.data;
-    if (!d?.docId) return fail(ErrorCodes.IO_ERROR, 'doc.create 没有返回 docId', `via=${res.via}`);
-    return ok(
-      { docId: d.docId, ...(d.path ? { path: d.path } : {}), mode: d.mode ?? args.mode ?? 'document', title: d.title ?? args.title ?? '未命名文档', via: res.via },
-      { degraded: res.degraded, changed: ['document'] },
-    );
+}): Promise<ToolResult<{ docId: string; path?: string; mode: string; title: string; via: string; degraded: boolean }>> {
+  const res = await viaBridge<{ docId: string; path?: string; mode?: string; title?: string }>(
+    'doc.create',
+    args as Record<string, unknown>,
+    async () => {
+      if (!config.allowWrite) throw new Error('WRITE_DISABLED: EDITOR_MCP_ALLOW_WRITE=false，写操作被拒绝');
+      const doc = makeDocument(args);
+      const docId = safeName(args.docId?.trim() || `${doc.title}-${Date.now().toString(36)}`);
+      if (!docId) throw new Error('IO_ERROR: 文档 id 不合法（安全化后为空）');
+      // ★文档 id 必须等于文件名：commitDoc 是按 doc.id 回写的
+      doc.id = docId;
+      const file = await writeDocument(docId, doc);
+      setCurrentDoc(docId);
+      return { docId, path: file, mode: doc.mode, title: doc.title };
+    },
+    { changed: ['document'] },
+  );
+  if (!res.ok || !res.data?.docId) {
+    return res.ok ? fail(ErrorCodes.IO_ERROR, 'doc.create 没有返回 docId') : (res as unknown as ToolResult<typeof emptyCreate>);
+  }
+  const d = res.data;
+  setCurrentDoc(d.docId);
+  const data = {
+    docId: d.docId,
+    ...(d.path ? { path: d.path } : {}),
+    mode: d.mode ?? args.mode ?? 'document',
+    title: d.title ?? args.title ?? '未命名文档',
+    via: d.via,
+    degraded: d.degraded,
+  };
+  return { ok: true, data, degraded: res.degraded, changed: ['document'] };
+}
+
+/** 仅用于上面的类型占位（保持失败分支的类型收窄） */
+const emptyCreate = { docId: '', mode: '', title: '', via: '', degraded: true };
+
+export const docOpenSchema = { docId: z.string().describe('要打开的文档 id') };
+
+export async function docOpen(args: { docId: string }) {
+  return viaBridge(
+    'doc.open',
+    args,
+    async () => {
+      const doc = await readDocument(args.docId); // 不存在会抛 DOC_NOT_FOUND
+      setCurrentDoc(args.docId);
+      return {
+        docId: args.docId,
+        title: doc.title,
+        mode: doc.mode,
+        nodes: (doc.document?.components?.length ?? 0) + (doc.web?.root?.children?.length ?? 0),
+      };
+    },
+    { changed: [] },
+  );
+}
+
+export const docCloseSchema = { docId: docIdParam };
+
+/** doc.close：Live 时关闭编辑器里的文档；无头时只是把"当前文档"清掉 */
+export async function docClose(args: { docId?: string }) {
+  return viaBridge('doc.close', args, async () => {
+    const id = args.docId ?? getCurrentDoc();
+    if (getCurrentDoc() === id) setCurrentDoc(null);
+    return { docId: id, closed: true };
   });
 }
 
-/** doc.list 的实现在阶段三暴露为 Tool；先给阶段一/二内部复用 */
-export async function listWorkspace(limit = 100, offset = 0) {
-  return listDocuments(limit, offset);
+export const docListSchema = {
+  limit: z.number().int().positive().max(200).default(50).describe('最多返回多少条'),
+  offset: z.number().int().min(0).default(0).describe('跳过多少条'),
+};
+
+export async function docList(args: { limit?: number; offset?: number }) {
+  return viaBridge('doc.list', args, async () => {
+    const docs = await listDocuments(args.limit ?? 50, args.offset ?? 0);
+    return { docs, current: getCurrentDoc(), workspace: config.workspace };
+  });
 }
+
+export const docGetSchema = {
+  docId: docIdParam,
+  includeNodes: z.boolean().default(false).describe('是否连节点一起返回（默认只给骨架，避免返回体过大）'),
+};
+
+export async function docGet(args: { docId?: string; includeNodes?: boolean }) {
+  return viaBridge('doc.get', args, async () => {
+    const id = args.docId ?? getCurrentDoc();
+    if (!id) throw new Error('DOC_NOT_FOUND: 当前没有打开的文档（先 doc.create / doc.open）');
+    const doc = await readDocument(id);
+    if (args.includeNodes) return { docId: id, document: doc };
+    return {
+      docId: id,
+      title: doc.title,
+      mode: doc.mode,
+      page: doc.document?.page,
+      canvas: doc.web?.canvas,
+      counts: { documentNodes: doc.document?.components?.length ?? 0, webTop: doc.web?.root?.children?.length ?? 0 },
+    };
+  });
+}
+
+export const docRenameSchema = { docId: docIdParam, title: z.string().min(1).describe('新标题') };
+
+export async function docRename(args: { docId?: string; title: string }) {
+  return viaBridge(
+    'doc.rename',
+    args,
+    async () => {
+      const id = args.docId ?? getCurrentDoc();
+      if (!id) throw new Error('DOC_NOT_FOUND: 当前没有打开的文档');
+      const doc = await readDocument(id);
+      doc.title = args.title;
+      await commitDoc(doc);
+      return { docId: id, title: doc.title };
+    },
+    { changed: ['title'] },
+  );
+}
+
+// ★不用 z.literal(true)：那样缺 confirm 的请求会在**协议层**被 zod 拒掉，客户端拿不到
+//   CONFIRM_REQUIRED 这个可编程的错误码。这里收 boolean，由 handler 返回结构化 CONFIRM_REQUIRED。
+export const docDeleteSchema = { docId: docIdParam, confirm: z.boolean().default(false).describe('破坏性操作，必须显式传 true') };
+
+export async function docDelete(args: { docId?: string; confirm?: boolean }) {
+  return viaBridge(
+    'doc.delete',
+    args,
+    async () => {
+      const id = args.docId ?? getCurrentDoc();
+      if (!id) throw new Error('DOC_NOT_FOUND: 当前没有打开的文档');
+      if (args.confirm !== true) throw new Error('CONFIRM_REQUIRED: doc.delete 需要 confirm: true');
+      const file = `${config.workspace}\\${id}.editor.json`;
+      const fs = await import('node:fs/promises');
+      await fs.rm(file, { force: true });
+      if (getCurrentDoc() === id) setCurrentDoc(null);
+      return { docId: id, deleted: true, path: file };
+    },
+    { changed: ['document'] },
+  );
+}
+
+export const docDuplicateSchema = { docId: docIdParam, newDocId: z.string().optional().describe('新文档 id；缺省在原 id 后加 -copy') };
+
+export async function docDuplicate(args: { docId?: string; newDocId?: string }) {
+  return viaBridge(
+    'doc.duplicate',
+    args,
+    async () => {
+      const id = args.docId ?? getCurrentDoc();
+      if (!id) throw new Error('DOC_NOT_FOUND: 当前没有打开的文档');
+      const doc = await readDocument(id);
+      const newId = safeName(args.newDocId ?? `${id}-copy`);
+      doc.id = newId;
+      const file = await writeDocument(newId, doc);
+      return { docId: newId, from: id, path: file };
+    },
+    { changed: ['document'] },
+  );
+}
+
+export const docSummarySchema = { docId: docIdParam };
+
+export async function docSummaryTool(args: { docId?: string }) {
+  return viaBridge('doc.summary', args, async () => {
+    const id = args.docId ?? getCurrentDoc();
+    if (!id) throw new Error('DOC_NOT_FOUND: 当前没有打开的文档');
+    return docSummary(id);
+  });
+}
+
+export { ok, fail, ErrorCodes };
