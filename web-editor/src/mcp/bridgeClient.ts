@@ -256,3 +256,16 @@ export function autoStartBridgeFromUrl(): void {
     /* 忽略 */
   }
 }
+
+/**
+ * **首选项里的"启动时自动连接"**（`ui.autoBridge`，用户 2026-09-24 要求做成开关）。
+ * 与 `?bridge=1` 的分工：这个开关是用户可见、随 ui 持久化的设置；URL 参数仍然强制开（无人值守验证用）。
+ * 只负责"开"，不负责"关" —— 用户手动断开后不该被下一次启动逻辑立刻又连上（他关的是本次会话）。
+ */
+export function autoStartBridgeFromPrefs(): void {
+  try {
+    if (useEditorStore.getState().ui.autoBridge === true && !shouldRun) setBridgeEnabled(true);
+  } catch {
+    /* 忽略 */
+  }
+}

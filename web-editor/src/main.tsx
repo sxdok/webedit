@@ -182,10 +182,16 @@ const applyCellParam = () => {
       .filter(Boolean),
   );
 };
-/** ?bridge=1[&bridgeUrl=ws://...] → 启动后自动开启 MCP 桥接（无人值守验证用；平时走菜单「帮助 → MCP 桥接」） */
+/**
+ * 启动时的桥接策略：
+ *   · `?bridge=1[&bridgeUrl=ws://…]` → **强制开**（无人值守验证用，覆盖首选项）；
+ *   · 否则看**首选项 → MCP 桥接 → 启动时自动连接**（`ui.autoBridge`，用户 2026-09-24 要求）。
+ */
 const applyBridgeParam = () => {
-  if (!params.get('bridge')) return;
-  void import('./mcp/bridgeClient').then((m) => m.autoStartBridgeFromUrl());
+  void import('./mcp/bridgeClient').then((m) => {
+    if (params.get('bridge')) m.autoStartBridgeFromUrl();
+    else m.autoStartBridgeFromPrefs();
+  });
 };
 
 if (params.get('demo')) {

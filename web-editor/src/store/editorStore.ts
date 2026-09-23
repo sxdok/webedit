@@ -69,6 +69,12 @@ export interface UIState {
   compPreview: boolean;
   /** 「首选项」对话框（视图 → 首选项…）：编辑器各项设置集中在这里 */
   prefsOpen: boolean;
+  /**
+   * 编辑器**启动时自动连接** MCP 桥接（首选项 → MCP 桥接）。
+   * 默认关（规格 §4.1：桥接是可选启动的外部联动）；开了之后每次打开编辑器就自动连 `ws://127.0.0.1:37650/bridge`。
+   * 注意：hub **目前没有鉴权**，默认开等于把文档读写暴露给任何能连本机 37650 的进程/网页 —— 所以这个开关交给用户自己决定。
+   */
+  autoBridge: boolean;
   /** Markdown 源码视图（B10，视图菜单打开；只读弹窗） */
   showMarkdown: boolean;
   /**
@@ -126,6 +132,7 @@ const initialUI: UIState = {
   newDocOpen: false,
   compPreview: false,
   prefsOpen: false,
+  autoBridge: false,
   showMarkdown: false,
   autoNumber: false,
   registryVersion: 0,

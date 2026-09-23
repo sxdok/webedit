@@ -10,6 +10,7 @@ import { useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useEditorStore, type UIState } from '../../store/editorStore';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
+import { useBridgeSummary } from '../../mcp/bridgeClient';
 import { Modal } from '../ui/Modal';
 import { SwitchControl } from '../property-controls/SwitchControl';
 import type { PropSchemaItem } from '../../registry/types';
@@ -92,7 +93,7 @@ function PrefSelect<T extends string>({
 /** 默认值（与 store 里的 initialUI 一致；「恢复默认设置」按这份还原） */
 const DEFAULTS: Pick<
   UIState,
-  'showGrid' | 'showRuler' | 'showGuides' | 'snap' | 'preview' | 'showTree' | 'compPreview' | 'autoNumber' | 'theme' | 'leftWidth' | 'rightWidth'
+  'showGrid' | 'showRuler' | 'showGuides' | 'snap' | 'preview' | 'showTree' | 'compPreview' | 'autoNumber' | 'autoBridge' | 'theme' | 'leftWidth' | 'rightWidth'
 > = {
   showGrid: false,
   showRuler: true,
@@ -102,6 +103,7 @@ const DEFAULTS: Pick<
   showTree: false,
   compPreview: false,
   autoNumber: false,
+  autoBridge: false,
   theme: 'light',
   leftWidth: 240,
   rightWidth: 300,
@@ -117,6 +119,8 @@ export function PreferencesDialog() {
   /** 「重载外部组件」（收进首选项的那个入口）的状态 */
   const [reloading, setReloading] = useState(false);
   const [reloadMsg, setReloadMsg] = useState('');
+  /** MCP 桥接只读状态（订阅着，状态一变这里就跟着变） */
+  const bridge = useBridgeSummary();
 
   const close = useMemo(() => () => toggleUI('prefsOpen'), [toggleUI]);
   const restore = (): void => {
@@ -193,6 +197,25 @@ export function PreferencesDialog() {
           value={ui.autoNumber === true}
           onChange={() => toggleUI('autoNumber')}
         />
+      </Section>
+
+      <Section title="MCP 桥接" hint="把编辑器接到本机的 MCP 服务器（Live 联动）">
+        <PrefSwitch
+          prefKey="autoBridge"
+          label="启动时自动连接"
+          hint="开 = 每次打开编辑器就自动连 ws://127.0.0.1:37650/bridge（默认关）"
+          value={ui.autoBridge === true}
+          onChange={() => toggleUI('autoBridge')}
+        />
+        {/* 只读状态：**不放第二个"连接/断开"按钮**（用户 2026-09-24 要求入口收敛，那个开关在 帮助 → MCP 桥接） */}
+        <div className="flex items-center gap-2 py-1" data-pref="bridgeStatus" data-pref-value={bridge.state}>
+          <span className="w-32 shrink-0 text-[12px] text-gray-600">当前状态</span>
+          <span className="min-w-0 flex-1 truncate text-2xs text-gray-400" data-bridge-summary="1">
+            {bridge.label}
+            {bridge.detail ? ` · ${bridge.detail}` : ''}
+          </span>
+          <span className="flex-none text-2xs text-gray-400">连接开关在 帮助 → MCP 桥接</span>
+        </div>
       </Section>
 
       <Section title="外观">

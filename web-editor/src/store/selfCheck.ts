@@ -31,7 +31,7 @@ import { continueSeries, fillSeries } from '../registry/components/common/tableF
 import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
 import { routeLive } from '../mcp/liveMethods';
-import { bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
+import { autoStartBridgeFromPrefs, bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -3852,7 +3852,7 @@ async function interactionChecks(): Promise<Result[]> {
     S().toggleUI('prefsOpen');
     await wait(320);
     const prefKeys = [...document.querySelectorAll('[data-pref]')].map((el) => el.getAttribute('data-pref'));
-    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'theme', 'panelWidths'];
+    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'autoBridge', 'theme', 'panelWidths'];
     const missingPrefs = wantPrefs.filter((k) => !prefKeys.includes(k));
     add(
       '首选项（视图 → 首选项…）：编辑器各项设置集中在一个弹窗里（组件箱/画布/文档/外观/面板）',
@@ -3870,6 +3870,16 @@ async function interactionChecks(): Promise<Result[]> {
       `首选项里有重载按钮=${!!document.querySelector('[data-reload-live="1"]')}；组件箱底部按钮数=${
         document.querySelector('[data-comp-live-count]')?.parentElement?.querySelectorAll('button').length ?? '?'
       }`,
+    );
+    add(
+      '首选项 → MCP 桥接：有「启动时自动连接」开关 + 只读状态行（不重复放第二个连接按钮）',
+      !!document.querySelector('[data-pref="autoBridge"] [data-switch]') &&
+        !!document.querySelector('[data-pref="bridgeStatus"] [data-bridge-summary]'),
+      `开关=${!!document.querySelector('[data-pref="autoBridge"] [data-switch]')}；状态行=「${(
+        document.querySelector('[data-bridge-summary]')?.textContent ?? ''
+      )
+        .trim()
+        .slice(0, 40)}」`,
     );
 
     // 用首选项里的开关打开缩略图（这是它的正式入口；组件箱头部的眼睛图标是快捷方式）
@@ -4050,6 +4060,23 @@ async function interactionChecks(): Promise<Result[]> {
         bridgeOff.on === false &&
         bridgeLine(helpLabelsOff).includes('未开启'),
       `关：${bridgeLine(helpLabelsBefore)} → 开：${bridgeLine(helpLabelsOn)}（state=${bridgeOn.state}、detail=${bridgeOn.detail.slice(0, 30)}）→ 再关：${bridgeLine(helpLabelsOff)}`,
+    );
+
+    /* 首选项里的「启动时自动连接」开关（用户 2026-09-24 要求做成开关）：开着才自动连，默认关 */
+    const uiSnapshot = useEditorStore.getState().ui;
+    useEditorStore.setState({ ui: { ...uiSnapshot, autoBridge: true } });
+    setBridgeEnabled(false);
+    autoStartBridgeFromPrefs();
+    const autoOn = bridgeSummary().on;
+    setBridgeEnabled(false);
+    useEditorStore.setState({ ui: { ...uiSnapshot, autoBridge: false } });
+    autoStartBridgeFromPrefs();
+    const autoOff = bridgeSummary().on;
+    setBridgeEnabled(false);
+    add(
+      '首选项「启动时自动连接」开关生效：开着 → 启动逻辑自动连桥；关着 → 不连（**默认关**）',
+      autoOn === true && autoOff === false,
+      `开关开着时自动连=${autoOn}；关着时=${autoOff}`,
     );
 
     /* 文案收敛（用户 2026-09-24） */
