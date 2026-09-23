@@ -16,8 +16,8 @@ export interface BuiltServer {
   tools: string[];
   resources: string[];
   prompts: string[];
-  /** 停掉插件目录监听（进程退出时收尾） */
-  dispose: () => void;
+  /** 停掉插件目录监听（进程退出时收尾）；**必须 await**，否则监听句柄会把进程吊住 */
+  dispose: () => Promise<void>;
 }
 
 export function buildServer(): BuiltServer {
@@ -38,9 +38,11 @@ export function buildServer(): BuiltServer {
   const prompts = registerAllPrompts(server);
 
   // 插件目录监听（chokidar 装了才启用）→ 变化时推 resources/updated
-  let stopWatch: (() => void) | null = null;
-  void watchPluginDir(server).then((stop) => {
-    stopWatch = stop;
+  // ★watchPluginDir 是异步的（动态 import chokidar），dispose 必须等它落地再关，
+  //   否则「dispose 先跑、watcher 后建」→ 监听句柄没人关，进程（如 --list）退不出去。
+  const watchReady: Promise<(() => void) | null> = watchPluginDir(server).catch((e: unknown) => {
+    log.warn(`插件目录监听未启用：${String((e as Error)?.message ?? e)}`);
+    return null;
   });
 
   log.info(`能力清单：tools=${tools.length} resources=${resources.length} prompts=${prompts.length}（协议版本 ${config.protocolVersion}）`);
@@ -54,7 +56,10 @@ export function buildServer(): BuiltServer {
     tools,
     resources,
     prompts,
-    dispose: () => stopWatch?.(),
+    dispose: async () => {
+      const stop = await watchReady;
+      stop?.();
+    },
   };
 }
 

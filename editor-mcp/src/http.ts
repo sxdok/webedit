@@ -91,7 +91,7 @@ export async function startHttpServer(port: number, host = '127.0.0.1'): Promise
             transport.onclose = () => {
               const sid = transport.sessionId;
               if (sid) {
-                sessions.get(sid)?.dispose();
+                void sessions.get(sid)?.dispose();
                 sessions.delete(sid);
                 log.info(`HTTP 会话关闭：${sid}（剩余 ${sessions.size} 个）`);
               }
@@ -133,7 +133,7 @@ export async function startHttpServer(port: number, host = '127.0.0.1'): Promise
     sessions: () => sessions.size,
     close: async () => {
       for (const [, s] of sessions) {
-        s.dispose();
+        void s.dispose();
         try {
           await s.transport.close();
         } catch {

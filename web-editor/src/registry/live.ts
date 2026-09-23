@@ -92,6 +92,15 @@ function iconByName(name?: string): ComponentIcon {
 
 export interface EditorKit {
   React: typeof import('react');
+  /**
+   * React 的 **jsx runtime**（规格 §7.2/§7.3 里外部插件用的 `const { jsx } = EditorKit.reactJsxRuntime`）。
+   * ★注意：这里给的是**经典签名** `jsx(type, props, ...children)`（即 createElement），
+   *   不是 React 自动运行时的 `jsx(type, config, maybeKey)` —— 规格 §7.3 的示例就是按经典签名写的
+   *   （`jsx('div', {style}, child)`）。若用自动运行时的签名，children 会被当成 key 丢掉。
+   */
+  reactJsxRuntime: { jsx: typeof import('react').createElement; jsxs: typeof import('react').createElement; Fragment: typeof import('react').Fragment };
+  /** 老写法别名（有些外部组件写成 EditorKit.react） */
+  react: typeof import('react');
   /** 注册一个外部组件（重复 type 会覆盖，便于热重载） */
   register: (def: ComponentDefinition) => void;
   /** 通用属性片段（与内置组件同一套词汇，保证属性面板行为一致） */
@@ -125,6 +134,10 @@ export function getLiveTypes(): string[] {
 function installKit(React: typeof import('react')): void {
   const kit: EditorKit = {
     React,
+    // 规格 §7.3 的写法：`const { jsx } = window.EditorKit.reactJsxRuntime`
+    // 这里给经典签名（= createElement），children 走可变参数，不会被当成 key 丢掉
+    reactJsxRuntime: { jsx: React.createElement, jsxs: React.createElement, Fragment: React.Fragment },
+    react: React,
     register: (def) => {
       if (!def || typeof def !== 'object' || !def.type || typeof def.render !== 'function') {
         log.error('live', '组件定义不合法（需要 type 与 render 函数）', { keys: Object.keys(def ?? {}) });

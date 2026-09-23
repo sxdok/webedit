@@ -168,6 +168,8 @@ import {
   componentSchemaSchema,
   componentSearch,
   componentSearchSchema,
+  componentCatalog,
+  componentCatalogSchema,
   exportHtml,
   exportHtmlSchema,
   exportJson,
@@ -350,6 +352,15 @@ export function registerAllTools(server: McpServer): string[] {
   reg(server, 'component.categories', '列出分类', '按分类列出组件数量，可按模式过滤。', componentCategoriesSchema, componentCategories, t);
   reg(server, 'component.defaults', '取默认属性', '取某组件的默认 props。', componentDefaultsSchema, componentDefaultsTool, t);
   reg(server, 'component.search', '搜索组件', '按 type/label/分类/说明模糊搜索。', componentSearchSchema, componentSearch, t);
+  reg(
+    server,
+    'component.catalog',
+    '导出组件目录',
+    '把编辑器注册表的完整快照（组件 + 默认属性 + 属性 schema）取回并落成 component-catalog.json；之后编辑器不在线也能用 component.*。',
+    componentCatalogSchema,
+    componentCatalog,
+    t,
+  );
 
   /* ── 表格域 §5.8（15 个）── */
   reg(server, 'table.getData', '读表格数据', '返回二维数组（或 asText 的 "a | b" 文本）+ 行列数 + 表头 + 已格式化格数 + 列宽 + 线条风格。', tableGetDataSchema, tableGetData, t);

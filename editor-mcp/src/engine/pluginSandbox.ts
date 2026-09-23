@@ -47,12 +47,17 @@ export function validatePluginSource(source: string): ValidateResult {
   }
 
   // ② 契约：必须通过 window.EditorKit.register 注册
-  const callsRegister = /EditorKit\s*\.\s*register\s*\(/.test(source);
+  //   ★不能只认字面量 `EditorKit.register(`：项目里既有的外部组件（public/组件/*.js）写的是
+  //     `const K = window.EditorKit; K.register({...})` —— 只认字面量会把**合法插件全判成不合规**。
+  //     所以先抽出 `= window.EditorKit` 的别名，再连同字面量一起匹配。
+  const aliases = [...source.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:window\.)?EditorKit\b/g)].map((m) => m[1]);
+  const registerRe = new RegExp(`(?:EditorKit|${aliases.length ? aliases.map((a) => a.replace(/\$/g, '\\$')).join('|') : 'EditorKit'})\\s*\\.\\s*register\\s*\\(`);
+  const callsRegister = registerRe.test(source);
   if (!callsRegister) {
     problems.push({
       level: 'error',
       code: 'PLUGIN_CONTRACT_ERROR',
-      message: '没有调用 window.EditorKit.register(def) —— 外部组件必须用它注册（否则编辑器永远看不到）',
+      message: '没有调用 window.EditorKit.register(def)（或 window.EditorKit 的别名）—— 外部组件必须用它注册（否则编辑器永远看不到）',
     });
   }
 

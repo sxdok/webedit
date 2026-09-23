@@ -104,7 +104,7 @@ export async function nodeUpdate(args: { id: string; docId?: string; props: Reco
   );
 }
 
-export const nodeRemoveSchema = { id: idParam, docId: docIdParam, confirm: z.boolean().default(false).describe('删节点是破坏性操作，建议传 true') };
+export const nodeRemoveSchema = { id: idParam, docId: docIdParam, confirm: z.boolean().default(false).describe('删节点是破坏性操作，必须显式传 true') };
 
 export async function nodeRemove(args: { id: string; docId?: string; confirm?: boolean }) {
   const a = withDoc(args);
@@ -112,6 +112,10 @@ export async function nodeRemove(args: { id: string; docId?: string; confirm?: b
     'node.remove',
     a,
     async () => {
+      // 与 node.batchRemove 一致：破坏性写操作要显式确认。
+      // ★放在 handler 里而不是用 z.literal(true)，这样缺 confirm 时客户端能拿到 CONFIRM_REQUIRED 错误码
+      //   （写在 schema 里会被协议层直接拒掉，客户端只看到参数校验失败）。
+      if (a.confirm !== true) throw new Error('CONFIRM_REQUIRED: node.remove 需要 confirm: true');
       const removed = await removeNodes(a.docId, [a.id]);
       return { removed };
     },

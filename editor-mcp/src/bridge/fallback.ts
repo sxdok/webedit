@@ -51,12 +51,19 @@ export async function withBridge<T>(
       return { data, degraded: false, via: 'live' };
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
-      // 桥接侧的"业务错误"（带错误码前缀）→ 直接抛，不降级
-      if (/^[A-Z_]+:/.test(msg)) {
+      // 编辑器**有意不做**的方法（LIVE_FALLBACK）：不是业务错误，直接降级到无头并标 degraded
+      if (msg.startsWith('LIVE_FALLBACK')) {
+        log.info(`编辑器不做 ${method}（${msg.replace(/^LIVE_FALLBACK:\s*/, '')}），改用无头通道`);
+      } else if (/^BRIDGE_OFFLINE:/.test(msg)) {
+        // "编辑器不在线"是**通道问题**不是业务问题：必须降级（否则编辑器一关，所有工具全废）
+        log.warn(`Live 调用 ${method} 时编辑器已不在线，降级到无头`);
+      } else if (/^[A-Z_]+:/.test(msg)) {
+        // 桥接侧的"业务错误"（带错误码前缀）→ 直接抛，不降级
         const [code, ...rest] = msg.split(':');
         throw new BridgeCallError(code, rest.join(':').trim() || msg);
+      } else {
+        log.warn(`Live 调用 ${method} 失败（${msg}），降级到无头`);
       }
-      log.warn(`Live 调用 ${method} 失败（${msg}），降级到无头`);
     }
   }
   const data = await headless();

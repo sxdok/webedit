@@ -138,6 +138,12 @@ const applyCellParam = () => {
       .filter(Boolean),
   );
 };
+/** ?bridge=1[&bridgeUrl=ws://...] → 启动后自动开启 MCP 桥接（无人值守验证用；平时走菜单「帮助 → MCP 桥接」） */
+const applyBridgeParam = () => {
+  if (!params.get('bridge')) return;
+  void import('./mcp/bridgeClient').then((m) => m.autoStartBridgeFromUrl());
+};
+
 if (params.get('demo')) {
   void import('./store/demo')
     .then((m) => {
@@ -152,3 +158,5 @@ if (params.get('demo')) {
 } else {
   setTimeout(applyModeParam, 60);
 }
+// 桥接开关独立于 demo/mode：等页面挂载后再连，避免和首屏抢带宽
+setTimeout(applyBridgeParam, 400);

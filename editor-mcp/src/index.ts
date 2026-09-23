@@ -51,13 +51,26 @@ async function main(): Promise<void> {
   log.info(
     `${config.name} v${config.version} 启动（协议版本 ${config.protocolVersion}，transport=${wantHttp ? 'http' : stdio ? 'stdio' : 'none'}）`,
   );
+  // 桥接中转：让编辑器页面能接进来（浏览器不能监听端口，所以由 Node 侧当中转）
+  let hub: { close: () => Promise<void> } | null = null;
+  if (config.bridgeHub) {
+    try {
+      const { startBridgeHub } = await import('./bridge/host.js');
+      hub = await startBridgeHub();
+    } catch (e) {
+      log.warn(`桥接中转未能启动（端口可能被占）：${String((e as Error)?.message ?? e)}`);
+    }
+  }
+
   const { server, tools, resources, prompts, dispose } = buildServer();
 
   if (wantList) {
     process.stdout.write(
       `${JSON.stringify({ name: config.name, version: config.version, protocolVersion: config.protocolVersion, tools, resources, prompts }, null, 2)}\n`,
     );
-    dispose();
+    // ★收尾必须等两个句柄真的关掉（chokidar 监听 + 桥接中转），否则进程会被吊住不退出
+    await dispose();
+    await hub?.close();
     return;
   }
 
@@ -67,12 +80,15 @@ async function main(): Promise<void> {
     const { startHttpServer } = await import('./http.js');
     const handle = await startHttpServer(port);
     log.info('已进入 HTTP 模式，Ctrl+C 退出');
-    const stop = () => {
+    const stopAll = async () => {
+    await hub?.close();
+  };
+  const stop = () => {
       // ★收尾必须有硬上限：HTTP 可能还有 keep-alive / SSE 连接挂着，
       //   等它们自然结束会把进程吊死（真踩过：测试脚本的管道因此一直不关）
       const hardExit = setTimeout(() => process.exit(0), 800);
       hardExit.unref();
-      void handle.close().then(() => process.exit(0));
+      void handle.close().then(stopAll).then(() => process.exit(0));
     };
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);

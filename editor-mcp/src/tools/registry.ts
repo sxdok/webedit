@@ -135,6 +135,45 @@ export async function writeCatalog(cat: Catalog): Promise<string> {
   return p;
 }
 
+export const componentCatalogSchema = {
+  path: z.string().optional().describe('落盘路径（相对 workspace，缺省 component-catalog.json）'),
+  save: z.boolean().default(true).describe('是否把快照写进工作区（写进去之后，编辑器不在线时 component.* / export.spec 也能用）'),
+};
+
+/**
+ * component.catalog：把编辑器的**完整注册表快照**（组件清单 + 默认属性 + 属性 schema）取回来并落盘。
+ * ★这条是离线能力的"上游"：没有它，工作区里的 component-catalog.json 没有任何产生途径，
+ *   编辑器一关，component.get('table') / export.spec 就只剩"没有组件目录"。
+ */
+export async function componentCatalog(args: { path?: string; save?: boolean }) {
+  return viaBridge<{ components?: CatalogComponent[]; defaults?: Record<string, Record<string, unknown>>; schemas?: Record<string, Record<string, unknown>[]>; counts?: Record<string, number> }>(
+    'component.catalog',
+    args as Record<string, unknown>,
+    async () => {
+      const cat = readCatalog();
+      if (!cat) throw new Error(`BRIDGE_OFFLINE: ${catalogHint('component.catalog')}`);
+      return {
+        components: cat.components ?? [],
+        defaults: cat.defaults ?? {},
+        schemas: cat.schemas ?? {},
+        counts: { total: cat.components?.length ?? 0 },
+        fromFile: catalogPath(),
+      };
+    },
+  ).then(async (res) => {
+    if (!res.ok || !res.data || args.save === false) return res;
+    const { components, defaults, schemas, counts } = res.data;
+    if (!components?.length) return res; // 空快照不覆盖已有目录
+    const target = args.path ?? 'component-catalog.json';
+    const { assertInside } = await import('../config.js');
+    const out = assertInside(config.workspace, target);
+    const fsMod = await import('node:fs/promises');
+    await fsMod.mkdir(path.dirname(out), { recursive: true });
+    await fsMod.writeFile(out, `${JSON.stringify({ generatedAt: new Date().toISOString(), components, defaults, schemas }, null, 2)}\n`, 'utf8');
+    return ok({ ...res.data, path: out, saved: true, counts, note: `已写入 ${out}（编辑器不在线时 component.* 会读它）` });
+  });
+}
+
 /* ══════════════ history.*（§5.9）══════════════ */
 
 export const historyUndoSchema = { docId: docIdParam, steps: z.number().int().min(1).max(50).default(1) };

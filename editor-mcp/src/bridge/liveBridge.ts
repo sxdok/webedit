@@ -46,6 +46,8 @@ export class LiveBridge {
   private reconnects = 0;
   private lastError: string | null = null;
   private readyVersion: string | null = null;
+  /** 中转可达但编辑器未接入（hello 已经问明白了）→ 直接走无头，不再等握手超时 */
+  private hubNoEditor = false;
   private run = false;
   private connecting = false;
   private helloWaiters: ((ok: boolean) => void)[] = [];
@@ -87,6 +89,8 @@ export class LiveBridge {
    */
   async ensureReady(timeoutMs = 800): Promise<boolean> {
     if (this.isReady()) return true;
+    // 中转在线但编辑器没接入 → 立刻返回 false（不要每次调用都白等一个 timeout）
+    if (this.hubNoEditor) return false;
     if (!WS_CTOR) {
       this.lastError = '当前 Node 没有内置 WebSocket（需要 ≥22）';
       return false;
@@ -120,6 +124,7 @@ export class LiveBridge {
     }
     this.ws = null;
     this.readyVersion = null;
+    this.hubNoEditor = false;
     this.rejectAll('桥接已关闭');
   }
 
@@ -198,12 +203,26 @@ export class LiveBridge {
 
   private async hello(): Promise<void> {
     try {
-      const res = await this.send<{ version?: string; name?: string }>(
+      const res = await this.send<{ version?: string; name?: string; editors?: number; editorVersion?: string | null }>(
         'bridge.hello',
         { client: config.name, version: config.version, protocol: config.protocolVersion },
         1500,
       );
-      const version = res?.version ?? 'unknown';
+      // ★hello 只证明"中转可达"，**不等于编辑器在线**：
+      //   中转在中、编辑器没开时，请求会被中转回 BRIDGE_OFFLINE —— 那种情况下必须走无头降级，
+      //   所以这里以 `editors`（编辑器接入数）为准，而不是拿中转自己的版本号当就绪。
+      const editors = Number(res?.editors ?? 1); // 老实现/模拟器不带 editors → 视为已就绪
+      if (editors < 1) {
+        this.readyVersion = null;
+        this.hubNoEditor = true;
+        this.lastError = '桥接中转已连上，但编辑器未接入（在编辑器菜单「帮助 → 开启 MCP 桥接」）';
+        log.info(this.lastError);
+        // 立刻给出"不可用"的结论：否则每次工具调用都要白等一个 timeout
+        this.helloWaiters.forEach((w) => w(false));
+        this.helloWaiters = [];
+        return; // 不关连接：等中转推 bridge.editor 说编辑器来了
+      }
+      const version = res?.editorVersion ?? res?.version ?? 'unknown';
       if (version !== 'unknown' && version !== config.version) {
         this.lastError = `版本不匹配（编辑器 ${version} / MCP ${config.version}），拒绝使用 Live Bridge`;
         log.warn(this.lastError);
@@ -220,6 +239,33 @@ export class LiveBridge {
       this.lastError = `hello 失败：${String((e as Error)?.message ?? e)}`;
       log.debug(this.lastError);
     }
+  }
+
+  /** 中转推来的"编辑器接入/掉线"（bridge.editor）→ 实时切换 Live / 无头 */
+  private onEditorPresence(payload: unknown): void {
+    const p = (payload ?? {}) as { editors?: number; version?: string | null };
+    const n = Number(p.editors ?? 0);
+    if (n < 1) {
+      if (this.readyVersion) log.info('编辑器已断开桥接 → 后续调用走无头（degraded=true）');
+      this.readyVersion = null;
+      this.hubNoEditor = true;
+      this.lastError = '编辑器未接入桥接（中转在线）';
+      return;
+    }
+    const version = p.version ?? 'unknown';
+    if (version !== 'unknown' && version !== config.version) {
+      this.readyVersion = null;
+      this.hubNoEditor = false;
+      this.lastError = `版本不匹配（编辑器 ${version} / MCP ${config.version}），拒绝使用 Live Bridge`;
+      log.warn(this.lastError);
+      return;
+    }
+    this.readyVersion = version;
+    this.hubNoEditor = false;
+    this.lastError = null;
+    log.info(`编辑器已接入桥接（v${version}）→ 调用走 Live`);
+    this.helloWaiters.forEach((w) => w(true));
+    this.helloWaiters = [];
   }
 
   private onMessage(data: unknown): void {
@@ -249,6 +295,7 @@ export class LiveBridge {
     if (event) {
       this.lastEvent[event] = msg.payload;
       log.debug(`bridge ← ${event}`);
+      if (event === 'bridge.editor') this.onEditorPresence(msg.payload);
       (this.events.get(event) ?? []).forEach((cb) => cb(msg.payload));
     }
   }

@@ -30,8 +30,10 @@ export const config = {
   /** 支持的 MCP 协议版本（打印用；握手由 SDK 负责） */
   protocolVersion: '2025-06-18',
 
-  /** Live Bridge 地址（阶段二起真正连接；编辑器侧菜单开启后才可用） */
-  bridgeUrl: env('EDITOR_MCP_BRIDGE_URL', 'ws://127.0.0.1:37650'),
+  /** 桥接中转地址（Hub 监听它；LiveBridge 也连它） */
+  bridgeUrl: env('EDITOR_MCP_BRIDGE_URL', 'ws://127.0.0.1:37650/bridge'),
+  /** 是否随进程启动桥接中转（EDITOR_MCP_NO_BRIDGE=1 可关掉） */
+  bridgeHub: envBool('EDITOR_MCP_BRIDGE_HUB', true),
   /** 无头模式的文档目录 */
   workspace: path.resolve(env('EDITOR_MCP_WORKSPACE', path.join(pkgRoot, 'workspace'))),
   /** 外部插件目录：默认指向编辑器工程的 public/组件 */

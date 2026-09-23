@@ -32,7 +32,8 @@ wss.on('connection', (ws) => {
 
     switch (method) {
       case 'bridge.hello':
-        reply(true, { name: 'mock-editor', version, protocol: '2025-06-18', clients: wss.clients.size });
+        // 模拟"中转 + 一个已接入的编辑器"：editors/editorVersion 是就绪判定的依据
+        reply(true, { name: 'mock-editor', version, protocol: '2025-06-18', clients: wss.clients.size, editors: 1, editorVersion: version });
         break;
       case 'doc.create': {
         const docId = `live-${Math.random().toString(36).slice(2, 8)}`;

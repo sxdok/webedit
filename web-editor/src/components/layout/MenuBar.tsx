@@ -23,10 +23,19 @@ import { log } from '../../utils/logger';
 import { saveDiagnosticReportToRunDir } from '../../utils/diagnostics';
 import { buildComponentSpecSheet } from '../../utils/specSheet';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
+import { bridgeStatus, isBridgeEnabled, setBridgeEnabled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
 import { Modal, SHORTCUTS } from '../ui/Modal';
 import { useModeSwitch } from './ModeSwitcher';
+
+/** MCP 桥接状态文案（未开启 / 连接中 / 已连接 · 已重连 N 次 / 上次错误） */
+function bridgeStatusLabel(): string {
+  const s = bridgeStatus();
+  if (s.state === 'connected') return `已连接（${s.liveComponents} 个外部组件）`;
+  if (s.state === 'connecting') return '连接中…';
+  return s.lastError ? `未开启（上次：${s.lastError.slice(0, 24)}）` : '未开启';
+}
 
 const MARGIN_PRESETS: { label: string; value: number }[] = [
   { label: '常规 上下25.4 / 左右31.7mm', value: 0 },
@@ -180,6 +189,27 @@ export function MenuBar() {
 
   const helpMenu: MenuEntry[] = [
     { key: 'sc', label: '快捷键说明', onClick: () => setHelpOpen(true) },
+    // ★MCP 桥接（规格 §11）：默认不开；开了之后 Claude/Cursor 这类客户端就能驱动这个编辑器
+    {
+      key: 'mcpbridge',
+      label: `MCP 桥接：${bridgeStatusLabel()}`,
+      checked: isBridgeEnabled(),
+      onClick: () => {
+        const on = !isBridgeEnabled();
+        setBridgeEnabled(on);
+        if (on) {
+          window.setTimeout(() => {
+            window.alert(
+              `MCP 桥接已开启（${bridgeStatus().url}）\n\n` +
+                `状态：${bridgeStatusLabel()}\n` +
+                '若显示"连接失败"，请先在命令行启动 MCP 服务器：\n' +
+                '  cd editor-mcp; node dist/index.js --stdio\n' +
+                '（MCP 服务器会同时开一个桥接中转，本页面接进去）',
+            );
+          }, 800);
+        }
+      },
+    },
     { key: 'diag', label: '诊断信息（日志 / 状态 / 环境）', onClick: () => S().toggleUI('showDiagnostics') },
     {
       key: 'reloadlive',
