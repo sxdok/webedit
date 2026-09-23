@@ -892,20 +892,22 @@ async function interactionChecks(): Promise<Result[]> {
     S().clearAll();
     const tCell = S().addComponent('table');
     if (tCell) {
-      S().updateProps(tCell, { data: '甲 | 乙\n丙 | 丁', headerRow: false });
+      S().updateProps(tCell, { data: '甲 | 乙\n丙 | 丁', headerRow: true });
       await wait(320);
       S().selectComponent([tCell]);
       S().selectTableCells(tCell, ['1,1']); // 第 2 行第 2 列
       await wait(220);
 
-      const input = document.querySelector('[data-cell-text="1"]') as HTMLInputElement | null;
+      const input = document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null;
       const before = input?.value ?? '(未找到内容输入框)';
-      // React 受控组件：用原生 setter + input 事件才能触发 onChange
-      if (input) {
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-        setter?.call(input, '新内容');
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-      }
+      /** React 受控组件：用原生 setter + input 事件才能触发 onChange */
+      const typeInto = (el: HTMLTextAreaElement | null, text: string) => {
+        if (!el) return;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+        setter?.call(el, text);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      };
+      typeInto(input, '新内容');
       await wait(320);
       const nodeNow = S().doc.document.components.find((n) => n.id === tCell);
       const dataNow = String(nodeNow?.props.data ?? '');
@@ -915,6 +917,62 @@ async function interactionChecks(): Promise<Result[]> {
         '单元格内容可直接改（选中一格 → 「内容」输入框 → 同时写回 data 与画布）',
         before === '丁' && dataNow.includes('新内容') && painted === '新内容' && dataNow.includes('甲 | 乙'),
         `输入框原值「${before}」；data=「${dataNow.replace(/\n/g, ' ⏎ ')}」；画布该格=「${painted}」`,
+      );
+
+      /* 格内换行 与 内容里的竖线（转义）：`\n` 存的是两个字符，渲染成真换行；`|` 转义成 `\|` 不拆列 */
+      const tdBefore = document.querySelector(`[data-node-id="${tCell}"] tr:nth-child(1)`)?.children.length ?? 0;
+      const fresh = document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null;
+      typeInto(fresh, '第一行\n第二行');
+      await wait(320);
+      const tdNl = document.querySelector(`[data-node-id="${tCell}"] td[data-cell="1,1"]`) as HTMLElement | null;
+      const nlText = tdNl?.textContent ?? '';
+      const nlH = Math.round(tdNl?.getBoundingClientRect().height ?? 0);
+      typeInto(document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null, 'A|B');
+      await wait(320);
+      const tdPipe = document.querySelector(`[data-node-id="${tCell}"] td[data-cell="1,1"]`) as HTMLElement | null;
+      const dataPipe = String(S().doc.document.components.find((n) => n.id === tCell)?.props.data ?? '');
+      const colsAfter = document.querySelector(`[data-node-id="${tCell}"] tr:nth-child(1)`)?.children.length ?? 0;
+      add(
+        '单元格内容支持格内换行与竖线（\\n 渲染成两行；| 转义成 \\| 不拆列）',
+        nlText === '第一行\n第二行' &&
+          nlH > 24 &&
+          (tdPipe?.textContent ?? '').trim() === 'A|B' &&
+          dataPipe.includes('A\\|B') &&
+          colsAfter === tdBefore,
+        `换行：文字=${JSON.stringify(nlText)}、格高 ${nlH}px；竖线：画布=「${(tdPipe?.textContent ?? '').trim()}」、data 含 \\| =${dataPipe.includes('A\\|B')}、列数 ${tdBefore}→${colsAfter}`,
+      );
+
+      /* 插入行时选中格跟着内容平移（否则格式跟着走、选中框留在原地，看着像内容丢了） */
+      S().selectTableCells(tCell, ['1,1']);
+      await wait(200);
+      typeInto(document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null, '要跟着走的字');
+      await wait(300);
+      const beforeIns = (document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null)?.value ?? '';
+      (document.querySelector('[data-table-ins-row="1"]') as HTMLButtonElement | null)?.click();
+      await wait(360);
+      const selAfter = S().ui.tableCells?.cells.join(' ') ?? '(无)';
+      const textAfter = (document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null)?.value ?? '(无)';
+      const movedTd = document.querySelector(`[data-node-id="${tCell}"] td[data-cell="2,1"]`);
+      add(
+        '插入行时选中的单元格跟着内容一起平移（格式/列宽/选区同一规则）',
+        beforeIns === '要跟着走的字' && selAfter === '2,1' && textAfter === '要跟着走的字' && (movedTd?.textContent ?? '') === '要跟着走的字',
+        `插入前选区 1,1 内容「${beforeIns}」→ 插入后选区 ${selAfter}、「内容」框「${textAfter}」、画布 (2,1)=「${(movedTd?.textContent ?? '').trim()}」`,
+      );
+
+      /* 这个组件到底是不是"HTML 格式"：**渲染出来的是真 HTML 表格**（<table><caption><colgroup><thead><th><tbody><td>），
+         但**存储**不是 HTML 源码 —— 数据是 `a | b` 文本 + A1 键的格式表。这条把 DOM 骨架钉下来。 */
+      const tbl = document.querySelector(`[data-node-id="${tCell}"] table`) as HTMLTableElement | null;
+      const skeleton = tbl
+        ? [...tbl.querySelectorAll('*')].slice(0, 8).map((el) => `<${el.tagName.toLowerCase()}>`).join('')
+        : '(无)';
+      add(
+        '表格渲染为真 HTML 表格（真实 table/thead/th/tbody/td 元素，不是 div 拼的）',
+        !!tbl &&
+          !!tbl.querySelector('thead > tr > th') &&
+          !!tbl.querySelector('tbody > tr > td') &&
+          !!tbl.querySelector('colgroup > col') &&
+          !!tbl.querySelector('td,th'),
+        `DOM 骨架：${skeleton}；td 数=${tbl?.querySelectorAll('td').length ?? 0}、th 数=${tbl?.querySelectorAll('th').length ?? 0}`,
       );
 
       // 说明不许铺在面板上：展开全部分组后，属性面板里不应有 <p> 说明段落
@@ -1426,6 +1484,10 @@ async function interactionChecks(): Promise<Result[]> {
         `${beforeRow.length} → ${afterIns.length} 行；新第 2 行=「${afterIns[1] ?? ''}」；原第 2 行下移到第 3 行=${afterIns[2] === beforeRow[1]}`,
       );
 
+      // ★插入后选区会**跟着原内容下移**（Excel 语义 / 用户要求），所以要删掉刚插的那一行，
+      //   得先显式选回插入行（第 2 行），否则删掉的是原内容行。
+      S().selectTableCells(curId, ['1,0']);
+      await wait(160);
       (document.querySelector('[data-table-del-row="1"]') as HTMLButtonElement | null)?.click();
       await wait(300);
       const afterDelRow = dataLines();

@@ -42,9 +42,55 @@ export function parseRowHeight(raw: unknown): string | null {
   return /^\d+(\.\d+)?$/.test(v) ? `${v}mm` : v;
 }
 
+/** 把一行按**未转义**的 `|` 分列，并还原转义：`\|` → `|`、`\\` → `\`、`\n` → 格内换行 */
+function splitRow(line: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (let i = 0; i < line.length; i += 1) {
+    const ch = line[i];
+    if (ch === '\\' && i + 1 < line.length) {
+      const nx = line[i + 1];
+      if (nx === '|') {
+        cur += '|';
+        i += 1;
+        continue;
+      }
+      if (nx === '\\') {
+        cur += '\\';
+        i += 1;
+        continue;
+      }
+      if (nx === 'n') {
+        cur += '\n';
+        i += 1;
+        continue;
+      }
+    }
+    if (ch === '|') {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
+
+/** 单元格文本 → 文本视图里的写法（转义 `\`、`|`、换行；保证「内容」里写什么都存得下） */
+export function escapeCell(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, '\\n');
+}
+
+/** 二维数据 → props.data 文本（所有写回 data 的地方都用它，保证格式一致） */
+export function serializeTableData(rows: string[][]): string {
+  return rows.map((r) => r.map(escapeCell).join(' | ')).join('\n');
+}
+
 /** 把 data 属性（二维数组或 "a | b" 文本）解析成行
  *  ★空行**要保留**（Excel 里空行就是一行空单元格）：只把"末尾换行"这个书写残留去掉，
- *    中间和末尾的空行都算真实行 —— 否则"插入空行"会看不见、行列数量也对不上。 */
+ *    中间和末尾的空行都算真实行 —— 否则"插入空行"会看不见、行列数量也对不上。
+ *  ★转义：`\|` 是格内竖线、`\n` 是格内换行、`\\` 是反斜杠本身（见 escapeCell / serializeTableData）。 */
 export function parseTableData(raw: unknown): string[][] {
   if (Array.isArray(raw)) return asMatrix(raw);
   const text = String(raw ?? '');
@@ -52,7 +98,7 @@ export function parseTableData(raw: unknown): string[][] {
   let lines = text.split('\n');
   if (text.endsWith('\n')) lines = lines.slice(0, -1);
   if (lines.every((l) => l.trim() === '')) return [];
-  return lines.map((l) => l.split('|').map((c) => c.trim()));
+  return lines.map((l) => splitRow(l));
 }
 
 /**
@@ -268,6 +314,8 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
     // ★像 HTML/Word 的单元格那样：内容**在格内换行填满**，长词/长串也换行，
     //   而不是把列撑宽（用户反馈"内容填充观感不符合直觉"）
     overflowWrap: 'break-word',
+    // 格内换行：data 里写 `\n` 解析成真换行符，这里按 pre-line 渲染成多行（HTML 里就是 <br>）
+    whiteSpace: 'pre-line',
     height: rowH ?? undefined,
   };
   if (variant === 'normal') {
@@ -438,10 +486,10 @@ export function tableSchema(
   return [
     {
       key: 'data',
-      label: '数据（每行一条，用 | 分列）',
+      label: '数据（每行一条，用 | 分列；格内换行写 \\n，内容里要写竖线写 \\|）',
       control: 'textarea',
       group: GROUP.whole,
-      defaultValue: defaultData.map((r) => r.join(' | ')).join('\n'),
+      defaultValue: serializeTableData(defaultData),
       placeholder: '列1 | 列2 | 列3',
     },
     { key: 'headerRow', label: '首行为表头', control: 'switch', group: GROUP.whole, defaultValue: true },

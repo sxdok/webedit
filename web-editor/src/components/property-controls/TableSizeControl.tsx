@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { mmToPx } from '../../utils/units';
-import { parseCellStyles, parseTableData, shiftCellKeys, type CellStyle } from '../../registry/components/common/tableKit';
+import { parseCellStyles, parseTableData, serializeTableData, shiftCellKeys, type CellStyle } from '../../registry/components/common/tableKit';
 import type { ControlProps } from './index';
 
 const MAX_ROWS = 200;
@@ -50,6 +50,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
   const doc = useEditorStore((s) => s.doc);
   const updateProps = useEditorStore((s) => s.updateProps);
   const sel = useEditorStore((s) => s.ui.tableCells);
+  const selectTableCells = useEditorStore((s) => s.selectTableCells);
   const node = nodeId ? findNode(getForest(doc), nodeId) : null;
   const rows = parseTableData(node?.props.data);
   const dim = {
@@ -81,11 +82,34 @@ export function TableSizeControl({ nodeId }: ControlProps) {
   const write = (next: string[][], styles: Record<string, CellStyle>, pct?: number[]) => {
     if (!nodeId) return;
     const patch: Record<string, unknown> = {
-      data: next.map((r) => r.join(' | ')).join('\n'),
+      data: serializeTableData(next),
       cellStyles: styles,
     };
     if (pct) patch.colWidths = pct.map((p) => p.toFixed(1)).join(',');
     updateProps(nodeId, patch);
+  };
+
+  /**
+   * 插入/删除行列后**把选中的格子跟着平移**（和 cellStyles / 列宽一个规则）。
+   * 不平移的话：格式跟着内容走了、选中框还停在原位 —— 上面「内容」框会显示成新插的空行，
+   * 看起来像内容丢了（用户反馈"两个属性是否冲突"就是这个错觉）。
+   */
+  const shiftSel = (axis: 'row' | 'col', at: number, count: number, maxIdx: number) => {
+    if (!nodeId || !sel || sel.nodeId !== nodeId || !sel.cells.length) return;
+    const moved = sel.cells.map((k) => {
+      const [r, c] = k.split(',').map((x) => Number(x));
+      let idx = axis === 'row' ? r : c;
+      if (count < 0) {
+        const del = -count;
+        if (idx >= at && idx < at + del) idx = at; // 被删掉的那几格 → 落到删除位置
+        else if (idx >= at + del) idx -= del;
+      } else if (idx >= at) {
+        idx += count;
+      }
+      idx = Math.max(0, Math.min(idx, Math.max(0, maxIdx)));
+      return axis === 'row' ? `${idx},${c}` : `${r},${idx}`;
+    });
+    selectTableCells(nodeId, [...new Set(moved)]);
   };
 
   /** 把整张表改成 nRows × nCols（末尾补空 / 截断） */
@@ -110,6 +134,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     const next = [...rows];
     for (let i = 0; i < n; i++) next.splice(range.r0, 0, Array.from({ length: dim.cols }, () => ''));
     write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'row', range.r0, n));
+    shiftSel('row', range.r0, n, next.length - 1);
   };
   const deleteRowsAt = () => {
     if (!nodeId || !range) return;
@@ -117,6 +142,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     if (dim.rows - n < 1) return; // 至少留一行
     const next = rows.filter((_, i) => i < range.r0 || i > range.r1);
     write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'row', range.r0, -n));
+    shiftSel('row', range.r0, -n, next.length - 1);
   };
   const insertColsAt = () => {
     if (!nodeId || !range) return;
@@ -128,6 +154,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     for (let i = 0; i < n; i++) pct.splice(range.c0, 0, (pct[range.c0] ?? 100 / dim.cols) / 2);
     const sum = pct.reduce((a, b) => a + b, 0);
     write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'col', range.c0, n), pct.map((p) => (p / sum) * 100));
+    shiftSel('col', range.c0, n, dim.cols + n - 1);
   };
   const deleteColsAt = () => {
     if (!nodeId || !range) return;
@@ -139,6 +166,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     const pct0 = currentPct(dim.cols).filter((_, c) => keep(c));
     const sum = pct0.reduce((a, b) => a + b, 0) || 1;
     write(next, shiftCellKeys(parseCellStyles(node?.props.cellStyles), 'col', range.c0, -n), pct0.map((p) => (p / sum) * 100));
+    shiftSel('col', range.c0, -n, dim.cols - n - 1);
   };
 
   const clamp = (v: string, fallback: number, max: number) => {

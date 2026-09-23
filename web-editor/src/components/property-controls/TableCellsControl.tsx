@@ -21,6 +21,7 @@ import {
   parseA1,
   parseCellStyles,
   parseTableData,
+  serializeTableData,
   type CellStyle,
 } from '../../registry/components/common/tableKit';
 import { Tooltip } from '../ui/Tooltip';
@@ -143,13 +144,11 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
   const single = range && range.r0 === range.r1 && range.c0 === range.c1 ? range : null;
   const cellText = single ? (rowsData[single.r0]?.[single.c0] ?? '') : '';
   const [draft, setDraft] = useState(cellText);
-  const [badPipe, setBadPipe] = useState(false);
   useEffect(() => {
     setDraft(cellText);
-    setBadPipe(false);
   }, [cellText, single?.r0, single?.c0]);
 
-  /** 把这一格的文字写回 props.data（保持网格矩形，行用 '\n'、格用 ' | ' 连接） */
+  /** 把这一格的文字写回 props.data（保持网格矩形；转义交给 serializeTableData） */
   const writeCellText = (text: string) => {
     if (!nodeId || !single) return;
     const live = useEditorStore.getState();
@@ -160,52 +159,46 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
     const row = rows[single.r0];
     while (row.length < Math.max(cols, single.c0 + 1)) row.push('');
     row[single.c0] = text;
-    updateProps(nodeId, { data: rows.map((r) => r.join(' | ')).join('\n') });
+    updateProps(nodeId, { data: serializeTableData(rows) });
   };
 
   return (
     <div className="space-y-1" data-cell-format="1">
-      {/* 内容：改选中那一格的文字（“|”是列分隔符，不能出现在内容里） */}
-      <div className="flex flex-wrap items-center gap-1" data-cell-text-row="1">
+      {/* 内容：改选中那一格的文字（支持格内换行；“|”会被转义，不会拆列） */}
+      <div className="flex items-start gap-1" data-cell-text-row="1">
         <Tooltip
           side="right"
           content={{
             name: '单元格内容',
             detail: [
               '选**一格**后在这里改它的文字 —— 相当于改 HTML 表格里某个 <td> 的内容。',
-              '一个格子只能是一行文字；换行就是另一行了。',
-              '“|”是列分隔符，不能写进内容里。',
+              '回车就是**格内换行**（存成 \\n，渲染成多行，等于 HTML 的 <br>）。',
+              '竖线 | 会被转义成 \\|，不会把这一格拆成两格。',
             ],
           }}
         >
-          <span className="w-8 shrink-0 cursor-help text-2xs text-gray-400">内容</span>
+          <span className="mt-1 w-8 shrink-0 cursor-help text-2xs text-gray-400">内容</span>
         </Tooltip>
-        <input
+        <textarea
           data-cell-text="1"
+          rows={2}
           disabled={!single}
-          className={`h-6 min-w-0 flex-1 rounded border bg-white px-1 text-xs disabled:bg-gray-50 disabled:text-gray-400 ${
-            badPipe ? 'border-red-400' : 'border-line'
-          }`}
+          className="min-h-[38px] min-w-0 flex-1 resize-y rounded border border-line bg-white px-1 py-0.5 text-xs leading-4 disabled:bg-gray-50 disabled:text-gray-400"
           placeholder={single ? '' : '先只选一格'}
           value={single ? draft : ''}
           onChange={(e) => {
-            const raw = e.target.value;
-            const clean = raw.replace(/\|/g, '');
-            setBadPipe(raw !== clean);
-            setDraft(clean);
-            writeCellText(clean);
+            setDraft(e.target.value);
+            writeCellText(e.target.value);
           }}
-          onBlur={() => setBadPipe(false)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
             if (e.key === 'Escape') {
               setDraft(cellText);
               writeCellText(cellText);
-              (e.target as HTMLInputElement).blur();
+              (e.target as HTMLTextAreaElement).blur();
             }
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) (e.target as HTMLTextAreaElement).blur();
           }}
         />
-        {badPipe && <span className="shrink-0 text-2xs text-red-500">“|”是列分隔符，已忽略</span>}
       </div>
 
       <div className="flex flex-wrap items-center gap-1 text-2xs text-gray-500">
