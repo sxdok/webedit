@@ -82,6 +82,19 @@ export interface UIState {
    * 值为 `true` 表示**已折叠**。
    */
   propClosed: { groups: Record<string, boolean>; drawers: Record<string, boolean> };
+  /**
+   * 画布视图的**平移偏移**（px，屏幕像素；PS 式手抓）：内容层整体 translate，
+   * **不夹边界**（可以把纸张拖到视口任意位置，甚至拖出可视区）。
+   */
+  pan: { x: number; y: number };
+}
+
+/** 一"页" = 画布上方分页里的一个标签；每页是一份**独立文档**（有自己的模式与内容） */
+export interface EditorPage {
+  id: string;
+  title: string;
+  mode: EditorMode;
+  doc: EditorDocument;
 }
 
 const initialUI: UIState = {
@@ -103,6 +116,7 @@ const initialUI: UIState = {
   tableCells: null,
   lockedIds: [],
   propClosed: { groups: {}, drawers: {} },
+  pan: { x: 0, y: 0 },
 };
 
 /* ══════════════ 初始文档 ══════════════ */
@@ -132,6 +146,21 @@ export interface EditorStore {
   ui: UIState;
   /** 复制/粘贴缓冲（不入持久化） */
   clipboard: ComponentNode | null;
+  /**
+   * 画布上方的**分页**（每页一份独立文档）+ 当前页 id。
+   * 当前页的内容就是上面的 `doc`；切页时把 `doc` 写回旧页、再把新页的 doc 载入 `doc`。
+   */
+  pages: EditorPage[];
+  activePageId: string;
+
+  /* 分页（每页一个模式 + 一份内容） */
+  addPage(doc: EditorDocument): string;
+  setActivePage(id: string): void;
+  closePage(id: string): void;
+  /** 画布平移（PS 式手抓；不夹边界） */
+  setPan(pan: { x: number; y: number }): void;
+  /** 把当前页的信息（标题/模式）同步进分页标签 */
+  syncActivePage(): void;
 
   /* 模式 */
   setMode(mode: EditorMode): void;
@@ -253,14 +282,86 @@ function mapNode(
 
 /* ══════════════ Store ══════════════ */
 
+/** 初始页（分页里的第一页，就是初始文档） */
+const initialPage: EditorPage = (() => {
+  const d = createInitialDocument();
+  return { id: d.id, title: d.title, mode: d.mode, doc: d };
+})();
+
 export const useEditorStore = create<EditorStore>()(
   persist(
     (set, get) => ({
-      doc: createInitialDocument(),
+      doc: initialPage.doc,
       zoom: 1,
       history: emptyHistory(),
       ui: initialUI,
       clipboard: null,
+      /* 分页：初始一页 */
+      pages: [initialPage],
+      activePageId: initialPage.id,
+
+      /* ── 分页（每页一份独立文档）── */
+
+      /** 新建一页并切过去（新建文档对话框 / 打开 JSON 都用它） */
+      addPage: (doc) => {
+        const id = doc.id || createId('doc');
+        const page: EditorPage = { id, title: doc.title, mode: doc.mode, doc: { ...doc, id } };
+        log.info('store', 'addPage', { id, title: doc.title, mode: doc.mode, total: get().pages.length + 1 });
+        set((s) => ({
+          pages: [...s.pages, page],
+          activePageId: id,
+          doc: page.doc,
+          history: emptyHistory(),
+          ui: { ...s.ui, tableCells: null, pan: { x: 0, y: 0 } },
+        }));
+        return id;
+      },
+
+      setActivePage: (id) => {
+        const s = get();
+        if (s.activePageId === id) return;
+        const target = s.pages.find((p) => p.id === id);
+        if (!target) return;
+        // 先把当前页的改动写回它的槽位（标题/模式也跟着同步），再载入目标页
+        const flushed = s.pages.map((p) => (p.id === s.activePageId ? { ...p, title: s.doc.title, mode: s.doc.mode, doc: s.doc } : p));
+        log.info('store', 'setActivePage', { from: s.activePageId, to: id, title: target.title, mode: target.mode });
+        set({
+          pages: flushed,
+          activePageId: id,
+          doc: target.doc,
+          history: emptyHistory(), // 每页各自的编辑历史不跨页混（撤销不会撤到别的页上）
+          ui: { ...s.ui, tableCells: null, pan: { x: 0, y: 0 } },
+        });
+      },
+
+      closePage: (id) => {
+        const s = get();
+        if (s.pages.length <= 1) return; // 至少留一页
+        const idx = s.pages.findIndex((p) => p.id === id);
+        if (idx < 0) return;
+        const pages = s.pages.filter((p) => p.id !== id);
+        if (s.activePageId !== id) {
+          log.info('store', 'closePage', { id, remain: pages.length });
+          set({ pages });
+          return;
+        }
+        const next = pages[Math.min(idx, pages.length - 1)];
+        log.info('store', 'closePage(active)', { id, next: next.id, remain: pages.length });
+        set({ pages, activePageId: next.id, doc: next.doc, history: emptyHistory(), ui: { ...s.ui, tableCells: null, pan: { x: 0, y: 0 } } });
+      },
+
+      /** 当前页的标题/模式同步到标签上（改名、切模式后调用） */
+      syncActivePage: () => {
+        const s = get();
+        const pages = s.pages.map((p) => (p.id === s.activePageId ? { ...p, title: s.doc.title, mode: s.doc.mode, doc: s.doc } : p));
+        set({ pages });
+      },
+
+      setPan: (pan) => {
+        const cur = get().ui.pan;
+        if (cur && cur.x === pan.x && cur.y === pan.y) return;
+        set((s) => ({ ui: { ...s.ui, pan } }));
+      },
 
       /* ── 模式：两套内容各自保留，只切换渲染层与面板过滤；切换本身入栈可撤销 ── */
       setMode: (mode) => {
@@ -706,6 +807,9 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
         ({
           doc: s.doc,
           zoom: s.zoom,
+          // 分页：持久化时把**当前页**的槽位刷新成最新的 doc（否则切页会回退到旧内容）
+          pages: s.pages.map((p) => (p.id === s.activePageId ? { ...p, title: s.doc.title, mode: s.doc.mode, doc: s.doc } : p)),
+          activePageId: s.activePageId,
           // 诊断面板属于临时弹层，不持久化（否则刷新后会自动弹出）
           ui: { ...s.ui, showDiagnostics: false, newDocOpen: false },
         }) as unknown as EditorStore,
@@ -742,6 +846,19 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
                 selectedIds: pDoc.selectedIds ?? [],
               })
             : current.doc,
+          /* 分页：老存档没有 pages → 用当前文档造一页；有 pages 但**当前页槽位**是旧的 →
+             以持久化的 `doc`（每次改动都会写）为准覆盖它。 */
+          pages: (() => {
+            const live = (pDoc ? normalizeDocTables({ ...current.doc, ...pDoc }) : current.doc) as EditorDocument;
+            const stored = Array.isArray(p.pages) ? (p.pages as EditorPage[]) : [];
+            if (!stored.length) return [{ id: live.id, title: live.title, mode: live.mode, doc: live }];
+            const activeId = typeof p.activePageId === 'string' && p.activePageId ? p.activePageId : stored[0].id;
+            return stored.map((pg) => (pg.id === activeId ? { ...pg, title: live.title, mode: live.mode, doc: live } : pg));
+          })(),
+          activePageId:
+            typeof p.activePageId === 'string' && p.activePageId && (p.pages ?? []).some((pg) => pg.id === p.activePageId)
+              ? p.activePageId
+              : ((p.pages ?? [])[0]?.id ?? current.activePageId),
           // ★关键：旧数据缺的新字段一律回落到默认值
           ui: { ...initialUI, ...(p.ui ?? {}), showDiagnostics: false, newDocOpen: false },
           // 撤销栈不持久化（partialize 里也没存）；这里显式清空，避免将来加字段时

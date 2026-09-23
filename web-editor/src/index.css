@@ -219,6 +219,11 @@ html[data-theme='monokai'] .paper-shadow { box-shadow: 0 2px 12px rgba(0, 0, 0, 
     height: auto !important;
     margin: 0 !important;
   }
+  /* 画布平移层（PS 式手抓）：打印时必须取消 translate，否则整页会按屏幕上的滚动偏移错位 */
+  [data-pan-layer='1'] {
+    transform: none !important;
+    position: static !important;
+  }
   .print-reset {
     transform: none !important;
     width: auto !important;

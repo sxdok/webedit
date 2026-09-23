@@ -35,7 +35,8 @@ function Field({ label, children, wide }: { label: string; children: React.React
 export function NewDocDialog() {
   const open = useEditorStore((s) => s.ui.newDocOpen);
   const setOpen = useEditorStore((s) => s.setNewDocOpen);
-  const importJSON = useEditorStore((s) => s.importJSON);
+  const addPage = useEditorStore((s) => s.addPage);
+  const pageCount = useEditorStore((s) => s.pages.length);
 
   const [step, setStep] = useState<1 | 2>(1);
   const [mode, setMode] = useState<Mode>('document');
@@ -116,7 +117,7 @@ export function NewDocDialog() {
       },
       selectedIds: [],
     };
-    if (!importJSON(JSON.stringify(doc))) {
+    if (!addPage(doc)) {
       window.alert('新建失败：文档结构不合法');
       return;
     }
@@ -303,7 +304,8 @@ export function NewDocDialog() {
             )}
 
             <p className="rounded bg-amber-50 px-2 py-1.5 text-2xs leading-5 text-amber-700">
-              新建会替换当前文档（两套模式的内容都会重置）。这是**一步历史**，按 Ctrl+Z 可以撤销回来。
+              创建后会**新增一页**（画布上方的分页标签），当前 {pageCount} 页保持不变；
+              新页的模式决定画布预览与右侧属性面板。
             </p>
           </div>
         )}

@@ -19,7 +19,7 @@ export function CanvasPropertyPanel() {
   const toggleUI = useEditorStore((s) => s.toggleUI);
 
   return (
-    <div className="px-3 py-2">
+    <div className="px-3 py-2" data-props-canvas="1">
       <div className="mb-2 rounded bg-primary/5 px-2 py-1 text-2xs text-primary">
         未选中组件 —— 这里是画布属性
       </div>

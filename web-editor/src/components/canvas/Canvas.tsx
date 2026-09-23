@@ -1,15 +1,18 @@
 /**
- * 职责：画布区分派——按当前模式渲染 PaperCanvas / WebCanvas；承载缩放外壳（transform scale +
- *       高度同步修正，避免缩小时留白）、标尺开关、以及阶段三交互钩子（拖动/缩放/旋转/吸附/框选/插入位置）。
+ * 职责：画布区——上方是**分页标签**（每页一份独立文档，各自可选模式），下面是画布视口：
+ *   · 标尺**脱离画布**固定在视口的顶部/左侧（只随平移量移动刻度，自己不滚走）；
+ *   · 画布内容放在**平移层**里（PS 式手抓：空格/中键/滚轮平移，**不夹边界**）；
+ *   · 按模式分派 PaperCanvas / WebCanvas，并承载缩放（Ctrl+滚轮以指针为锚点）。
  */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { RenderContext } from '../../registry/types';
 import { selectForest, selectMode, useEditorStore } from '../../store/editorStore';
 import { mmToPx, ptToPx } from '../../utils/units';
 import { PaperCanvas } from './PaperCanvas';
+import { PageTabs } from './PageTabs';
 import { Ruler } from './Ruler';
 
-/** 标尺条的基准高度（布局高度按 zoom 缩放，保证与缩放后的内容对齐） */
+/** 标尺条的固定厚度（px；**不随缩放变**，与 PS 一致） */
 const RULER_H = 18;
 import { WebCanvas } from './WebCanvas';
 import { useCanvasInteraction } from './useCanvasInteraction';
@@ -117,6 +120,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const canvas = useEditorStore((s) => s.doc.web.canvas);
   const zoom = useEditorStore((s) => s.zoom);
   const ui = useEditorStore((s) => s.ui);
+  const activePageId = useEditorStore((s) => s.activePageId);
   const selectedIds = useEditorStore((s) => s.doc.selectedIds);
   const selectComponent = useEditorStore((s) => s.selectComponent);
   const toggleSelect = useEditorStore((s) => s.toggleSelect);
@@ -144,7 +148,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     [mode, page, canvas, ui.preview],
   );
 
-  const { ref, outerW, outerH } = useScaledBox(zoom, [
+  const { ref } = useScaledBox(zoom, [
     mode,
     page,
     canvas,
@@ -153,9 +157,11 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     JSON.stringify(selectedIds),
   ]);
   const viewportRef = useRef<HTMLDivElement>(null);
-  /** 平移画布（PS 式手抓工具）：按住空格 + 拖拽，或中键拖拽 */
+  /** 平移画布（PS 式手抓工具）：按住空格 + 拖拽，或中键拖拽；偏移存 store.ui.pan，**不夹边界** */
+  const pan = useEditorStore((s) => s.ui.pan) ?? { x: 0, y: 0 };
+  const setPan = useEditorStore((s) => s.setPan);
   const spaceRef = useRef(false);
-  const panRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
+  const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const [panReady, setPanReady] = useState(false);
   const [panning, setPanning] = useState(false);
 
@@ -197,18 +203,16 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const startPan = (e: React.PointerEvent): boolean => {
     const isMiddle = e.button === 1;
     if (!spaceRef.current && !isMiddle) return false;
-    const el = viewportRef.current;
-    if (!el) return false;
-    panRef.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
+    if (!viewportRef.current) return false;
+    panRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
     setPanning(true);
     return true;
   };
   const movePan = (e: React.PointerEvent): void => {
     const p = panRef.current;
-    const el = viewportRef.current;
-    if (!p || !el) return;
-    el.scrollLeft = p.sl - (e.clientX - p.x);
-    el.scrollTop = p.st - (e.clientY - p.y);
+    if (!p) return;
+    // 自由平移：不夹边界（纸张可以拖到视口任意位置，甚至拖出可视区）
+    setPan({ x: Math.round(p.px + (e.clientX - p.x)), y: Math.round(p.py + (e.clientY - p.y)) });
   };
   const endPan = (): void => {
     panRef.current = null;
@@ -223,22 +227,67 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     return Math.max(0.1, Math.min(4, Math.floor((avail / contentW) * 100) / 100));
   };
 
-  // 切换模式时重置为 100%（用户要求默认 100%；需要铺满可用宽度时点「适应宽度」）
+  /** 以视口中心为锚点缩放（缩放按钮用；Ctrl+滚轮是以指针为锚点） */
+  const setZoomAtCenter = (next: number) => {
+    const st = useEditorStore.getState();
+    const el = viewportRef.current;
+    const cur = st.ui.pan ?? { x: 0, y: 0 };
+    const vw = el?.clientWidth ?? 0;
+    const vh = el?.clientHeight ?? 0;
+    const cx = (vw / 2 - cur.x) / st.zoom;
+    const cy = (vh / 2 - cur.y) / st.zoom;
+    st.setZoom(next);
+    setPan({ x: Math.round(vw / 2 - cx * next), y: Math.round(vh / 2 - cy * next) });
+  };
+
+  /** 把纸张摆到视口中间（放不下时留 24px 边距，左上对齐） */
+  const centerPan = useCallback(
+    (z = zoom) => {
+      const el = viewportRef.current;
+      const cw = (mode === 'document' ? mmToPx(page.width) : canvas.width) * z;
+      const ch = (mode === 'document' ? mmToPx(page.height) : canvas.height) * z;
+      const vw = el?.clientWidth ?? 0;
+      const vh = el?.clientHeight ?? 0;
+      return {
+        x: Math.round(cw + 48 <= vw ? (vw - cw) / 2 : 24),
+        y: Math.round(ch + 48 <= vh ? (vh - ch) / 2 : 24),
+      };
+    },
+    [mode, page.width, page.height, canvas.width, canvas.height, zoom],
+  );
+
+  // 切换模式 / 换页时：缩放回 100%，并把画布重新摆到视口中间
   useEffect(() => {
     useEditorStore.getState().setZoom(1);
-  }, [mode]);
+    setPan(centerPan(1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, activePageId]);
 
-  // ★Ctrl/Cmd + 滚轮：只缩放"画布预览"，并阻止浏览器整页缩放
-  //   （浏览器自带缩放会把菜单栏/面板一起放大，用户反馈过；这里 preventDefault 接管该手势）
+  // ★Ctrl/Cmd + 滚轮：缩放"画布预览"（以指针为锚点，像 PS），并阻止浏览器整页缩放
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return; // 普通滚轮仍用于滚动
-      e.preventDefault();
       const st = useEditorStore.getState();
-      const next = st.zoom + (e.deltaY > 0 ? -0.08 : 0.08);
-      st.setZoom(Math.max(0.1, Math.min(4, Math.round(next * 100) / 100)));
+      if (!e.ctrlKey && !e.metaKey) {
+        // 普通滚轮 → 平移画布（自由，不夹边界）
+        e.preventDefault();
+        const cur = st.ui.pan ?? { x: 0, y: 0 };
+        st.setPan({ x: Math.round(cur.x - e.deltaX), y: Math.round(cur.y - e.deltaY) });
+        return;
+      }
+      e.preventDefault();
+      const next = Math.max(0.1, Math.min(4, Math.round((st.zoom + (e.deltaY > 0 ? -0.08 : 0.08)) * 100) / 100));
+      if (next === st.zoom) return;
+      // 让指针下的那个内容点保持不动
+      const rect = el.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      const cur = st.ui.pan ?? { x: 0, y: 0 };
+      const cx = (px - cur.x) / st.zoom;
+      const cy = (py - cur.y) / st.zoom;
+      st.setZoom(next);
+      st.setPan({ x: Math.round(px - cx * next), y: Math.round(py - cy * next) });
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -256,158 +305,168 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const printDebug = new URLSearchParams(location.search).get('printdebug');
   const contentW = mode === 'document' ? mmToPx(page.width) : canvas.width;
   const contentH = mode === 'document' ? mmToPx(page.height) : canvas.height;
-  const rulerW = ui.showRuler ? RULER_H * zoom : 0;
+  const R = ui.showRuler ? RULER_H : 0;
   return (
-    <div
-      id="canvas-viewport"
-      ref={viewportRef}
-      data-pan={panning ? '1' : panReady ? 'ready' : '0'}
-      className={`thin-scroll relative flex-1 overflow-auto bg-canvasbg px-6 pb-6 ${
-        panning ? 'cursor-grabbing' : panReady ? 'cursor-grab' : ''
-      }`}
-      onPointerDownCapture={(e) => {
-        // 空格/中键 → 平移画布：在捕获阶段接管，别让下面的节点拖拽/框选也响应
-        if (!startPan(e)) return;
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-      onPointerMove={movePan}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
-      onPointerLeave={endPan}
-      onPointerDown={(e) => {
-        if (e.target === e.currentTarget) selectComponent([]);
-      }}
-      /* 中键默认会触发浏览器自动滚动，这里按掉 */
-      onAuxClick={(e) => {
-        if (e.button === 1) e.preventDefault();
-      }}
-    >
-      <div
-        className="mx-auto"
-        style={{
-          width: (outerW || 0) + rulerW || undefined,
-          height: (outerH || 0) + rulerW || undefined,
-        }}
-      >
-        {/* ★标尺必须放在缩放层**外面**：sticky 在有 transform 祖先的容器里不生效（会跟着内容一起滚）。
-            横向贴顶、纵向贴左，左上角交点单列一格。
-            ★sticky 的"活动空间"受**它的包含块**限制：所以吸顶要写在**整行**上（行高只占一条标尺，
-              但它的包含块是整块内容区），行内的左上角格再 sticky left-0 贴左边。 */}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* ── 画布上方的分页（每页一份独立文档，各自可选模式）── */}
+      <PageTabs />
+
+      <div className="relative min-h-0 flex-1 bg-canvasbg" data-canvas-body="1">
+        {/* ★标尺**脱离画布**固定在视口顶部/左侧（不随画布平移移动，只按平移量移动刻度），
+            左上角留一个交汇格；画布区域从标尺内侧开始。 */}
         {ui.showRuler && (
-          <div className="no-print sticky top-0 z-20 flex" style={{ height: RULER_H * zoom }}>
-            <div
-              data-ruler-corner="1"
-              className="ruler-bg no-print sticky left-0 z-30 shrink-0 border-b border-r border-line"
-              style={{ width: RULER_H * zoom, height: RULER_H * zoom }}
-            />
-            <div className="min-w-0" style={{ width: outerW || undefined }}>
-              <div style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-                <Ruler mode={mode} length={contentW} zoom={zoom} orientation="horizontal" />
-              </div>
+          <div
+            data-ruler-corner="1"
+            className="ruler-bg no-print absolute left-0 top-0 z-30 border-b border-r border-line"
+            style={{ width: RULER_H, height: RULER_H }}
+          />
+        )}
+        {ui.showRuler && (
+          <div
+            data-ruler-box="h"
+            className="ruler-bg no-print absolute z-20 overflow-hidden border-b border-line"
+            style={{ left: RULER_H, top: 0, right: 0, height: RULER_H }}
+          >
+            <div style={{ transform: `translateX(${pan.x}px)`, width: contentW * zoom }}>
+              <Ruler mode={mode} length={contentW} zoom={zoom} orientation="horizontal" thickness={RULER_H} />
             </div>
           </div>
         )}
-        {/* items-start：别让纸张被行高拉伸（否则 useScaledBox 量到的高度会自己喂自己，越量越大） */}
-        <div className="flex items-start">
-          {ui.showRuler && (
-            <div
-              className="no-print sticky left-0 z-20 shrink-0"
-              style={{ width: RULER_H * zoom, height: outerH || undefined }}
-            >
-              <div style={{ height: contentH, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-                <Ruler mode={mode} length={contentH} zoom={zoom} orientation="vertical" />
-              </div>
-            </div>
-          )}
+        {ui.showRuler && (
           <div
-            ref={ref}
-            className="print-reset"
-            style={{
-              width: contentW,
-              transform: `scale(${zoom})`,
-              transformOrigin: 'top left',
-            }}
+            data-ruler-box="v"
+            className="ruler-bg no-print absolute z-20 overflow-hidden border-r border-line"
+            style={{ left: 0, top: RULER_H, bottom: 0, width: RULER_H }}
           >
-          {mode === 'document' ? (
-            <PaperCanvas
-              nodes={nodes}
-              ctx={ctx}
-              page={page}
-              showGuides={ui.showGuides}
-              zoom={zoom}
-              selectedIds={selectedIds}
-              hoveredId={hoveredId}
-              showChrome={!ui.preview}
-              onSelect={onSelect}
-              onHover={setHoveredId}
-              onPointerMove={(x, y) => onPointer({ x, y })}
-              canvasRef={canvasElRef}
-              it={it}
-            />
-          ) : (
-            <WebCanvas
-              nodes={nodes}
-              ctx={ctx}
-              canvas={canvas}
-              ui={{ showGrid: ui.showGrid }}
-              zoom={zoom}
-              selectedIds={selectedIds}
-              hoveredId={hoveredId}
-              showChrome={!ui.preview}
-              onSelect={onSelect}
-              onHover={setHoveredId}
-              onPointerMove={(x, y) => onPointer({ x, y })}
-              canvasRef={canvasElRef}
-              it={it}
-            />
-          )}
+            <div style={{ transform: `translateY(${pan.y}px)`, height: contentH * zoom }}>
+              <Ruler mode={mode} length={contentH} zoom={zoom} orientation="vertical" thickness={RULER_H} />
+            </div>
+          </div>
+        )}
+
+        <div
+          id="canvas-viewport"
+          ref={viewportRef}
+          data-pan={panning ? '1' : panReady ? 'ready' : '0'}
+          className={`absolute overflow-hidden ${panning ? 'cursor-grabbing' : panReady ? 'cursor-grab' : ''}`}
+          style={{ left: R, top: R, right: 0, bottom: 0 }}
+          onPointerDownCapture={(e) => {
+            // 空格/中键 → 平移画布：在捕获阶段接管，别让下面的节点拖拽/框选也响应
+            if (!startPan(e)) return;
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onPointerMove={movePan}
+          onPointerUp={endPan}
+          onPointerCancel={endPan}
+          onPointerLeave={endPan}
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) selectComponent([]);
+          }}
+          /* 中键默认会触发浏览器自动滚动，这里按掉 */
+          onAuxClick={(e) => {
+            if (e.button === 1) e.preventDefault();
+          }}
+        >
+          {/* 平移层：translate 不夹边界（纸张能拖到视口任意位置） */}
+          <div
+            data-pan-layer="1"
+            className="absolute left-0 top-0"
+            style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, width: contentW, height: contentH }}
+          >
+            <div
+              ref={ref}
+              className="print-reset"
+              style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+            >
+              {mode === 'document' ? (
+                <PaperCanvas
+                  nodes={nodes}
+                  ctx={ctx}
+                  page={page}
+                  showGuides={ui.showGuides}
+                  zoom={zoom}
+                  selectedIds={selectedIds}
+                  hoveredId={hoveredId}
+                  showChrome={!ui.preview}
+                  onSelect={onSelect}
+                  onHover={setHoveredId}
+                  onPointerMove={(x, y) => onPointer({ x, y })}
+                  canvasRef={canvasElRef}
+                  it={it}
+                />
+              ) : (
+                <WebCanvas
+                  nodes={nodes}
+                  ctx={ctx}
+                  canvas={canvas}
+                  ui={{ showGrid: ui.showGrid }}
+                  zoom={zoom}
+                  selectedIds={selectedIds}
+                  hoveredId={hoveredId}
+                  showChrome={!ui.preview}
+                  onSelect={onSelect}
+                  onHover={setHoveredId}
+                  onPointerMove={(x, y) => onPointer({ x, y })}
+                  canvasRef={canvasElRef}
+                  it={it}
+                />
+              )}
+            </div>
           </div>
         </div>
-      </div>
-      {/* 画布缩放控件：只影响"画布预览"，不像浏览器缩放那样把整个编辑器界面一起放大 */}
-      <div className="zoom-pill no-print sticky bottom-2 z-30 ml-auto mr-2 flex w-max items-center gap-1 rounded-full border px-2 py-1 text-2xs shadow">
-        <button
-          type="button"
-          className="h-6 w-6 rounded hover:bg-gray-100"
-          title="缩小（Ctrl+- 或 Ctrl+滚轮）"
-          onClick={() => useEditorStore.getState().setZoom(Math.max(0.1, Math.round((zoom - 0.1) * 100) / 100))}
-        >
-          −
-        </button>
-        <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-        <button
-          type="button"
-          className="h-6 w-6 rounded hover:bg-gray-100"
-          title="放大（Ctrl+= 或 Ctrl+滚轮）"
-          onClick={() => useEditorStore.getState().setZoom(Math.min(4, Math.round((zoom + 0.1) * 100) / 100))}
-        >
-          ＋
-        </button>
-        <span className="mx-0.5 h-4 w-px bg-line" />
-        <button
-          type="button"
-          className="rounded px-1.5 py-0.5 hover:bg-gray-100"
-          title="适应宽度"
-          onClick={() => useEditorStore.getState().setZoom(fitWidth())}
-        >
-          适应宽度
-        </button>
-        <button
-          type="button"
-          className="rounded px-1.5 py-0.5 hover:bg-gray-100"
-          title="实际大小"
-          onClick={() => useEditorStore.getState().setZoom(1)}
-        >
-          100%
-        </button>
-        <span className="mx-0.5 h-4 w-px bg-line" />
-        <span className="whitespace-nowrap pr-0.5 text-2xs text-gray-400" title="像 PS 的手抓工具：按住空格拖拽，或按住鼠标中键拖拽">
-          空格/中键拖拽平移
-        </span>
-      </div>
 
-      {printDebug ? <PrintDebugPanel /> : null}
+        {/* 画布缩放控件：固定在右下角，只影响"画布预览" */}
+        <div className="zoom-pill no-print absolute bottom-2 right-2 z-30 flex w-max items-center gap-1 rounded-full border px-2 py-1 text-2xs shadow">
+          <button
+            type="button"
+            className="h-6 w-6 rounded hover:bg-gray-100"
+            title="缩小（Ctrl+- 或 Ctrl+滚轮）"
+            onClick={() => setZoomAtCenter(Math.max(0.1, Math.round((zoom - 0.1) * 100) / 100))}
+          >
+            −
+          </button>
+          <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+          <button
+            type="button"
+            className="h-6 w-6 rounded hover:bg-gray-100"
+            title="放大（Ctrl+= 或 Ctrl+滚轮）"
+            onClick={() => setZoomAtCenter(Math.min(4, Math.round((zoom + 0.1) * 100) / 100))}
+          >
+            ＋
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-line" />
+          <button
+            type="button"
+            className="rounded px-1.5 py-0.5 hover:bg-gray-100"
+            title="适应宽度"
+            onClick={() => {
+              const z = fitWidth();
+              useEditorStore.getState().setZoom(z);
+              setPan(centerPan(z));
+            }}
+          >
+            适应宽度
+          </button>
+          <button
+            type="button"
+            className="rounded px-1.5 py-0.5 hover:bg-gray-100"
+            title="实际大小并居中"
+            onClick={() => {
+              useEditorStore.getState().setZoom(1);
+              setPan(centerPan(1));
+            }}
+          >
+            100%
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-line" />
+          <span className="whitespace-nowrap pr-0.5 text-2xs text-gray-400" title="像 PS 的手抓工具：按住空格拖拽，或按住鼠标中键拖拽；滚轮也可平移">
+            空格/中键/滚轮 平移
+          </span>
+        </div>
+
+        {printDebug ? <PrintDebugPanel /> : null}
+      </div>
     </div>
   );
 }
