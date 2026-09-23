@@ -496,6 +496,64 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
+  /* ── 左侧组件面板：**两列网格**对齐（每行 2 个、等宽等高）、图标 24px、名称单行省略 ──
+     背景：Tooltip 的包装元素若用行内级盒子（inline-flex），组件项会横向流动成"挤在一起的两列"，
+     宽度参差、名称也不省略。这里把"两列对齐 + 等宽 + 省略号"钉成断言。 */
+  {
+    const grid = document.querySelector('[data-comp-grid="1"]') as HTMLElement | null;
+    const items = [...(grid?.querySelectorAll('[data-comp-item="1"]') ?? [])] as HTMLElement[];
+    const perRow = (() => {
+      const byTop = new Map<number, number>();
+      items.forEach((it) => {
+        const t = Math.round(it.getBoundingClientRect().top);
+        byTop.set(t, (byTop.get(t) ?? 0) + 1);
+      });
+      return [...byTop.values()];
+    })();
+    const widths = items.map((it) => Math.round(it.getBoundingClientRect().width));
+    const heights = items.map((it) => Math.round(it.getBoundingClientRect().height));
+    const wSpread = widths.length ? Math.max(...widths) - Math.min(...widths) : -1;
+    const twoCol = perRow.length > 1 && perRow.slice(0, -1).every((n) => n === 2);
+    add(
+      '左侧组件面板：两列网格对齐（每行 2 个、两列等宽、行高一致）',
+      items.length >= 8 && twoCol && wSpread <= 1 && heights.every((h) => Math.abs(h - 32) <= 1),
+      grid
+        ? `${items.length} 项；每行 ${perRow.join('/')} 个；宽度极差 ${wSpread}px；行高 ${[...new Set(heights)].join('/')}`
+        : '未找到组件网格（data-comp-grid）',
+    );
+
+    const iconW = items.map((it) => Math.round((it.querySelector('[data-comp-icon="1"]') as HTMLElement | null)?.getBoundingClientRect().width ?? 0));
+    const names = items.map((it) => it.querySelector('[data-comp-name="1"]') as HTMLElement | null);
+    const wrappedName = names.filter((n) => !!n && n.getBoundingClientRect().height > 24).length;
+    const ellipsis = names.filter((n) => !!n && getComputedStyle(n).textOverflow === 'ellipsis').length;
+    add(
+      '左侧组件项：图标 24px、名称单行省略（超长自动省略号，不换行）',
+      items.length >= 8 && iconW.every((w) => Math.abs(w - 24) <= 1) && wrappedName === 0 && ellipsis === names.length,
+      `图标 ${[...new Set(iconW)].join('/')}px；名称换行 ${wrappedName} 行；带省略号 ${ellipsis}/${names.length}`,
+    );
+
+    // 「通用」分类里有 7/9 字的长名称（徽章/按键标签、提示/示意/警示框）：展开它验证**真的**被省略
+    const catBtn = [...document.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').replace(/\s+/g, '').startsWith('通用'),
+    ) as HTMLButtonElement | undefined;
+    catBtn?.click();
+    await wait(90);
+    const longName = [...document.querySelectorAll('[data-comp-name="1"]')].find((n) =>
+      (n.textContent ?? '').length >= 7,
+    ) as HTMLElement | undefined;
+    const longTruncated = !!longName && longName.scrollWidth > longName.clientWidth + 1;
+    const longSingleLine = !!longName && longName.getBoundingClientRect().height <= 24;
+    add(
+      '左侧组件长名称按列宽省略（≥7 字自动省略号，仍不换行）',
+      !!longName && longTruncated && longSingleLine,
+      longName
+        ? `「${longName.textContent}」文本宽 ${longName.scrollWidth}px / 列宽 ${longName.clientWidth}px，行高 ${Math.round(longName.getBoundingClientRect().height)}px`
+        : '未找到 ≥7 字的组件名（通用分类未展开？）',
+    );
+    catBtn?.click(); // 还原折叠状态
+    await wait(60);
+  }
+
   /* ── 打印外壳审计：主行里除 main 以外的元素（面板/折叠把手等）必须都标了 no-print ── */
   // 只审计主行这一层（div.print-block）；main 也带 print-block 类，
   // 用元素名 div 限定，否则会把 main 的子元素 #canvas-viewport 也算成外壳元素

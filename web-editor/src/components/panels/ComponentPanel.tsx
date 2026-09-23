@@ -34,22 +34,32 @@ function ComponentItem({ def }: { def: ComponentDefinition }) {
         ].filter(Boolean),
       }}
       side="right"
+      /* ★包装元素必须是**块级网格项**。Tooltip 默认的 `inline-flex` 是行内级盒子，
+         会把同一分类下的组件项排成一行横向流动（面板看起来是"挤在一起的两列"且宽度参差）；
+         这里显式声明成网格项，两列才会等宽对齐、名称才会按列宽省略。 */
+      wrapClassName="min-w-0"
     >
     <button
       type="button"
       draggable
+      data-comp-item="1"
       onDoubleClick={() => addComponent(def.type)}
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_MIME, def.type);
         e.dataTransfer.setData('text/plain', def.type);
         e.dataTransfer.effectAllowed = 'copy';
       }}
-      className="flex h-8 w-full cursor-grab items-center gap-2 rounded px-2 text-left text-[13px] text-gray-700 hover:bg-primary/5 hover:text-primary active:cursor-grabbing"
+      className="flex h-8 w-full min-w-0 cursor-grab items-center gap-1.5 rounded px-1 text-left text-[13px] text-gray-700 hover:bg-primary/5 hover:text-primary active:cursor-grabbing"
     >
-      <span className="flex h-5 w-5 items-center justify-center rounded border border-line bg-white text-gray-500">
-        <Icon className="h-3.5 w-3.5" />
+      <span
+        data-comp-icon="1"
+        className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-white text-gray-500"
+      >
+        <Icon className="h-4 w-4" />
       </span>
-      <span className="truncate">{def.label}</span>
+      <span data-comp-name="1" className="min-w-0 flex-1 truncate">
+        {def.label}
+      </span>
     </button>
     </Tooltip>
   );
@@ -78,7 +88,7 @@ function Category({
         <span className="text-2xs font-normal text-gray-400">{items.length}</span>
       </button>
       {open && (
-        <div className="mt-0.5 pl-0.5">
+        <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 pl-0.5" data-comp-grid="1">
           {items.map((def) => (
             <ComponentItem key={def.type} def={def} />
           ))}
