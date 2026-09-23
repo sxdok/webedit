@@ -75,7 +75,7 @@ export const ok = <T>(data: T, extra: Omit<ToolResult<T>, 'ok' | 'data'> = {}): 
  * 写操作的判定（规格 §10「写开关」）：`EDITOR_MCP_ALLOW_WRITE=false` 时这些动作一律拒绝。
  * 放在这里集中判定，而不是散在每个 handler 里 —— 漏一个就等于开了后门。
  */
-const WRITE_ACTION = /\.(create|add|set|update|remove|delete|duplicate|rename|move|reorder|insert|patch|clear|restore|save|reload|import)$/;
+const WRITE_ACTION = /\.(create|add|set|update|remove|delete|duplicate|rename|move|reorder|insert|patch|clear|restore|save|reload|import|embed|embedFromHtml)$/;
 
 export function isWriteTool(tool: string): boolean {
   return WRITE_ACTION.test(tool);

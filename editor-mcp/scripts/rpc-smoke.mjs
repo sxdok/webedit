@@ -88,8 +88,8 @@ try {
   /* ── prompts ── */
   const prompts = await c.raw('prompts/list', {});
   const pNames = (prompts.result?.prompts ?? []).map((p) => p.name);
-  const want = ['create_document', 'create_slide', 'build_web_page', 'add_table', 'fill_table', 'format_document', 'register_plugin', 'debug_plugin', 'iterate_plugin', 'export_all', 'spec_to_component'];
-  check('prompts/list 暴露规格要求的 11 个 Prompt', want.every((n) => pNames.includes(n)) && pNames.length === 11, `${pNames.length} 个：${pNames.join(', ')}`);
+  const want = ['create_document', 'html_to_document', 'create_slide', 'build_web_page', 'add_table', 'fill_table', 'format_document', 'register_plugin', 'debug_plugin', 'iterate_plugin', 'export_all', 'spec_to_component'];
+  check('prompts/list 暴露规格要求的 11 个 Prompt（+ 后加的 html_to_document，共 12）', want.every((n) => pNames.includes(n)) && pNames.length === want.length, `${pNames.length} 个：${pNames.join(', ')}`);
 
   const p1 = await c.raw('prompts/get', { name: 'register_plugin', arguments: { description: '状态卡片', name: 'liveStatusCard' } });
   const m1 = (p1.result?.messages ?? []).map((m) => m.content?.text ?? '').join('\n');

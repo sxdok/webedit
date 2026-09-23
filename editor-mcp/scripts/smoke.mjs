@@ -10,14 +10,22 @@
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(here, '..');
+/**
+ * ★本脚本验的是"**没有任何组件目录**时的行为"（component.list 只给外部组件 + note + degraded），
+ *   所以必须用一个**空工作区**：开发者工作区里只要有 component-catalog.json（任何一次
+ *   component.catalog 都会生成它），这些用例就会失败 —— 不是功能坏了，是测试假设被环境改了。
+ */
+const EMPTY_WORKSPACE = fs.mkdtempSync(path.join(os.tmpdir(), 'editor-mcp-smoke-'));
 const child = spawn(process.execPath, [path.join(pkgRoot, 'dist', 'index.js'), '--stdio'], {
   stdio: ['pipe', 'pipe', 'pipe'],
   cwd: pkgRoot,
+  env: { ...process.env, EDITOR_MCP_WORKSPACE: EMPTY_WORKSPACE },
 });
 
 let buf = '';

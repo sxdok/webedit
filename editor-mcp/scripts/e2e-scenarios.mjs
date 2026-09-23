@@ -468,6 +468,46 @@ async function main(liveReady) {
     }
   }
 
+  /* 21. asset.*：把本地图片嵌进节点，且**回包里没有 base64**（不占模型上下文）
+         —— 这正是"当初 5 张图留成 __AGVIMG1__ 占位符"要解决的问题。 */
+  {
+    const pix = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const b64 = pix.split(',')[1];
+    const imgPath = path.join(pkgRoot, 'workspace', `${DOC}-tiny.gif`);
+    const htmlPath = path.join(pkgRoot, 'workspace', `${DOC}-inline.html`);
+    fs.writeFileSync(imgPath, Buffer.from(b64, 'base64'));
+    fs.writeFileSync(
+      htmlPath,
+      `<html><body><figure><img src="${pix}" alt="a"><figcaption>图 1 内嵌图</figcaption></figure>` +
+        `<figure><img src="${pix}" alt="b"><figcaption>图 2 内嵌图</figcaption></figure></body></html>`,
+      'utf8',
+    );
+    cleanup.push(() => fs.rmSync(imgPath, { force: true }));
+    cleanup.push(() => fs.rmSync(htmlPath, { force: true }));
+
+    const add = await client.call('node.add', { docId: DOC, type: 'image', props: { src: '__PLACEHOLDER__' } });
+    const nodeId = add.body?.data?.id;
+    const embed = await client.call('asset.embed', { docId: DOC, nodeId, path: imgPath });
+    const got = await client.call('property.get', { docId: DOC, id: nodeId, key: 'src' });
+    const back = JSON.stringify(embed.body?.data ?? {});
+    const listed = await client.call('asset.embedFromHtml', { htmlPath });
+    const embed2 = await client.call('asset.embedFromHtml', { docId: DOC, htmlPath, index: 1, nodeId });
+    const got2 = await client.call('property.get', { docId: DOC, id: nodeId, key: 'src' });
+    check(
+      '场景21 asset.embed*（本地图/HTML 内嵌图 → 节点 src；回包只说字节数，**不含 base64**，所以不会为省 token 牺牲图片）',
+      embed.body?.ok === true &&
+        back.length < 400 &&
+        !back.includes('base64,') &&
+        String(got.body?.data?.value ?? '').startsWith('data:image/gif;base64,') &&
+        listed.body?.data?.inlineImages === 2 &&
+        listed.body?.data?.list?.[1]?.caption === '图 2 内嵌图' &&
+        embed2.body?.ok === true &&
+        embed2.body?.data?.index === 1 &&
+        String(got2.body?.data?.value ?? '').startsWith('data:image/gif;base64,'),
+      `embed=${embed.body?.data?.bytes}B/${embed.body?.data?.mime}（回包 ${back.length} 字符）；src 已是 data URL=${String(got.body?.data?.value ?? '').slice(0, 22)}…；HTML 内嵌图 ${listed.body?.data?.inlineImages} 张；第 2 张 caption=「${listed.body?.data?.list?.[1]?.caption}」`,
+    );
+  }
+
   /* ══════════ Live 场景部分（需要编辑器接入） ══════════ */
 }
 

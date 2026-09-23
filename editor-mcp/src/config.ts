@@ -44,6 +44,13 @@ export const config = {
   rateLimitPerMinute: Number(env('EDITOR_MCP_RATE_LIMIT', '100')),
   /** 插件备份保留个数（规格 §5.12） */
   backupKeep: Number(env('EDITOR_MCP_BACKUP_KEEP', '5')),
+  /**
+   * `asset.*` 嵌图时单个文件的体积上限（字节）。
+   * 为什么允许"读任意路径"：这些工具就是用来把**用户手上的图/HTML**搬进编辑器的；
+   * 读进来只在内存里转成 data URL 写进节点，**不回传内容给模型**（也就不会占 token）。
+   * 写仍然只允许工作区/插件目录（assertInside 不变）。
+   */
+  assetMaxBytes: Math.max(1, Number(env('EDITOR_MCP_ASSET_MAX_MB', '20'))) * 1024 * 1024,
 
   pkgRoot,
   repoRoot,

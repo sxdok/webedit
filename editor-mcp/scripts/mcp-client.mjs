@@ -3,11 +3,23 @@
  * 阶段九的端到端脚本会扩展它。
  */
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const pkgRoot = path.resolve(here, '..');
+
+/**
+ * 临时空工作区（按需隔离用）。
+ * ★只有**确实需要"空工作区"语义**的用例才该用它（例如"没有组件目录时应如实说缺什么"）——
+ *   别在 startClient 里默认隔离：几个 smoke 脚本本来就把产物写到 `<pkgRoot>/workspace` 下并回读，
+ *   一刀切隔离会把它们全弄坏（真踩过）。
+ */
+export function tempWorkspace(tag = 'ws') {
+  return fs.mkdtempSync(path.join(os.tmpdir(), `editor-mcp-${tag}-`));
+}
 
 export async function startClient({ env = {}, args = ['--stdio'] } = {}) {
   const child = spawn(process.execPath, [path.join(pkgRoot, 'dist', 'index.js'), ...args], {

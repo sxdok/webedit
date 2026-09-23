@@ -18,9 +18,24 @@
 | 八 | 编辑器侧 Bridge Server + 菜单开关 + 状态显示 | ✅ **已完成、Live 端到端已跑绿**（`--live --require-live` 20/20）。中转 hub 在 37650，编辑器侧 `web-editor/src/mcp/*` 接菜单与 `?bridge=1`；MCP 启动即接入中转，`editor://bridge/status` 区分"中转可达"与"编辑器已接入"。本轮修掉的问题见下面「阶段八修了什么」 |
 | 九 | 端到端测试脚本 + README | ✅ 脚本已就位：`scripts/e2e-scenarios.mjs`（20 个场景，无头全跑、`--live` 拉起无头 Edge 跑 Live 场景）；本文档即 README |
 
-能力总计：**Tools 104 → 105 个**（新增 `doc.attach`）、Resources 22、Prompts 11。
+能力总计：**Tools 107 个**（+`doc.attach`、`asset.embed`、`asset.embedFromHtml`）、Resources 23、Prompts 12（+`html_to_document`）。
 7 个 smoke 脚本（`smoke` / `bridge-smoke` / `tools-smoke` / `table-smoke` / `plugin-smoke` / `rpc-smoke` / `http-smoke`）全部通过。
-端到端：`node scripts/e2e-scenarios.mjs --live --require-live` → **20/20 全部通过**（`Live 就绪=true`，判定耗时约 1 秒）。
+端到端：`node scripts/e2e-scenarios.mjs --live --require-live` → **21/21 全部通过**（`Live 就绪=true`，判定耗时约 1 秒）。
+
+## 能力声明：组件该怎么用（2026-09-23 补）
+
+**为什么要专门写这块**：照着一份现成 HTML（《江苏誉创_金卫智慧舱_AGV方案_V5.0》）建文档时，
+目录被做成了 `list`（Word 列表）而不是「目录」组件，图片留成了 `__AGVIMG1__` 占位符。
+复盘下来两条原因不同：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 目录用 `list` 而不是 `toc` | **声明缺失**：源 HTML 里目录就是个 `<ol>`，而 prompts / 资源里**没有任何一句话**说"目录要用 toc 组件" —— 不是模型乱来 | 新增资源 **`editor://spec/doc-rules`**（判定规则表）+ `create_document` 里补"需要目录用 toc、别用 list 冒充" + 新增 Prompt **`html_to_document`**（搬 HTML 的映射规则：目录→toc、ol/ul→list/bullets、img→image…） |
+| 5 张图没进来（占位符） | **payload 考虑**：源里 5 张图是内嵌 `data:image/...;base64`，直接回传会吃掉大量上下文 —— 这个理由是成立的 | 补两个**服务端**工具：`asset.embed { nodeId, path }`（本地图片文件）与 `asset.embedFromHtml { htmlPath, index, nodeId }`（HTML 里的第 N 张内嵌图，不给 index 先列清单）。base64 由服务端直接写进节点属性，**回包只给字节数/格式** —— 图片与 token 两边都不用牺牲 |
+
+读边界（`asset.*` 的取舍）：**读**允许调用方指定的本地路径（这是"把用户手上的图搬进来"的前提），
+但有图片后缀白名单 + 体积上限（`EDITOR_MCP_ASSET_MAX_MB`，默认 20MB）+ 每次调用记审计；
+**写**仍只允许工作区/插件目录（`assertInside` 不变）。
 
 ## 阶段八修了什么（2026-09-23，Live 端到端从"跑不绿"到全绿）
 
@@ -89,6 +104,7 @@ MCP 客户端配置（以 stdio 为例）：
 | `EDITOR_MCP_ALLOW_WRITE` | `true` | `false` 时所有写操作返回 `WRITE_DISABLED` |
 | `EDITOR_MCP_RATE_LIMIT` | `100` | 单客户端每分钟调用上限（阶段七生效） |
 | `EDITOR_MCP_BACKUP_KEEP` | `5` | `plugin.update` 备份保留个数（阶段五生效） |
+| `EDITOR_MCP_ASSET_MAX_MB` | `20` | `asset.embed*` 单个图片文件的体积上限（MB） |
 
 ## 目录
 
@@ -108,6 +124,7 @@ editor-mcp/
 │  └─ tools/
 │     ├─ index.ts       汇总注册（105 个 Tool）
 │     ├─ document.ts    doc.*（含 doc.attach：接上编辑器当前文档）
+│     ├─ asset.ts       asset.embed / asset.embedFromHtml：本地图 / HTML 内嵌图 → 节点（base64 不过模型上下文）
 │     ├─ component.ts   component.list（Live 优先，无头退回目录 + 插件）
 │     └─ plugin.ts      plugin.*（+ 共用的 scanPlugins）
 └─ workspace/           默认文档目录（git 忽略）

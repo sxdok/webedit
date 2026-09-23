@@ -24,6 +24,7 @@ import { flatten, getCurrentDoc } from '../engine/session.js';
 import { componentGet, componentSchema, exportSpec, historyStack, selectionGet } from '../tools/registry.js';
 import { componentList } from '../tools/component.js';
 import { manifestPath, pluginGet, pluginList, pluginTypes } from '../tools/plugin.js';
+import { DOC_RULES } from '../prompts/contract.js';
 
 /** 订阅集合（URI → 是否已订阅）；推送时遍历它 */
 const subscribed = new Set<string>();
@@ -207,6 +208,27 @@ export function registerAllResources(server: McpServer): string[] {
     },
   );
   uris.push('editor://spec/contract');
+
+  /**
+   * ★文档规范（2026-09-23 新增）：把"组件该怎么用"的**判定规则**写进能力声明。
+   *
+   * 为什么加：上一轮照着《江苏誉创_金卫智慧舱_AGV方案_V5.0.html》建文档时，
+   *   · 目录被做成了 `list`（Word 列表）而不是「目录」组件 —— 因为源 HTML 里目录就是个 `<ol>`，
+   *     而**当时的 prompts/资源里没有任何一句话说"目录要用 toc 组件"**（声明缺失，不是模型乱来）；
+   *   · 5 张图留成了 `__AGVIMG1__` 占位符 —— 理由是"base64 太占上下文"（这个理由成立），
+   *     所以除了写规范，还补了 `asset.embed*`（服务端嵌图，base64 不过模型上下文）。
+   */
+  server.registerResource(
+    '文档规范（组件怎么用）',
+    'editor://spec/doc-rules',
+    {
+      title: '文档规范',
+      description: '建文档/搬 HTML 时的判定规则：目录用 toc、图片用 image（多图用 images+columns）、本地图用 asset.embed*（别写占位符）等',
+      mimeType: 'text/markdown',
+    },
+    async (uri) => md(uri.href, `# 文档规范（组件怎么用）\n\n${DOC_RULES}\n`),
+  );
+  uris.push('editor://spec/doc-rules');
 
   /* ── 插件 ── */
   server.registerResource(

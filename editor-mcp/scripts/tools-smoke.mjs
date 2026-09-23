@@ -9,7 +9,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { makeChecker, pkgRoot, startClient } from './mcp-client.mjs';
+import { makeChecker, pkgRoot, startClient, tempWorkspace } from './mcp-client.mjs';
 
 const { check, failures } = makeChecker();
 const DOC_ID = `tools-smoke-${Date.now().toString(36)}`;
@@ -62,15 +62,29 @@ try {
   const pb = await c.call('property.batchSet', { id: tId, patch: { borderWidth: 2, cellAlign: 'center' } });
   check('property.batchSet（多属性一次写）', pb.body?.data?.props?.borderWidth === 2 && pb.body?.data?.props?.cellAlign === 'center', JSON.stringify(pb.body?.data?.props));
 
-  const val = await c.call('property.validate', { type: 'table', key: 'cellPadding', value: 999 });
+  /**
+   * ★这三条验的是"**没有组件目录/schema** 时的行为"：属性 schema 只在 Live 或
+   *   `component-catalog.json` 里才有。所以它们必须跑在**空工作区**的服务器上 ——
+   *   否则开发者工作区里那份 component-catalog.json（任何一次 component.catalog 都会生成）
+   *   会让它们"合理地"失败（不是功能坏了，是测试没声明环境）。
+   */
+  const empty = await startClient({ env: { EDITOR_MCP_WORKSPACE: tempWorkspace('tools-empty') } });
+  const val = await empty.call('property.validate', { type: 'table', key: 'cellPadding', value: 999 });
   check('property.validate 没有 schema 时如实返回 valid=null（不假装通过）', val.body?.data?.valid === null, `valid=${JSON.stringify(val.body?.data?.valid)} note=${(val.body?.data?.note ?? '').slice(0, 30)}…`);
 
-  const hint = await c.call('property.hint', { type: 'table', key: 'cellPadding' });
+  const hint = await empty.call('property.hint', { type: 'table', key: 'cellPadding' });
   check('property.hint 没有目录时如实说找不到', hint.body?.data?.found === false, `found=${hint.body?.data?.found}`);
 
-  const reset = await c.call('property.reset', { id: tId, key: 'cellPadding' });
-  const afterReset = await c.call('property.get', { id: tId, key: 'cellPadding' });
+  // reset 要作用在一个**真实节点**上，所以在空工作区里现建一份文档 + 一个表格节点，
+  // 这样整条链路都隔离（不受真实工作区里是否有 catalog 影响）
+  const eDoc = await empty.call('doc.create', { title: 'empty-ws-smoke', mode: 'document' });
+  const eDocId = eDoc.body?.data?.docId;
+  const eNode = await empty.call('node.add', { docId: eDocId, type: 'table' });
+  const eId = eNode.body?.data?.id;
+  const reset = await empty.call('property.reset', { docId: eDocId, id: eId, key: 'cellPadding' });
+  const afterReset = await empty.call('property.get', { docId: eDocId, id: eId, key: 'cellPadding' });
   check('property.reset 没有默认值目录时删除该属性并说明', afterReset.body?.data?.value === null && reset.body?.data?.source === 'deleted', `source=${reset.body?.data?.source}`);
+  empty.close();
 
   /* ── 页面域 ── */
   const p1 = await c.call('page.setSize', { size: 'A3' });

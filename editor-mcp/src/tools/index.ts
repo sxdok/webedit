@@ -117,6 +117,7 @@ import {
 } from './node.js';
 import { notifyResources } from '../resources/index.js';
 import { componentList, componentListSchema } from './component.js';
+import { assetEmbed, assetEmbedFromHtml, assetEmbedFromHtmlSchema, assetEmbedSchema } from './asset.js';
 import {
   pluginCreate,
   pluginCreateSchema,
@@ -355,6 +356,26 @@ export function registerAllTools(server: McpServer): string[] {
   reg(server, 'property.validate', '校验属性值', '按组件 schema 校验取值（没有目录时返回 valid=null，不假装通过）。', propertyValidateSchema, propertyValidate, t);
   reg(server, 'property.batchSet', '批量写属性', '一次写多个属性。', propertyBatchSetSchema, propertyBatchSet, t);
   reg(server, 'property.hint', '属性说明', '取属性说明（label/控件类型/分组/提示/默认值）。', propertyHintSchema, propertyHint, t);
+
+  /* ── 资产域（2026-09-23 新增，2 个）：把本地图片嵌进节点，base64 不经过模型上下文 ── */
+  reg(
+    server,
+    'asset.embed',
+    '嵌入本地图片',
+    '把本地图片文件读成 data URL 写进节点属性（默认 src）。★服务端完成 base64，回包只说"多大/什么格式"，**不回传图片内容** —— 所以不必为了省 token 把 src 留成占位符。',
+    assetEmbedSchema,
+    assetEmbed,
+    t,
+  );
+  reg(
+    server,
+    'asset.embedFromHtml',
+    '嵌入 HTML 里的内嵌图',
+    '从本地 HTML 里取出内嵌（data:）图片写进节点；不给 index+nodeId 时只列出清单（序号/mime/字节/alt/图注）供挑选。',
+    assetEmbedFromHtmlSchema,
+    assetEmbedFromHtml,
+    t,
+  );
 
   /* ── 组件注册表域 §5.6 ── */
   reg(server, 'component.list', '列出组件', '列出可用组件（内置 + 外部插件）；未连编辑器且无 catalog 时只返回外部组件并说明原因。', componentListSchema, componentList, t);
