@@ -114,7 +114,48 @@ import {
   nodeUpdateSchema,
 } from './node.js';
 import { componentList, componentListSchema } from './component.js';
-import { pluginList, pluginListSchema } from './plugin.js';
+import {
+  pluginCreate,
+  pluginCreateSchema,
+  pluginDelete,
+  pluginDeleteSchema,
+  pluginDeps,
+  pluginDepsSchema,
+  pluginDryRun,
+  pluginDryRunSchema,
+  pluginExport,
+  pluginExportSchema,
+  pluginGet,
+  pluginGetSchema,
+  pluginImport,
+  pluginImportSchema,
+  pluginList,
+  pluginListSchema,
+  pluginLogsSchema,
+  pluginLogsTool,
+  pluginManifestAdd,
+  pluginManifestAddSchema,
+  pluginManifestGet,
+  pluginManifestGetSchema,
+  pluginManifestRemove,
+  pluginManifestRemoveSchema,
+  pluginManifestSet,
+  pluginManifestSetSchema,
+  pluginPatch,
+  pluginPatchSchema,
+  pluginReload,
+  pluginReloadSchema,
+  pluginRename,
+  pluginRenameSchema,
+  pluginTemplate,
+  pluginTemplateSchema,
+  pluginTypes,
+  pluginTypesSchema,
+  pluginUpdate,
+  pluginUpdateSchema,
+  pluginValidate,
+  pluginValidateSchema,
+} from './plugin.js';
 import {
   componentCategories,
   componentCategoriesSchema,
@@ -335,8 +376,27 @@ export function registerAllTools(server: McpServer): string[] {
   reg(server, 'export.pdf', '导出 PDF', '调用编辑器打印导出 PDF（需要编辑器在线）。', exportPdfSchema, exportPdf, t);
   reg(server, 'export.spec', '导出说明清单', '导出《组件与属性说明清单》Markdown；编辑器在线时与它的菜单导出一致，否则用组件目录生成精简版并标注差异。', exportSpecSchema, exportSpec, t);
 
-  /* ── 插件域 §5.12（阶段一已建 plugin.list，阶段五补全） ── */
+  /* ── 插件域 §5.12（20 个，重点域）── */
   reg(server, 'plugin.list', '列出外部插件', '扫描插件目录：是否在热加载清单里、是否调用 EditorKit.register、type 是否 live 前缀、备份数与问题列表。', pluginListSchema, pluginList, t);
+  reg(server, 'plugin.get', '读取插件', '读单个插件（默认连源码一起返回），并顺带做一次静态校验。', pluginGetSchema, pluginGet, t);
+  reg(server, 'plugin.create', '新建插件', '生成插件骨架写入插件目录并加入热加载清单；type 自动加 live 前缀，已存在需 overwrite: true（会先备份）。', pluginCreateSchema, pluginCreate, t);
+  reg(server, 'plugin.update', '覆盖插件', '用新源码覆盖插件文件，**覆盖前自动备份**（保留最近 N 个，默认 5）。', pluginUpdateSchema, pluginUpdate, t);
+  reg(server, 'plugin.patch', '局部替换', '按 find/replace 改一处（find 必须唯一），改完自动备份并重新校验。', pluginPatchSchema, pluginPatch, t);
+  reg(server, 'plugin.delete', '删除插件', '删除插件文件并同步清单；必须 confirm: true，默认留一份备份。', pluginDeleteSchema, pluginDelete, t);
+  reg(server, 'plugin.rename', '重命名插件', '改文件名并同步清单；必须 confirm: true。', pluginRenameSchema, pluginRename, t);
+  reg(server, 'plugin.validate', '静态校验', '语法（V8 解析）+ 契约（register/type/label/category/supportedModes/render）+ live 前缀 + 禁用依赖。', pluginValidateSchema, pluginValidate, t);
+  reg(server, 'plugin.dryRun', '沙箱试运行', '⚠ 关键能力：`node:vm` 沙箱里执行插件（mock window.EditorKit、3 秒超时、无 require/process/fs），用给定 props 渲染出**静态 HTML**，不开编辑器就能看效果。', pluginDryRunSchema, pluginDryRun, t);
+  reg(server, 'plugin.manifest.get', '读热加载清单', '读 `_manifest.json`（编辑器热加载的退化清单）。', pluginManifestGetSchema, pluginManifestGet, t);
+  reg(server, 'plugin.manifest.set', '写热加载清单', '整表覆盖清单，并报告"清单里有但文件不存在"的条目。', pluginManifestSetSchema, pluginManifestSet, t);
+  reg(server, 'plugin.manifest.add', '清单加一条', '把某个已存在的插件加入清单。', pluginManifestAddSchema, pluginManifestAdd, t);
+  reg(server, 'plugin.manifest.remove', '清单删一条', '从清单里移除某个插件（不删文件）。', pluginManifestRemoveSchema, pluginManifestRemove, t);
+  reg(server, 'plugin.template', '取插件模板', '返回 basic / form / chart / container 四种骨架源码。', pluginTemplateSchema, pluginTemplate, t);
+  reg(server, 'plugin.types', '取契约声明', '返回 ComponentDefinition / PropSchemaItem / RenderContext 的 TypeScript 声明与外部组件约束，供生成插件时对齐。', pluginTypesSchema, pluginTypes, t);
+  reg(server, 'plugin.logs', '插件日志', 'MCP 侧执行插件时的 console 输出（环形缓冲 500 条）。', pluginLogsSchema, pluginLogsTool, t);
+  reg(server, 'plugin.deps', '依赖分析', '列出插件用到的 EditorKit 助手/React hooks/禁用依赖，并给出结论。', pluginDepsSchema, pluginDeps, t);
+  reg(server, 'plugin.import', '导入插件', '从 URL 或本地文件导入（先校验契约，合格才写入并进清单）。', pluginImportSchema, pluginImport, t);
+  reg(server, 'plugin.export', '导出插件', '导出插件源码（返回内容或写到工作区）。', pluginExportSchema, pluginExport, t);
+  reg(server, 'plugin.reload', '重载插件', '编辑器在线时触发它的热加载；不在线则说明"需手动点重载"。', pluginReloadSchema, pluginReload, t);
 
   log.info(`已注册 ${t.length} 个 Tool：${t.join(', ')}`);
   log.debug(`未实现域占位示例：${notImplemented('table.getData', '阶段四').error?.code}`);
