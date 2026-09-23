@@ -506,15 +506,14 @@ export function tableSchema(
   variantDefault: TableVariant,
   defaults: { colWidths?: string; rowHeight?: string } = {},
 ): PropSchemaItem[] {
+  void defaultData; // 默认数据仍由 defaultProps.data 承载；这里不再暴露「数据」属性行
   return [
-    {
-      key: 'data',
-      label: '数据（每行一条，用 | 分列；格内换行写 \\n，内容里要写竖线写 \\|）',
-      control: 'textarea',
-      group: GROUP.whole,
-      defaultValue: serializeTableData(defaultData),
-      placeholder: '列1 | 列2 | 列3',
-    },
+    /* ★「数据」属性行已删除（用户 2026-09-23：表格内容**以单元格内容为主**）——
+       几个扩展表格组件（三线表/两列参数表/明细表/核对表）共用这份 schema，所以一并生效。
+       内容改法：① 画布上点选一格 →「单元格格式」组里的「内容」框；
+                 ② 行/列数量不够时用「行 / 列数量」组增删行列；
+                 ③ 需要整块换内容时用「HTML 源码」导入 <table>。
+       `props.data` 仍是存储形态（`a | b` 文本），渲染、导出、MCP 都不受影响。 */
     { key: 'headerRow', label: '首行为表头', control: 'switch', group: GROUP.whole, defaultValue: true },
     { key: 'headerCol', label: '首列为表头（第一列作为行标题：加粗 + 表头底色）', control: 'switch', group: GROUP.whole, defaultValue: false },
     { key: 'caption', label: '表题（显示在表格上方）', control: 'text', group: GROUP.whole, defaultValue: '' },

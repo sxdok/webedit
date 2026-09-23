@@ -16,7 +16,7 @@ import { CATEGORY_ORDER, type ComponentDefinition, type PropSchemaItem } from '.
 import { getAllComponents } from '../registry';
 import { IMPLEMENTED_CONTROLS, isWideControl } from '../components/property-controls';
 import { splitLabel } from './label';
-import { DEFAULT_OPEN_GROUP, GROUP_HINTS, GROUP_ORDER } from '../components/panels/PropertyPanel';
+import { GROUP_HINTS, GROUP_ORDER } from '../components/panels/PropertyPanel';
 
 /** 注册表统一补的通用属性（不是组件自己的属性） */
 const UNIVERSAL_KEYS = new Set(['marginTop', 'marginBottom']);
@@ -114,9 +114,9 @@ function componentTables(def: ComponentDefinition, defaultOpen: string): string[
   return out;
 }
 
-/** 该组件默认展开的组：有「表格」组就展开它，否则展开第一个组（与 PropertyPanel 同一规则） */
+/** 该组件默认展开的组 = **排在最前面的那一组**（与 PropertyPanel 同一规则） */
 function defaultOpenOf(order: string[]): string {
-  return order.includes(DEFAULT_OPEN_GROUP) ? DEFAULT_OPEN_GROUP : (order[0] ?? '');
+  return order[0] ?? '';
 }
 
 /** 选中该组件后，属性编辑器呈现的状态 */
@@ -203,11 +203,11 @@ export function buildComponentSpecSheet(): string {
   L.push('| 项 | 规则 |');
   L.push('|---|---|');
   L.push('| 排布 | 两列紧凑列表：左列固定宽属性名、右列控件，一行一个属性 |');
-  L.push('| 属性名 | 只显示主名（`数据（每行一条，用 | 分列）` → 显示 `数据`）；带虚线下划线表示"可悬停看说明" |');
+  L.push('| 属性名 | 只显示主名（`列宽（如 20,50,30；纯数字按 %，也可写 35mm）` → 显示 `列宽`）；带虚线下划线表示"可悬停看说明" |');
   L.push('| 说明 | **默认全部隐藏**，鼠标悬停属性名弹气泡（自研 Tooltip，非原生 title） |');
   L.push('| 整行式控件 | `textarea / richtext / spacing / edge / frame / children / cells / tableSize` —— 标签在上、控件独占整行 |');
   L.push(`| 分组顺序 | ${GROUP_ORDER.join(' → ')} |`);
-  L.push(`| 默认展开 | 「${DEFAULT_OPEN_GROUP}」组；「单元格」组在有单元格被选中时自动展开 |`);
+  L.push('| 默认展开 | **只展开第一个分组**（表格类即「单元格」组）；画布上选中单元格时「单元格」组强制展开 |');
   L.push('| 分组说明 | 分组标题悬停弹气泡，写明该组是"整表"还是"选中的单元格" |');
   L.push('| 未选中组件 | 文档模式显示「页面属性」，Web 模式显示「画布属性」 |');
   L.push('| 编辑器态 vs 文档数据 | 选中了哪些单元格、悬停/选中态属**编辑器态**（不导出、不打印）；组件属性（含 `cellStyles`）属**文档数据** |');
@@ -255,7 +255,7 @@ export function buildComponentSpecSheet(): string {
   L.push('| 加一个内置组件 | 在对应分类目录新建 `.tsx`，导出 `ComponentDefinition`；**不用改框架文件** |');
   L.push('| 加一个外部组件（不构建） | `public/组件/` 放 `.js`，调 `window.EditorKit.register(...)`，点「重载外部组件」 |');
   L.push('| 加一种属性控件 | `property-controls/index.tsx` 加 `case` 并加进 `IMPLEMENTED_CONTROLS`，schema 即可用 |');
-  L.push('| 改分组 / 默认展开 / 分组说明 | `PropertyPanel.tsx` 的 `GROUP_ORDER` / `DEFAULT_OPEN_GROUP` / `GROUP_HINTS` |');
+  L.push('| 改分组顺序 / 默认展开 / 分组说明 | `components/panels/groupStrategy.ts` 的 `GROUP_ORDER`（默认展开=排序后的第一个分组）/ `GROUP_HINTS` |');
   L.push('| 重新生成本清单 | 菜单「帮助 → 导出组件与属性说明清单」，或访问 `?spec=1`（写到运行目录 `docs/`） |');
   L.push('');
   L.push('> 自检（`?check=1`）核对：分类只用约定分类且每类都有组件、每个组件都有自己的配置属性、');

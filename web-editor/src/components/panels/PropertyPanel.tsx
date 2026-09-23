@@ -25,16 +25,14 @@ import { PropertyGroup } from './PropertyGroup';
 import { PropertyDrawer } from './PropertyDrawer';
 import { PropertyRow } from './PropertyRow';
 import {
-  DEFAULT_OPEN_GROUP,
   GROUP_HINTS,
   GROUP_ORDER,
   UNIVERSAL_KEYS,
   hintFor,
-  isDefaultOpen,
   orderGroups,
 } from './groupStrategy';
 
-export { DEFAULT_OPEN_GROUP, GROUP_HINTS, GROUP_ORDER };
+export { GROUP_HINTS, GROUP_ORDER };
 
 function groupOf(item: PropSchemaItem): string {
   return item.group || '内容';
@@ -173,13 +171,11 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
     return order.map((g) => [g, buckets.get(g) ?? []] as [string, PropSchemaItem[]]);
   }, [visibleItems, def?.category]);
 
-  /** 默认展开：类别策略里登记的组；都没命中就展开第一组（否则用户看到一排折叠标题） */
-  const defaultOpen = useMemo(() => {
-    const byStrategy = sections.filter(([g]) => isDefaultOpen(def?.category ?? '', g)).map(([g]) => g);
-    if (byStrategy.length) return byStrategy;
-    if (sections.some(([g]) => g === DEFAULT_OPEN_GROUP)) return [DEFAULT_OPEN_GROUP];
-    return sections[0] ? [sections[0][0]] : [];
-  }, [sections, def?.category]);
+  /**
+   * 默认展开：**只展开排在第一个的分组**（用户 2026-09-23），其余折叠。
+   * 表格类的第一个分组是「单元格」（顺序见 GROUP_ORDER：单元格 → 表格 → …）。
+   */
+  const firstGroup = sections[0]?.[0] ?? '';
 
   /** 状态抽屉（只读） */
   const status = useMemo(() => {
@@ -312,7 +308,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
         open={drawer['专有属性'] !== false}
         onToggle={() => setDrawer((s) => ({ ...s, 专有属性: s['专有属性'] !== false ? false : true }))}
         badge={`${visibleItems.length} 项`}
-        hint="这个组件自己的属性，按分组归并；分组顺序与默认展开按组件类别（Word / PPT / Excel 表格 / Web）决定。"
+        hint="这个组件自己的属性，按分组归并；分组顺序按组件类别（Word / PPT / Excel 表格 / Web）决定，默认只展开第一个分组。"
       >
         {sections.length === 0 && (
           <p className="px-1 text-2xs text-gray-400">该组件没有匹配的属性（可在组件定义里补 propSchema）。</p>
@@ -322,7 +318,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
           const open =
             filtered ||
             (group === '单元格' && cellGroupOpen) ||
-            (toggled[group] ?? defaultOpen.includes(group));
+            (toggled[group] ?? group === firstGroup);
           return (
             <PropertyGroup
               key={group}

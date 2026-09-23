@@ -1,97 +1,108 @@
 /**
- * 职责：外部组件示例——参数对比卡（两列参数对照）。热加载：改完点「重载外部组件」。
+ * 职责：外部组件示例——参数对比表（参数 / 方案 A / 方案 B 三列对照）。热加载：改完点「重载外部组件」。
+ *
+ * ★内容编辑方式（用户 2026-09-23：**按单元格逻辑编辑，删掉整块「参数」属性**）：
+ *   本组件用编辑器暴露的**表格内核** `EditorKit.renderTable` 渲染、`EditorKit.tableSchema` 生成属性，
+ *   与内置「表格」共用一份实现，因此自动获得：
+ *     · 画布上点选 / 拖选单元格 →「单元格格式」组里的「内容」框逐格改文字；
+ *     · 「行 / 列数量」组增删行列（单元格格式、列宽跟着平移）；
+ *     · `\|` 格内竖线、`\n` 格内换行、A1 单元格格式键、合并/拆分 —— 与内置表格完全一致。
+ *   所以这里**不再有**「参数（每行：参数|A|B）」这样的整块文本属性。
+ *
+ * 观感：默认按"参数对照表"给好默认值（全框线 + 表头浅底 + 右列（方案 B）高亮），
+ *       这些都能在面板上继续改（线条风格 / 表头底色 / 单元格格式…）。
+ *
+ * 兼容旧文档：旧版本存的是 `items` + `leftTitle/rightTitle/title`，render 里会先转成
+ * `data`（首行为表头），老文件打开后内容不丢。
  */
 (function () {
   const K = window.EditorKit;
   if (!K) return;
-  const { React, defaultsOf, fontProps, boxProps, boxStyle, asString, asEnum, asNumber } = K;
+  const { asString, serializeTableData } = K;
 
-  const schema = [
-    { key: 'title', label: '卡片标题', control: 'text', group: '内容', defaultValue: '参数对比' },
-    { key: 'leftTitle', label: '左列标题', control: 'text', group: '内容', defaultValue: '方案 A' },
-    { key: 'rightTitle', label: '右列标题', control: 'text', group: '内容', defaultValue: '方案 B' },
-    { key: 'items', label: '参数（每行：参数|A|B）', control: 'textarea', group: '内容', defaultValue: '载重|1000kg|1500kg\n速度|1.2m/s|1.5m/s\n导航|激光 SLAM|激光+二维码\n价格|—|+18%' },
-    {
-      key: 'highlight',
-      label: '高亮列',
-      control: 'select',
-      group: '外观',
-      defaultValue: 'right',
-      options: [
-        { label: '左列', value: 'left' },
-        { label: '右列', value: 'right' },
-        { label: '都不高亮', value: 'none' },
-      ],
-    },
-    ...fontProps(12),
-    { key: 'accent', label: '高亮色', control: 'color', group: '外观', defaultValue: '#1677ff' },
-    ...boxProps(),
+  const DEFAULT_DATA = [
+    ['参数', '方案 A', '方案 B'],
+    ['载重', '1000kg', '1500kg'],
+    ['速度', '1.2m/s', '1.5m/s'],
+    ['导航', '激光 SLAM', '激光+二维码'],
+    ['价格', '—', '+18%'],
   ];
+
+  /** 默认把「方案 B」那一列高亮（ACcent 淡底 + 加粗），用户可在单元格里改回 */
+  const ACCENT = '#1677ff';
+  const ACCENT_CELLS = {
+    C1: { background: ACCENT + '14', color: ACCENT, fontWeight: 600 },
+    C2: { background: ACCENT + '0a', fontWeight: 600 },
+    C3: { background: ACCENT + '0a', fontWeight: 600 },
+    C4: { background: ACCENT + '0a', fontWeight: 600 },
+    C5: { background: ACCENT + '0a', fontWeight: 600 },
+  };
+
+  /** 表格属性（含「单元格格式」「行 / 列数量」两个单元格逻辑控件；已不含「数据」行） */
+  const schema = K.tableSchema(DEFAULT_DATA, 'normal', { colWidths: '30,35,35' });
+
+  /** 旧数据（items 文本 + 左右列标题）→ 表格 data，保证老文档打开后内容还在 */
+  function legacyData(props) {
+    const raw = asString(props.items);
+    if (!raw) return '';
+    const rows = raw
+      .split('\n')
+      .filter(function (l) {
+        return l.trim() !== '';
+      })
+      .map(function (l) {
+        return l.split('|').map(function (c) {
+          return c.trim();
+        });
+      });
+    const head = ['参数', asString(props.leftTitle, '方案 A'), asString(props.rightTitle, '方案 B')];
+    return serializeTableData([head].concat(rows));
+  }
+
+  /**
+   * 取这一份表格内容（三种情况都要照顾到）：
+   *   · 有 `data`（哪怕是空串 —— 用户把单元格清空了）→ 照用；
+   *   · 没有 data、但有旧的 `items`（老版本属性，哪怕是空串）→ 按旧属性转（老文档不丢内容、也尊重"清空"）；
+   *   · 两者都没有（脚本/导入建出来的"裸节点"，没有 defaultProps）→ 给默认样例，
+   *     否则会渲染成一张**空表**（看起来就像"组件坏了"）。
+   */
+  function resolveData(props) {
+    if (typeof props.data === 'string') return props.data;
+    if (typeof props.items === 'string') return legacyData(props);
+    return serializeTableData(DEFAULT_DATA);
+  }
 
   K.register({
     type: 'liveCompareCard',
-    label: '参数对比卡',
+    label: '参数对比表',
     category: 'Word 常用',
     supportedModes: ['document', 'web'],
     icon: 'Table',
-    description: '【外部热加载】两列参数对照卡，可高亮一侧',
+    description: '【外部热加载示例】参数 / 方案 A / 方案 B 三列对照表；内容按单元格编辑（与内置表格同一套内核）',
     defaultFrame: K.defaultFrameOf(560, 200),
-    defaultProps: defaultsOf(schema),
+    /* ★`data` 不在 schema 里（「数据」属性行已删），所以默认内容要显式给：
+       与内置表格同一约定 —— `serializeTableData(二维数组)` 存成文本形态。 */
+    defaultProps: Object.assign(K.defaultsOf(schema), {
+      data: serializeTableData(DEFAULT_DATA),
+      caption: '参数对比',
+      captionSize: 12.5,
+      variant: 'normal',
+      borderColor: '#e5e7eb',
+      headerBackground: '#f7f9fc',
+      headerColor: '#1f2329',
+      cellPadding: 6,
+      fontSize: 12,
+      colWidths: '30,35,35',
+      stripe: false,
+      cellStyles: ACCENT_CELLS,
+    }),
     propSchema: schema,
     render: function (props, ctx) {
-      const size = ctx.mode === 'document' ? ctx.ptToPx(asNumber(props.fontSize, 12)) : asNumber(props.fontSize, 12);
-      const accent = asString(props.accent, '#1677ff');
-      const hl = asEnum(props.highlight, ['left', 'right', 'none'], 'right');
-      const cell = { border: '1px solid #e5e7eb', padding: '5px 8px', fontSize: size };
-      const head = function (text, side) {
-        const on = hl === side;
-        return React.createElement(
-          'th',
-          { style: Object.assign({}, cell, { background: on ? accent + '14' : '#f7f9fc', color: on ? accent : '#1f2329', fontWeight: 600 }) },
-          text,
-        );
-      };
-      const rows = K.rows(props.items);
-      return React.createElement(
-        'div',
-        { style: Object.assign({}, boxStyle(props), { borderRadius: 8, overflow: 'hidden', background: '#fff' }) },
-        asString(props.title)
-          ? React.createElement('div', { style: { fontWeight: 600, padding: '8px 10px', borderBottom: '1px solid #eef1f5', fontSize: size * 1.05 } }, asString(props.title))
-          : null,
-        React.createElement(
-          'table',
-          { style: { width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' } },
-          React.createElement(
-            'thead',
-            null,
-            React.createElement(
-              'tr',
-              null,
-              // ★注意：head 是"返回元素的函数"，必须**调用**它，不能当成组件类型传给 createElement
-              //  （写 createElement(head, …) 会让 React 把 props 对象当 children 渲染 → 抛错）
-              head('参数', 'none'),
-              head(asString(props.leftTitle), 'left'),
-              head(asString(props.rightTitle), 'right'),
-            ),
-          ),
-          React.createElement(
-            'tbody',
-            null,
-            rows.map(function (r, i) {
-              return React.createElement(
-                'tr',
-                { key: i },
-                React.createElement('td', { style: Object.assign({}, cell, { color: '#7a8496' }) }, r[0] || ''),
-                React.createElement('td', { style: cell }, r[1] || ''),
-                React.createElement(
-                  'td',
-                  { style: Object.assign({}, cell, hl === 'right' ? { background: accent + '0a', fontWeight: 600 } : {}) },
-                  r[2] || '',
-                ),
-              );
-            }),
-          ),
-        ),
+      // 旧文档没有 caption/表题 → 用旧的 title 顶上，观感不变
+      const caption = asString(props.caption) || asString(props.title);
+      return K.renderTable(
+        Object.assign({}, props, { data: resolveData(props), caption: caption, headerRow: props.headerRow !== false }),
+        ctx,
       );
     },
   });

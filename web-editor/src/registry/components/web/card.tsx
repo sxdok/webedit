@@ -29,7 +29,9 @@ export const cardComponent: ComponentDefinition = {
     { key: 'shadow', label: '阴影', control: 'switch', group: '外观', defaultValue: true },
     { key: 'children', label: '子组件', control: 'children', group: '高级', defaultValue: null },
   ],
-  // 子组件由画布作为**第三个参数**传入（规格 §3.1/§8.1），放进卡片的内容区
+  // 子组件由画布作为**第三个参数**传入（规格 §3.1/§8.1），放进卡片的内容区。
+  // ★越界裁剪：同「容器」组件 —— 单独一层 `inset:0 + overflow:hidden`（与卡片边框盒重合），
+  //   这样"子组件拖出卡片"的部分不可见，且子组件坐标仍相对卡片边框盒（不会整体下移）。
   render: (props, _ctx, children) => {
     const pad = asNumber(props.padding, 16);
     return (
@@ -60,7 +62,10 @@ export const cardComponent: ComponentDefinition = {
           <span style={{ flex: 1 }}>{asString(props.title, '卡片标题')}</span>
           {asString(props.extra) && <span style={{ fontSize: 12, color: '#6b7280' }}>{asString(props.extra)}</span>}
         </div>
-        <div style={{ flex: 1, padding: pad, minHeight: 0 }}>{children}</div>
+        <div style={{ flex: 1, padding: pad, minHeight: 0 }} />
+        <div data-container-clip="1" style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+          {children}
+        </div>
       </div>
     );
   },

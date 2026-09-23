@@ -1,23 +1,26 @@
 /**
- * 职责：**分类 → 分组策略**（规格 §6）。不同类别的组件分组顺序、默认展开项、分组说明不同，
- *       全部在这里声明；PropertyPanel 只查表，不写 `if (type === 'table')`。
+ * 职责：**分类 → 分组策略**（规格 §6）。不同类别的组件分组顺序与分组说明不同，全部在这里声明；
+ *       PropertyPanel 只查表，不写 `if (type === 'table')`。
  *
- * 三处来源：
+ * 两处来源：
  *   ① 分组顺序 order（未列出的分组落到全局兜底顺序）；
- *   ② 默认展开 defaultOpen（表格类另有「单元格」组的"选中即展开"逻辑，见 PropertyPanel）；
- *   ③ 分组说明 hints（悬停分组标题的气泡；缺省回落到 GROUP_HINTS 的通用文案）。
+ *   ② 分组说明 hints（悬停分组标题的气泡；缺省回落到 GROUP_HINTS 的通用文案）。
+ *
+ * ★默认展开规则（用户 2026-09-23）：**只展开排在最前面的那一个分组**，其余默认折叠。
+ *   以前是按类别逐个登记 defaultOpen（每加一个类别都要补配置，还容易和顺序脱节），现在统一成
+ *   "第一个分组"这一条规则；唯一例外是表格类在画布上选中了单元格时「单元格」组强制展开。
  */
 
-/** 全局兜底顺序（规格 §3：表格 → 单元格 → 内容 → 排版 → 外观 → 尺寸 → 布局 → 高级） */
-export const GROUP_ORDER = ['表格', '单元格', '内容', '排版', '外观', '尺寸', '布局', '高级'];
-
-/** 表格类组件的默认展开组（类别策略没命中时的兜底） */
-export const DEFAULT_OPEN_GROUP = '表格';
+/**
+ * 全局兜底顺序。
+ * ★「单元格」排在「表格」前面（用户 2026-09-23：表格组件的属性编辑器里，单元格属性放在表格属性上方）。
+ */
+export const GROUP_ORDER = ['单元格', '表格', '内容', '排版', '外观', '尺寸', '布局', '高级'];
 
 /** 全局分组说明（类别策略里没写该分组时用它；悬停分组标题弹气泡） */
 export const GROUP_HINTS: Record<string, string> = {
-  表格: '整张表格的属性。下面「单元格」组里针对个别格子做的设置会覆盖这里的默认值。',
-  单元格: '只作用于画布上选中的单元格（点选/拖选一片）。没被覆盖的项沿用「表格」组的默认值。',
+  单元格: '只作用于画布上选中的单元格（点选/拖选一片）：**文字内容也在这里改**（表格不再有整块「数据」属性），没被覆盖的格式沿用「表格」组的默认值。',
+  表格: '整张表格的属性。上面「单元格」组里针对个别格子做的设置会覆盖这里的默认值。',
   内容: '组件的内容与文字。',
   排版: '字体、字号、行距、字距、对齐等文字样式。',
   外观: '背景、边框、圆角、阴影等外观。',
@@ -28,7 +31,6 @@ export const GROUP_HINTS: Record<string, string> = {
 
 export interface CategoryStrategy {
   order: string[];
-  defaultOpen: string[];
   hints?: Record<string, string>;
 }
 
@@ -36,7 +38,7 @@ export interface CategoryStrategy {
    页面属性不是组件，没有"类别"，但分组规则**同一套**（规格 §6）：默认展开与分组说明在这里
    声明，`PagePropertyPanel` 只查表（分组顺序即该文件里抽屉内的书写顺序）。 */
 
-/** 页面属性默认展开的分组：最常用的纸张与页码；页边距/版式/页眉/页脚默认折叠（面板不做成一面墙） */
+/** 页面属性默认展开的分组（每个抽屉里只展开第一个）：纸张 / 分节页码；其余折叠（面板不做成一面墙） */
 export const PAGE_DEFAULT_OPEN = ['纸张', '分节页码'];
 
 /** 页面属性的分组说明（悬停分组标题弹气泡） */
@@ -55,11 +57,9 @@ export const UNIVERSAL_KEYS = new Set(['marginTop', 'marginBottom']);
 export const CATEGORY_STRATEGY: Record<string, CategoryStrategy> = {
   'Word 常用': {
     order: ['内容', '排版', '外观', '尺寸', '布局', '高级'],
-    defaultOpen: ['内容'],
   },
   'PPT 专用': {
     order: ['内容', '排版', '外观', '尺寸', '布局', '高级'],
-    defaultOpen: ['内容'],
     hints: {
       内容: '演示页显示的内容与文字。',
       排版: '字体、字号、字重、行距、字距、对齐。',
@@ -69,17 +69,16 @@ export const CATEGORY_STRATEGY: Record<string, CategoryStrategy> = {
     },
   },
   'Excel 表格': {
-    order: ['表格', '单元格', '尺寸'],
-    defaultOpen: ['表格'],
+    // ★单元格在表格之前（用户 2026-09-23）
+    order: ['单元格', '表格', '尺寸'],
     hints: {
-      表格: '整张表格的属性。下面「单元格」组里针对个别格子做的设置会覆盖这里的默认值。',
-      单元格: '只作用于画布上选中的单元格（点选 / 拖选一片）。未被覆盖的项沿用「表格」组的默认值。',
+      单元格: '只作用于画布上选中的单元格（点选 / 拖选一片）：文字内容也在这里改。未被覆盖的项沿用「表格」组的默认值。',
+      表格: '整张表格的属性。上面「单元格」组里针对个别格子做的设置会覆盖这里的默认值。',
       尺寸: '宽高与上下边距。',
     },
   },
   'Web 控件': {
     order: ['内容', '外观', '尺寸', '高级'],
-    defaultOpen: ['内容'],
     hints: {
       内容: '控件上显示的文字、占位符、默认值。',
       外观: '变体、尺寸、圆角、背景色、文字色。',
@@ -89,8 +88,6 @@ export const CATEGORY_STRATEGY: Record<string, CategoryStrategy> = {
   },
   'Web 容器': {
     order: ['内容', '外观', '尺寸', '布局', '高级'],
-    // 规格：容器类「外观」也默认展开（卡片/容器的外观是最常调的）
-    defaultOpen: ['内容', '外观'],
     hints: {
       内容: '卡片标题、右上角内容。',
       外观: '背景、边框、圆角、阴影。',
@@ -101,8 +98,8 @@ export const CATEGORY_STRATEGY: Record<string, CategoryStrategy> = {
   },
 };
 
-/** 兜底策略（类别没登记时用）：全局顺序 + 只展开第一组 */
-export const FALLBACK_STRATEGY: CategoryStrategy = { order: GROUP_ORDER, defaultOpen: [] };
+/** 兜底策略（类别没登记时用）：全局顺序 */
+export const FALLBACK_STRATEGY: CategoryStrategy = { order: GROUP_ORDER };
 
 export function strategyFor(category: string): CategoryStrategy {
   return CATEGORY_STRATEGY[category] ?? FALLBACK_STRATEGY;
@@ -120,9 +117,12 @@ export function orderGroups(groups: string[], category: string): string[] {
   return [...groups].sort((a, b) => rank(a) - rank(b));
 }
 
-/** 该类别下某分组是否默认展开 */
-export function isDefaultOpen(category: string, group: string): boolean {
-  return strategyFor(category).defaultOpen.includes(group);
+/**
+ * 默认展开的分组 = **排序后的第一个分组**（用户 2026-09-23）。
+ * 只传 order 而不是 category：调用方已经拿到了排好序的分组列表。
+ */
+export function defaultOpenGroup(order: string[]): string {
+  return order[0] ?? '';
 }
 
 /** 分组说明：优先用类别专属文案，其次全局通用文案 */

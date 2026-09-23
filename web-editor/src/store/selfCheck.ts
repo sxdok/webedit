@@ -301,6 +301,20 @@ async function interactionChecks(): Promise<Result[]> {
     const r = el.getBoundingClientRect();
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
   };
+  /** 某个属性分组若默认折叠就点开它（现在只默认展开第一个分组，其余要显式展开） */
+  const openGroup = async (name: string): Promise<boolean> => {
+    const g = document.querySelector(`[data-prop-group="1"][data-group-name="${name}"]`) as HTMLElement | null;
+    if (!g) return false;
+    if (g.dataset.groupOpen !== '1') {
+      (g.querySelector('button') as HTMLButtonElement | null)?.click();
+      await wait(200);
+    }
+    return true;
+  };
+  /** 复位分组折叠状态（"默认展开"类断言前用：前面的用例可能点开过别的分组） */
+  const resetGroups = (): void => {
+    useEditorStore.setState((s) => ({ ui: { ...s.ui, propClosed: { ...s.ui.propClosed, groups: {} } } }));
+  };
   const pe = (type: string, x: number, y: number, target: EventTarget) =>
     target.dispatchEvent(
       new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1 }),
@@ -457,6 +471,37 @@ async function interactionChecks(): Promise<Result[]> {
     }
   }
 
+  /* ── Web 容器要**裁掉越界内容**（用户 2026-09-23：子组件拖出容器后不该再看见）──
+     容器 300×160、子组件放到 x=240（宽 130）→ 右侧超界 70px：
+     ① 容器必须有裁剪层（inset:0 + overflow:hidden）；
+     ② 容器内的点仍命中子组件；③ 超界处的点**不再**命中子组件（这才是"看不见"的行为证据）。 */
+  if (contId && childId) {
+    S().updateFrame(contId, { x: 60, y: 60, w: 300, h: 160 });
+    S().updateFrame(childId, { x: 240, y: 20, w: 130, h: 34 });
+    await wait(320);
+    const contEl = document.querySelector(`[data-node-id="${contId}"]`) as HTMLElement | null;
+    const childEl = document.querySelector(`[data-node-id="${childId}"]`) as HTMLElement | null;
+    const clipLayer = contEl?.querySelector('[data-container-clip="1"]') as HTMLElement | null;
+    const clipStyle = clipLayer ? getComputedStyle(clipLayer) : null;
+    let insideHitsChild = false;
+    let outsideHitsChild = false;
+    let outsideEl: HTMLElement | null = null;
+    if (childEl) {
+      if (contEl) await centerOf(contEl);
+      else await centerOf(childEl);
+      const cr = childEl.getBoundingClientRect();
+      const y = cr.top + cr.height / 2;
+      outsideEl = document.elementFromPoint(cr.right + 24, y) as HTMLElement | null;
+      insideHitsChild = !!((document.elementFromPoint(cr.left + 10, y) as HTMLElement | null)?.closest(`[data-node-id="${childId}"]`));
+      outsideHitsChild = !!outsideEl?.closest(`[data-node-id="${childId}"]`);
+    }
+    add(
+      'Web 容器裁剪越界内容（子组件拖出容器的部分不可见，也点不到）',
+      !!clipStyle && clipStyle.overflow === 'hidden' && insideHitsChild && !outsideHitsChild && !!outsideEl,
+      `裁剪层=${clipStyle ? `${clipStyle.position}/${clipStyle.overflow}` : '缺失'}；容器内命中子组件=${insideHitsChild}；超界处=${outsideEl ? `命中 ${outsideEl.tagName.toLowerCase()}${outsideEl.getAttribute('data-node-id') ? `#${outsideEl.getAttribute('data-node-id')}` : ''}（不是子组件）` : '视口外，未测到'}`,
+    );
+  }
+
   /* ── 表格单元格：Web 模式下也能直接点选、直接改选另一格 ── */
   S().clearAll();
   const tblId = S().addComponent('table');
@@ -494,17 +539,18 @@ async function interactionChecks(): Promise<Result[]> {
     }
   }
 
-  /* ── 表格属性面板三件事（用户 2026-09-23 反馈 ③）──
-     ① 「数据」文本域要显示**真实数据**（以前组件默认值是二维数组，String(数组) = "a,b,c"，面板看着像空的）；
+  /* ── 表格属性面板（用户 2026-09-23 反馈 ③ + "内容以单元格为主"）──
+     ① 「数据」属性行已删除（内容改在「单元格」组里逐格改）；props.data 仍是存储形态；
      ② 新增「首列为表头」：默认关（默认仍是首行为表头），打开后第一列渲染成 th[scope=row]；
      ③ 行/列数量与单元格格式两组控件重排后不能把面板撑出横向滚动。 */
   {
     const panel = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
-    const ta = panel ? ([...panel.querySelectorAll('textarea')] as HTMLTextAreaElement[]).find((t) => t.value.includes('|')) : undefined;
+    const dataRow = panel?.querySelector('[data-prop-key="data"]');
+    const cellText = panel?.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null;
     add(
-      '表格「数据」文本域显示真实数据（文本形态，不是数组被 String 成的逗号串）',
-      !!ta && ta.value.includes('列1 | 列2 | 列3') && ta.value.includes('A | B | C'),
-      ta ? `值=${ta.value.replace(/\n/g, '⏎').slice(0, 44)}` : '找不到「数据」文本域',
+      '表格「数据」属性行已移除，内容改由「单元格」组的内容框负责（data 仍是存储形态）',
+      !dataRow && !!cellText,
+      `${dataRow ? '仍存在「数据」行' : '无「数据」行'}；单元格内容框=${cellText ? '存在' : '缺失'}`,
     );
 
     const headColBefore = tblId ? document.querySelectorAll(`[data-node-id="${tblId}"] th[scope="row"]`).length : -1;
@@ -519,14 +565,86 @@ async function interactionChecks(): Promise<Result[]> {
       `关闭时 ${headColBefore} 个 → 打开后 ${headColAfter} 个`,
     );
 
-    const fmt = panel?.querySelector('[data-cell-format-box="1"]') as HTMLElement | null;
-    const sizeBox = panel?.querySelector('[data-table-size="1"]') as HTMLElement | null;
-    const overflow = panel ? panel.scrollWidth - panel.clientWidth : -1;
+    // 「行 / 列数量」控件在「表格」组里，而默认只展开第一个分组（表格类=「单元格」）→ 先点开它
+    await openGroup('表格');
+    const panel2 = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
+    const fmt = panel2?.querySelector('[data-cell-format-box="1"]') as HTMLElement | null;
+    const sizeBox = panel2?.querySelector('[data-table-size="1"]') as HTMLElement | null;
+    const overflow = panel2 ? panel2.scrollWidth - panel2.clientWidth : -1;
     add(
       '表格属性控件重排：单元格格式成组显示、行/列数量成格、面板无横向溢出',
       !!fmt && !!sizeBox && overflow <= 1,
       `${fmt ? '格式盒√' : '格式盒×'} ${sizeBox ? '行列数量√' : '行列数量×'}；面板溢出 ${overflow}px`,
     );
+
+    // 五个表格组件共用同一份 schema → 扩展的四个预设也一并去掉了「数据」行
+    const tableTypes = ['table', 'threeLineTable', 'paramTable', 'detailTable', 'checkTable'];
+    const withData = tableTypes.filter((t) => (getComponent(t)?.propSchema ?? []).some((i) => i.key === 'data'));
+    const missingDef = tableTypes.filter((t) => !getComponent(t));
+    add(
+      '五个表格组件（表格 + 三线表 / 两列参数表 / 明细表 / 核对表）都没有「数据」属性行',
+      withData.length === 0 && missingDef.length === 0,
+      `含 data 行的：${withData.join('、') || '无'}；未注册的：${missingDef.join('、') || '无'}（共查 ${tableTypes.length} 个）`,
+    );
+  }
+
+  /* ── 外部组件「参数对比表」：也按**单元格逻辑**编辑（无「参数」整块文本属性）──
+     它现在用 EditorKit 暴露的表格内核渲染（renderTable + tableSchema），
+     所以点选一格就能在「单元格格式」里改内容，还有「行 / 列数量」可用。 */
+  {
+    const cmp = getComponent('liveCompareCard');
+    const keys = (cmp?.propSchema ?? []).map((i) => i.key);
+    add(
+      '外部组件「参数对比表」：删掉「参数」整块属性、改用单元格逻辑（含 单元格格式 / 行·列数量 控件）',
+      !!cmp &&
+        !keys.includes('items') &&
+        !keys.includes('leftTitle') &&
+        !keys.includes('rightTitle') &&
+        (cmp.propSchema ?? []).some((i) => i.control === 'cells') &&
+        (cmp.propSchema ?? []).some((i) => i.control === 'tableSize'),
+      cmp ? `schema ${keys.length} 项：${keys.slice(0, 8).join(',')}…` : '未注册（外部组件未加载？）',
+    );
+
+    if (cmp) {
+      S().setMode('document');
+      S().clearAll();
+      const cid = S().addComponent('liveCompareCard');
+      await wait(360);
+      const cellEls = cid ? ([...document.querySelectorAll(`[data-node-id="${cid}"] [data-cell]`)] as HTMLElement[]) : [];
+      S().selectComponent(cid ? [cid] : []);
+      await wait(240);
+      if (cid && cellEls.length >= 6) {
+        const c = await centerOf(cellEls[3]);
+        const top = (document.elementFromPoint(c.x, c.y) as HTMLElement | null) ?? cellEls[3];
+        pe('pointerdown', c.x, c.y, top);
+        pe('pointerup', c.x, c.y, window);
+        await wait(220);
+        const picked = (S().ui.tableCells?.cells ?? []).join('|');
+        const box = document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null;
+        if (box) {
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+          setter?.call(box, '单元格改的字');
+          box.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        await wait(260);
+        const node = findNode(getForest(S().doc), cid);
+        const written = String(node?.props.data ?? '');
+        const shown = document.querySelector(`[data-node-id="${cid}"] [data-cell="1,0"]`)?.textContent ?? '';
+        add(
+          '外部组件「参数对比表」真的能按单元格改内容（点选一格 →「内容」框 → 写回 data 与画布）',
+          !!picked && !!box && written.includes('单元格改的字') && shown.includes('单元格改的字'),
+          `选中格=[${picked}]；内容框=${box ? '有' : '无'}；data 含新字=${written.includes('单元格改的字')}；画布该格=「${shown}」`,
+        );
+      } else {
+        const renderErr = document.querySelector('[data-node-render-error]') as HTMLElement | null;
+        const nodeIds = document.querySelectorAll('[data-node-id]').length;
+        add(
+          '外部组件「参数对比表」真的能按单元格改内容（点选一格 →「内容」框 → 写回 data 与画布）',
+          false,
+          `单元格 DOM=${cellEls.length}；节点 cid=${cid ?? 'null'}；画布节点数=${nodeIds}；文档节点=${S().doc.document.components.map((n) => n.type).join(',') || '空'}；渲染错误框=${renderErr ? renderErr.textContent?.slice(0, 50) : '无'}`,
+        );
+      }
+    }
   }
 
   /* ── 左侧分类的**名称与排序**（用户 2026-09-23：通用、布局、Word、Excel、PPT）── */
@@ -1196,6 +1314,7 @@ async function interactionChecks(): Promise<Result[]> {
       typeInto(document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null, '要跟着走的字');
       await wait(300);
       const beforeIns = (document.querySelector('[data-cell-text="1"]') as HTMLTextAreaElement | null)?.value ?? '';
+      await openGroup('表格'); // 「插入行」在「表格」组里（默认只展开第一个分组）
       (document.querySelector('[data-table-ins-row="1"]') as HTMLButtonElement | null)?.click();
       await wait(360);
       const selAfter = S().ui.tableCells?.cells.join(' ') ?? '(无)';
@@ -1256,6 +1375,7 @@ async function interactionChecks(): Promise<Result[]> {
       );
 
       // 面板入口：粘贴到「HTML 源码」→ 点「导入 HTML」→ 画布表格真的变了
+      await openGroup('表格'); // 「HTML 源码」在「表格」组里（默认只展开第一个分组）
       const htmlBox = document.querySelector('[data-table-html-text="1"]') as HTMLTextAreaElement | null;
       typeInto(htmlBox, '<table><tr><th>A</th><th>B</th></tr><tr><td>x</td><td>y</td></tr></table>');
       await wait(160);
@@ -1616,14 +1736,21 @@ async function interactionChecks(): Promise<Result[]> {
     S().setMode('document');
     S().clearAll();
     S().addComponent('table');
-    await wait(360);
+    resetGroups(); // 复位折叠状态：前面的用例为拿控件点开过别的分组，这里要量的是**默认**状态
+    await wait(380);
     const groupEls = [...document.querySelectorAll('[data-prop-group="1"]')] as HTMLElement[];
     const openNames = groupEls.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
+    const order = groupEls.map((g) => g.dataset.groupName ?? '');
     const listCount = document.querySelectorAll('[data-prop-list="1"]').length;
     add(
-      '属性分组默认折叠（表格组件只展开「表格」组）',
-      groupEls.length >= 2 && openNames.length === 1 && openNames[0] === '表格' && listCount === 1,
+      '属性分组默认只展开第一个分组（表格组件 = 「单元格」组，其余折叠）',
+      groupEls.length >= 2 && openNames.length === 1 && openNames[0] === '单元格' && listCount === 1,
       `${groupEls.length} 个分组，展开「${openNames.join('/') || '无'}」，渲染的属性列表 ${listCount} 个`,
+    );
+    add(
+      '表格组件：单元格属性分组排在表格属性分组**上方**',
+      order.includes('单元格') && order.includes('表格') && order.indexOf('单元格') < order.indexOf('表格'),
+      `分组顺序=${order.join(' > ') || '空'}`,
     );
 
     /* ── 抽屉式分区（规格 §2）：通用属性 / 专有属性 / 状态 三抽屉，且可折叠 ── */
@@ -1681,17 +1808,19 @@ async function interactionChecks(): Promise<Result[]> {
     {
       S().clearAll();
       S().addComponent('paragraph');
-      await wait(360);
+      resetGroups();
+      await wait(380);
       const gs = [...document.querySelectorAll('[data-prop-group="1"]')] as HTMLElement[];
       const open = gs.filter((g) => g.dataset.groupOpen === '1').map((g) => g.dataset.groupName ?? '');
       add(
-        '非表格组件也有默认展开的分组（选中后能看到属性）',
+        '非表格组件也只展开第一个分组（段落 = 「内容」组）',
         gs.length >= 1 && open.length === 1 && open[0] === '内容',
         `${gs.length} 个分组，展开「${open.join('/') || '无'}」`,
       );
     }
     const target = '[data-prop-group="1"][data-group-name="单元格"]';
     let expandWorks = false;
+    let toggleNote = '';
     // ★自带一张表并选中：前一段（多选）结尾 setMode 会清空选中，面板会退回"页面属性"，
     //   那时根本没有分组可点。
     S().setMode('document');
@@ -1700,14 +1829,19 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(380);
     const head = document.querySelector(target) as HTMLElement | null;
     if (head) {
-      (head.querySelector('button') as HTMLButtonElement).click();
-      await wait(220);
-      expandWorks = !!document.querySelector(`${target} [data-prop-list="1"]`);
-      // 折回去，保持"只有默认组展开"的初始状态
+      // 「单元格」现在是**第一个分组 → 默认就在展开状态**：点一下应变折叠，再点回展开
+      const isOpen = () => !!document.querySelector(`${target} [data-prop-list="1"]`);
+      const before = isOpen();
       (document.querySelector(`${target} button`) as HTMLButtonElement).click();
-      await wait(140);
+      await wait(220);
+      const afterFirst = isOpen();
+      (document.querySelector(`${target} button`) as HTMLButtonElement).click();
+      await wait(180);
+      const afterSecond = isOpen();
+      expandWorks = before && !afterFirst && afterSecond;
+      toggleNote = `初始展开=${before} → 点一次=${afterFirst} → 再点=${afterSecond}`;
     }
-    add('属性分组可展开/折叠（点标题切换）', expandWorks, `点「单元格」后展开=${expandWorks}`);
+    add('属性分组可展开/折叠（点标题切换）', expandWorks, toggleNote || '找不到「单元格」分组');
 
     /* ── 表格行 / 列数量：输入（回车提交）与 ＋/− 按钮都要真改数据 ──
        （自带一张 3×3 表并选中，保证面板里确实有行列数量控件） */
@@ -1716,6 +1850,8 @@ async function interactionChecks(): Promise<Result[]> {
     const tSize = S().addComponent('table');
     if (tSize) S().updateProps(tSize, { data: 'a | b | c\nd | e | f\ng | h | i', headerRow: true, colWidths: '', rowHeight: '', cellStyles: {} });
     await wait(420);
+    // 行/列数量、插入/删除行列都在「表格」组里（默认只展开第一个分组 =「单元格」）
+    await openGroup('表格');
     const dataLines = (): string[] => {
       // 读**当前选中**的那张表（各段用例都自带选中状态，互不依赖）；
       // ★不过滤空行：空行在 Excel 语义里就是"一行空单元格"，插行/删行要靠它才验得出来
@@ -2032,14 +2168,17 @@ async function interactionChecks(): Promise<Result[]> {
        往父节点派发事件不会冒泡到子节点，所以必须打在包装元素上。
        规格：延迟 400ms 弹出、深色底 rgba(0,0,0,.82)、内容含 中文名 + key + 默认值。 */
     {
-      // 定位到「专有属性」抽屉里的第一个属性行（表格组件此时是「数据」行）——
-      // 通用属性抽屉在它之上，直接取全局第一个会拿到"上边距"
+      // 定位到「专有属性」抽屉里的第一个属性行 —— 通用属性抽屉在它之上，
+      // 直接取全局第一个会拿到"上边距"。属性 key 由 PropertyRow 的 data-prop-key 给出，
+      // 这样断言不依赖"第一行恰好是哪个属性"（表格的「数据」行已移除）。
       const label =
         (document.querySelector('[data-drawer-name="专有属性"] [data-prop-label="1"]') as HTMLElement | null) ??
         (document.querySelector('[data-prop-label="1"]') as HTMLElement | null);
+      const row = label?.closest('[data-prop-key]') as HTMLElement | null;
+      const rowKey = row?.getAttribute('data-prop-key') ?? '';
       const trigger = (label?.querySelector('[data-tip="1"]') as HTMLElement | null) ?? label;
       const txt = (label?.textContent ?? '').trim();
-      const hidden = !!label && !txt.includes('（') && !txt.includes('每行一条');
+      const hidden = !!label && !txt.includes('（');
       trigger?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
       await wait(560); // > 400ms 延迟
       const tip = document.querySelector('[data-tooltip="1"]') as HTMLElement | null;
@@ -2047,8 +2186,8 @@ async function interactionChecks(): Promise<Result[]> {
       const dark = tip ? getComputedStyle(tip).backgroundColor : '';
       add(
         '属性说明默认隐藏、悬停弹气泡（400ms 延迟 / 深色底 / 含 key 与默认值，不走原生 title）',
-        hidden && !!tip && tipText.includes('每行一条') && tipText.includes('data') && tipText.includes('默认值') && dark === 'rgba(0, 0, 0, 0.82)',
-        `属性名只显示=「${txt}」；气泡=${tip ? `「${tipText}」底色 ${dark}` : '未弹出'}`,
+        hidden && !!tip && !!rowKey && tipText.includes(rowKey) && tipText.includes('默认值') && dark === 'rgba(0, 0, 0, 0.82)',
+        `属性名只显示=「${txt}」（key=${rowKey || '?'}）；气泡=${tip ? `「${tipText}」底色 ${dark}` : '未弹出'}`,
       );
       trigger?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
       await wait(80);
@@ -2329,6 +2468,7 @@ async function interactionChecks(): Promise<Result[]> {
       S().selectComponent([tClear]);
       S().selectTableCells(tClear, ['0,0']);
       await wait(220);
+      await openGroup('表格'); // 「清空内容」在「表格」组里
       const clearBtn = document.querySelector('[data-table-clear-content="1"]') as HTMLButtonElement | null;
       clearBtn?.click();
       await wait(100);

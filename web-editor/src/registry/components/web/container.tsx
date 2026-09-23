@@ -124,6 +124,16 @@ export const containerComponent: ComponentDefinition = {
     { key: 'shadow', label: '阴影', control: 'switch', group: '外观', defaultValue: false },
     { key: 'children', label: '子组件', control: 'children', group: '高级', defaultValue: null },
   ],
-  // 子组件由画布作为**第三个参数**传入（规格 §3.1/§8.1），容器负责放到自己的 DOM 位置上
-  render: (props, _ctx, children) => <div style={containerStyle(props)}>{children}</div>,
+  /* 子组件由画布作为**第三个参数**传入（规格 §3.1/§8.1），容器负责放到自己的 DOM 位置上。
+     ★裁剪层（用户 2026-09-23：子组件移出容器的部分应该看不见）：
+       Web 模式的子组件是**绝对定位**，它的包含块是外层节点包装（正好等于容器边框盒），
+       所以这一层用 `position:absolute; inset:0`（同样等于边框盒）+ `overflow:hidden`：
+       既能裁掉越界部分，又**不会改变子组件坐标**（不会让已有文档里的子组件位移）。 */
+  render: (props, _ctx, children) => (
+    <div style={containerStyle(props)}>
+      <div data-container-clip="1" style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+        {children}
+      </div>
+    </div>
+  ),
 };

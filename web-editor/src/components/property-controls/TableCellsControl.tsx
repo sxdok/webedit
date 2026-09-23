@@ -138,8 +138,9 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
   const disabled = !range;
 
   /* ── 单元格内容：选**一格**时可以直接改这一格的文字 ──
-     内容就是 props.data 里的一格（等于 HTML 表格一个 <td> 里的东西），
-     以前只能去改整块「数据」文本、还要自己数第几个竖线，非常反直觉。 */
+     内容就是 props.data 里的一格（等于 HTML 表格一个 <td> 里的东西）。
+     ★「数据」整块属性行已删除（用户 2026-09-23：表格内容以单元格内容为主）——
+       改文字就是在这里逐格改；行/列不够用「行 / 列数量」组增删；整块换内容用「HTML 源码」导入。 */
   const rowsData = parseTableData(node?.props.data);
   const single = range && range.r0 === range.r1 && range.c0 === range.c1 ? range : null;
   const cellText = single ? (rowsData[single.r0]?.[single.c0] ?? '') : '';
@@ -172,6 +173,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
             name: '单元格内容',
             detail: [
               '选**一格**后在这里改它的文字 —— 相当于改 HTML 表格里某个 <td> 的内容。',
+              '表格内容以单元格为主：整块「数据」属性已去掉，文字都在这里逐格改。',
               '回车就是**格内换行**（存成 \\n，渲染成多行，等于 HTML 的 <br>）。',
               '竖线 | 会被转义成 \\|，不会把这一格拆成两格。',
             ],

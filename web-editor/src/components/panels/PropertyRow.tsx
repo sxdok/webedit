@@ -84,7 +84,7 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
 
   if (wide) {
     return (
-      <div className={`${cls} mb-1.5`} data-prop-row="1" data-prop-wide="1">
+      <div className={`${cls} mb-1.5`} data-prop-row="1" data-prop-wide="1" data-prop-key={item.key}>
         <div className="mb-0.5 flex items-baseline gap-1 text-[12px]" data-prop-label="1">
           <Tooltip content={tip}>
             <span className="cursor-help truncate text-[12px] text-[#374151]">{short}</span>
@@ -98,7 +98,7 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
   }
 
   return (
-    <div className={`${cls} flex h-7 items-center gap-2`} data-prop-row="1">
+    <div className={`${cls} flex h-7 items-center gap-2`} data-prop-row="1" data-prop-key={item.key}>
       <Tooltip content={tip}>
         <span
           className="w-24 shrink-0 cursor-help truncate text-[12px] text-[#374151]"

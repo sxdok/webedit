@@ -69,6 +69,15 @@ import {
 } from './components/shared';
 import { asBool, asEnum, asNumber, asString } from '../utils/id';
 import { mmToPx, ptToPx } from '../utils/units';
+import {
+  escapeCell,
+  parseCellStyles,
+  parseColWidths,
+  parseTableData,
+  renderTable,
+  serializeTableData,
+  tableSchema,
+} from './components/common/tableKit';
 
 const LIVE_DIR = '/组件';
 const MANIFEST_URL = '/__components';
@@ -122,6 +131,18 @@ export interface EditorKit {
   mmToPx: typeof mmToPx;
   ptToPx: typeof ptToPx;
   icon: (name?: string) => ComponentIcon;
+  /**
+   * **表格内核**（规格"表格与预设共用一份实现"）：外部表格组件用它渲染 + 拿属性 schema，
+   * 就自动获得与内置表格完全一致的单元格逻辑（点选/拖选一格、`\|` 与 `\n` 转义、A1 格式键、
+   * 行/列数量增删平移格式）——不需要自己再写一套 `<table>`。
+   */
+  renderTable: typeof renderTable;
+  tableSchema: typeof tableSchema;
+  parseTableData: typeof parseTableData;
+  serializeTableData: typeof serializeTableData;
+  escapeCell: typeof escapeCell;
+  parseCellStyles: typeof parseCellStyles;
+  parseColWidths: typeof parseColWidths;
 }
 
 /** 记录来自外部文件的组件类型，便于重载时精确卸载 */
@@ -181,6 +202,13 @@ function installKit(React: typeof import('react')): void {
     mmToPx,
     ptToPx,
     icon: (name?: string) => iconByName(name),
+    renderTable,
+    tableSchema,
+    parseTableData,
+    serializeTableData,
+    escapeCell,
+    parseCellStyles,
+    parseColWidths,
   };
   (window as unknown as { EditorKit?: EditorKit }).EditorKit = kit;
 }
