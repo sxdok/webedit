@@ -476,14 +476,15 @@ export function tableSchema(
     { key: 'cellPadding', label: '内边距（默认值）', control: 'number', group: GROUP.whole, defaultValue: 6, min: 0, max: 24 },
     {
       key: 'tableSize',
-      label: '行 / 列数量',
+      label:
+        '行 / 列数量（含表头行；行数/列数在失焦或回车时生效；插入/删除会同步平移单元格格式与列宽，可 Ctrl+Z 撤销；先在画布上点一个单元格）',
       control: 'tableSize',
       group: GROUP.whole,
       defaultValue: null,
     },
     {
       key: 'cellStyles',
-      label: '单元格格式（先在画布上点选单元格）',
+      label: '单元格格式（先在画布上点选单元格，可拖选一片；没覆盖的项沿用「表格」组的默认值）',
       control: 'cells',
       group: GROUP.cell,
       defaultValue: {},

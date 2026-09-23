@@ -52,7 +52,6 @@ export function TableSizeControl({ nodeId }: ControlProps) {
   const sel = useEditorStore((s) => s.ui.tableCells);
   const node = nodeId ? findNode(getForest(doc), nodeId) : null;
   const rows = parseTableData(node?.props.data);
-  const headerRow = node?.props.headerRow !== false;
   const dim = {
     rows: Math.max(1, rows.length),
     cols: Math.max(1, rows.reduce((n, r) => Math.max(n, r.length), 0)),
@@ -220,7 +219,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
             第 {range.c0 + 1}–{range.c1 + 1} 列）
           </>
         ) : (
-          <span className="text-gray-400">在画布上点单元格（可拖选一片）后即可插入/删除行列</span>
+          <span className="text-gray-400">未选单元格</span>
         )}
       </div>
 
@@ -241,11 +240,6 @@ export function TableSizeControl({ nodeId }: ControlProps) {
           列宽自适应
         </button>
       </div>
-
-      <p className="text-2xs leading-relaxed text-gray-400">
-        当前 {dim.rows} × {dim.cols}
-        {headerRow ? '（含表头）' : ''}；行数/列数在**失焦或回车**时生效。插入/删除会同步平移单元格格式与列宽（可 Ctrl+Z 撤销）。
-      </p>
     </div>
   );
 }

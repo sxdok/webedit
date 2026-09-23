@@ -886,6 +886,55 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
+  /* ── 单元格内容可直接改（不再只能去改整块「数据」文本）+ 面板里不留常驻说明文字 ── */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const tCell = S().addComponent('table');
+    if (tCell) {
+      S().updateProps(tCell, { data: '甲 | 乙\n丙 | 丁', headerRow: false });
+      await wait(320);
+      S().selectComponent([tCell]);
+      S().selectTableCells(tCell, ['1,1']); // 第 2 行第 2 列
+      await wait(220);
+
+      const input = document.querySelector('[data-cell-text="1"]') as HTMLInputElement | null;
+      const before = input?.value ?? '(未找到内容输入框)';
+      // React 受控组件：用原生 setter + input 事件才能触发 onChange
+      if (input) {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(input, '新内容');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      await wait(320);
+      const nodeNow = S().doc.document.components.find((n) => n.id === tCell);
+      const dataNow = String(nodeNow?.props.data ?? '');
+      const td = document.querySelector(`[data-node-id="${tCell}"] td[data-cell="1,1"]`);
+      const painted = (td?.textContent ?? '').trim();
+      add(
+        '单元格内容可直接改（选中一格 → 「内容」输入框 → 同时写回 data 与画布）',
+        before === '丁' && dataNow.includes('新内容') && painted === '新内容' && dataNow.includes('甲 | 乙'),
+        `输入框原值「${before}」；data=「${dataNow.replace(/\n/g, ' ⏎ ')}」；画布该格=「${painted}」`,
+      );
+
+      // 说明不许铺在面板上：展开全部分组后，属性面板里不应有 <p> 说明段落
+      document.querySelectorAll('[data-props-panel] [data-prop-group="1"]').forEach((g) => {
+        if (!g.querySelector('[data-prop-list="1"]')) (g.querySelector('button') as HTMLButtonElement | null)?.click();
+      });
+      await wait(120);
+      const panelNow = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
+      const prose = panelNow ? [...panelNow.querySelectorAll('p')].map((p) => (p.textContent ?? '').slice(0, 30)) : [];
+      add(
+        '表格属性面板无常驻说明文字（说明改到悬停气泡里）',
+        !!panelNow && prose.length === 0,
+        prose.length ? `还有 ${prose.length} 段：${prose.join(' / ')}` : '说明段落 0 个',
+      );
+    } else {
+      add('单元格内容可直接改（选中一格 → 「内容」输入框 → 同时写回 data 与画布）', false, 'addComponent(table) 失败');
+      add('表格属性面板无常驻说明文字（说明改到悬停气泡里）', false, 'addComponent(table) 失败');
+    }
+  }
+
   // 点 A4 纸空白处（非组件）→ 取消选中 → 属性面板回到页面属性
   const firstId = S().doc.document.components[0]?.id;
   if (firstId) {

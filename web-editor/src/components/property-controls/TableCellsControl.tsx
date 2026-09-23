@@ -9,7 +9,7 @@
  * 交互：画布上点选/拖选 → 这里改哪一项**立刻作用到选中的格子**（Excel 逻辑，无"应用"按钮）；
  * 未覆盖的项沿用「表格」组的默认值。范围选择写入的是**多个单格键**；合并才写**范围键**。
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, ArrowDownToLine, ArrowRightToLine, Combine, Paintbrush, Split, Trash2 } from 'lucide-react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
@@ -20,8 +20,10 @@ import {
   cellStyleKeyAt,
   parseA1,
   parseCellStyles,
+  parseTableData,
   type CellStyle,
 } from '../../registry/components/common/tableKit';
+import { Tooltip } from '../ui/Tooltip';
 import { btnCls } from './controlStyles';
 import type { ControlProps } from './index';
 
@@ -134,8 +136,78 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
   const [showBorder, setShowBorder] = useState(false);
   const disabled = !range;
 
+  /* ── 单元格内容：选**一格**时可以直接改这一格的文字 ──
+     内容就是 props.data 里的一格（等于 HTML 表格一个 <td> 里的东西），
+     以前只能去改整块「数据」文本、还要自己数第几个竖线，非常反直觉。 */
+  const rowsData = parseTableData(node?.props.data);
+  const single = range && range.r0 === range.r1 && range.c0 === range.c1 ? range : null;
+  const cellText = single ? (rowsData[single.r0]?.[single.c0] ?? '') : '';
+  const [draft, setDraft] = useState(cellText);
+  const [badPipe, setBadPipe] = useState(false);
+  useEffect(() => {
+    setDraft(cellText);
+    setBadPipe(false);
+  }, [cellText, single?.r0, single?.c0]);
+
+  /** 把这一格的文字写回 props.data（保持网格矩形，行用 '\n'、格用 ' | ' 连接） */
+  const writeCellText = (text: string) => {
+    if (!nodeId || !single) return;
+    const live = useEditorStore.getState();
+    const liveNode = findNode(getForest(live.doc), nodeId);
+    const rows = parseTableData(liveNode?.props.data);
+    const cols = Math.max(1, rows.reduce((n, r) => Math.max(n, r.length), 0));
+    while (rows.length <= single.r0) rows.push([]);
+    const row = rows[single.r0];
+    while (row.length < Math.max(cols, single.c0 + 1)) row.push('');
+    row[single.c0] = text;
+    updateProps(nodeId, { data: rows.map((r) => r.join(' | ')).join('\n') });
+  };
+
   return (
     <div className="space-y-1" data-cell-format="1">
+      {/* 内容：改选中那一格的文字（“|”是列分隔符，不能出现在内容里） */}
+      <div className="flex flex-wrap items-center gap-1" data-cell-text-row="1">
+        <Tooltip
+          side="right"
+          content={{
+            name: '单元格内容',
+            detail: [
+              '选**一格**后在这里改它的文字 —— 相当于改 HTML 表格里某个 <td> 的内容。',
+              '一个格子只能是一行文字；换行就是另一行了。',
+              '“|”是列分隔符，不能写进内容里。',
+            ],
+          }}
+        >
+          <span className="w-8 shrink-0 cursor-help text-2xs text-gray-400">内容</span>
+        </Tooltip>
+        <input
+          data-cell-text="1"
+          disabled={!single}
+          className={`h-6 min-w-0 flex-1 rounded border bg-white px-1 text-xs disabled:bg-gray-50 disabled:text-gray-400 ${
+            badPipe ? 'border-red-400' : 'border-line'
+          }`}
+          placeholder={single ? '' : '先只选一格'}
+          value={single ? draft : ''}
+          onChange={(e) => {
+            const raw = e.target.value;
+            const clean = raw.replace(/\|/g, '');
+            setBadPipe(raw !== clean);
+            setDraft(clean);
+            writeCellText(clean);
+          }}
+          onBlur={() => setBadPipe(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setDraft(cellText);
+              writeCellText(cellText);
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+        />
+        {badPipe && <span className="shrink-0 text-2xs text-red-500">“|”是列分隔符，已忽略</span>}
+      </div>
+
       <div className="flex flex-wrap items-center gap-1 text-2xs text-gray-500">
         {range ? (
           <>
@@ -149,7 +221,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
             </button>
           </>
         ) : (
-          <span className="text-gray-400">在画布上点表格单元格即可选中（可拖选一片）</span>
+          <span className="text-gray-400">未选单元格</span>
         )}
       </div>
 
