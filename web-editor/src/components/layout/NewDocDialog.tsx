@@ -9,7 +9,7 @@
  * 因此是**一步历史**，Ctrl+Z 能撤销回来（比旧版 `window.confirm` 更安全）。
  */
 import { useState } from 'react';
-import { FileText, Monitor } from 'lucide-react';
+import { FileText, Layers, Monitor } from 'lucide-react';
 import { DEVICE_PRESETS, PAGE_SIZES, type DeviceKey, type PageSizeKey } from '../../registry/types';
 import { createInitialDocument, useEditorStore } from '../../store/editorStore';
 import { Modal } from '../ui/Modal';
@@ -36,7 +36,10 @@ export function NewDocDialog() {
   const open = useEditorStore((s) => s.ui.newDocOpen);
   const setOpen = useEditorStore((s) => s.setNewDocOpen);
   const addPage = useEditorStore((s) => s.addPage);
+  const loadDocument = useEditorStore((s) => s.loadDocument);
   const pageCount = useEditorStore((s) => s.pages.length);
+  /** 载入示例时的忙碌态（示例是按注册表实时生成的，可能有一帧延迟） */
+  const [loadingExample, setLoadingExample] = useState<'' | 'document' | 'web'>( '' );
 
   const [step, setStep] = useState<1 | 2>(1);
   const [mode, setMode] = useState<Mode>('document');
@@ -124,38 +127,98 @@ export function NewDocDialog() {
     close();
   };
 
+  /** 载入示例页：示例自带标题/纸张/画布尺寸，所以直接建页（空白首页会被替换，不留空标签） */
+  const loadExample = async (kind: 'document' | 'web') => {
+    setLoadingExample(kind);
+    try {
+      const m = await import('../../store/demo');
+      const doc = kind === 'document' ? m.buildDocumentDemo() : m.buildWebDemo();
+      loadDocument(doc);
+      close();
+    } catch (e) {
+      window.alert(`载入示例失败：${String((e as Error)?.message ?? e)}`);
+    } finally {
+      setLoadingExample('');
+    }
+  };
+
   return (
-    <Modal open={open} title="新建文档" onClose={close} width={640}>
+    <Modal open={open} title="新建文档" onClose={close} width={680}>
       <div data-new-doc="1" data-new-doc-step={step}>
-        {/* ── 第 1 步：选模式 ── */}
+        {/* ── 第 1 步：选模式（或直接载入示例）── */}
         {step === 1 && (
-          <div className="space-y-3">
-            <p className="text-2xs text-gray-500">先选模式，下一步再填参数（和 PS 的新建一样）。</p>
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                data-new-doc-mode="document"
-                onClick={() => pickMode('document')}
-                className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left hover:border-primary hover:bg-primary/5 ${
-                  mode === 'document' ? 'border-primary bg-primary/5' : 'border-line'
-                }`}
-              >
-                <FileText className="h-5 w-5 text-primary" />
-                <span className="text-[13px] font-semibold text-gray-800">文档模式</span>
-                <span className="text-2xs leading-5 text-gray-500">A4 等纸张 + 文档流，自动分页、可导出 Word</span>
-              </button>
-              <button
-                type="button"
-                data-new-doc-mode="web"
-                onClick={() => pickMode('web')}
-                className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left hover:border-primary hover:bg-primary/5 ${
-                  mode === 'web' ? 'border-primary bg-primary/5' : 'border-line'
-                }`}
-              >
-                <Monitor className="h-5 w-5 text-emerald-600" />
-                <span className="text-[13px] font-semibold text-gray-800">Web 模式</span>
-                <span className="text-2xs leading-5 text-gray-500">设备画布 + 绝对定位 + 容器嵌套，可导出 React</span>
-              </button>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-2xs text-gray-500">先选模式，下一步再填参数（和 PS 的新建一样）。</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  data-new-doc-mode="document"
+                  onClick={() => pickMode('document')}
+                  className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left hover:border-primary hover:bg-primary/5 ${
+                    mode === 'document' ? 'border-primary bg-primary/5' : 'border-line'
+                  }`}
+                >
+                  <FileText className="h-5 w-5 text-primary" />
+                  <span className="text-[13px] font-semibold text-gray-800">空白文档</span>
+                  <span className="text-2xs leading-5 text-gray-500">A4 等纸张 + 文档流，自动分页、可导出 Word</span>
+                </button>
+                <button
+                  type="button"
+                  data-new-doc-mode="web"
+                  onClick={() => pickMode('web')}
+                  className={`flex flex-col items-start gap-1 rounded-lg border p-3 text-left hover:border-primary hover:bg-primary/5 ${
+                    mode === 'web' ? 'border-primary bg-primary/5' : 'border-line'
+                  }`}
+                >
+                  <Monitor className="h-5 w-5 text-emerald-600" />
+                  <span className="text-[13px] font-semibold text-gray-800">空白画布</span>
+                  <span className="text-2xs leading-5 text-gray-500">设备画布 + 绝对定位 + 容器嵌套，可导出 React</span>
+                </button>
+              </div>
+            </div>
+
+            {/* ── 示例：直接载入（内容按注册表实时生成，含全部组件）── */}
+            <div className="space-y-2" data-new-doc-examples="1">
+              <p className="flex items-center gap-1 text-2xs text-gray-500">
+                <Layers className="h-3 w-3" />
+                或者从「示例」开始：两种模式各一份，包含该模式下的「全部组件」（含外部热加载组件）
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  data-new-doc-example="document"
+                  disabled={loadingExample !== ''}
+                  onClick={() => void loadExample('document')}
+                  className="flex flex-col items-start gap-1 rounded-lg border border-line bg-amber-50/40 p-3 text-left hover:border-primary hover:bg-primary/5 disabled:opacity-60"
+                >
+                  <FileText className="h-5 w-5 text-primary" />
+                  <span className="text-[13px] font-semibold text-gray-800">
+                    {loadingExample === 'document' ? '正在载入…' : '文档模式示例'}
+                  </span>
+                  <span className="text-2xs leading-5 text-gray-500">
+                    全部文档模式组件逐个摆开（每个组件上方标出「组件名（type）」），自带分页
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  data-new-doc-example="web"
+                  disabled={loadingExample !== ''}
+                  onClick={() => void loadExample('web')}
+                  className="flex flex-col items-start gap-1 rounded-lg border border-line bg-emerald-50/40 p-3 text-left hover:border-primary hover:bg-primary/5 disabled:opacity-60"
+                >
+                  <Monitor className="h-5 w-5 text-emerald-600" />
+                  <span className="text-[13px] font-semibold text-gray-800">
+                    {loadingExample === 'web' ? '正在载入…' : 'Web 模式示例'}
+                  </span>
+                  <span className="text-2xs leading-5 text-gray-500">
+                    全部 Web 模式组件按 3 列网格摆开，容器/卡片可直接往里拖组件
+                  </span>
+                </button>
+              </div>
+              <p className="text-2xs text-gray-400">
+                示例作为「新的一页」载入（当前 {pageCount} 页保持不变）；若当前只有一页空白页，则直接用它承载。
+              </p>
             </div>
           </div>
         )}
@@ -304,7 +367,7 @@ export function NewDocDialog() {
             )}
 
             <p className="rounded bg-amber-50 px-2 py-1.5 text-2xs leading-5 text-amber-700">
-              创建后会**新增一页**（画布上方的分页标签），当前 {pageCount} 页保持不变；
+              创建后会「新增一页」（画布上方的分页标签），当前 {pageCount} 页保持不变；
               新页的模式决定画布预览与右侧属性面板。
             </p>
           </div>

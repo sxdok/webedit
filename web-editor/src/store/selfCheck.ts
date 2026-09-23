@@ -278,6 +278,19 @@ function registerCheck(): void {
 }
 
 /** 注册两个探针组件，验证「只声明 supportedModes 就能被面板自动支持」 */
+/** 收集一棵节点树里出现的所有 type（示例覆盖度断言用） */
+function collectTypes(roots: { type: string; children?: unknown[] }[]): string[] {
+  const out: string[] = [];
+  const walk = (list: { type: string; children?: unknown[] }[]): void => {
+    list.forEach((n) => {
+      out.push(n.type);
+      if (Array.isArray(n.children) && n.children.length) walk(n.children as { type: string; children?: unknown[] }[]);
+    });
+  };
+  walk(roots);
+  return out;
+}
+
 function registerProbe(): void {
   registerComponent(makeDef('__probe_doc', '探针·仅文档', ['document']));
   registerComponent(makeDef('__probe_web', '探针·仅 Web', ['web']));
@@ -2875,6 +2888,60 @@ async function interactionChecks(): Promise<Result[]> {
       '示例文档一共两页（文档模式页 + Web 模式页，可直接用分页标签对照）',
       pages.length === 2 && !!docPage && !!webPage && docPage.id !== webPage.id,
       pages.map((p) => `${p.title}（${p.mode}）`).join(' + ') || '无',
+    );
+  }
+
+  /* ── 新建对话框里的**示例入口**：能看见、能选择、载入后内容正确 ── */
+  {
+    // 先把当前页弄成"空白首页"，验证"空白页直接承载示例"的策略
+    S().setPages([
+      {
+        id: 'blank-check',
+        title: '未命名文档',
+        mode: 'document',
+        doc: { ...createInitialDocument(), id: 'blank-check' },
+      },
+    ]);
+    await wait(200);
+    S().setNewDocOpen(true);
+    await wait(260);
+    const step1 = document.querySelector('[data-new-doc="1"][data-new-doc-step="1"]');
+    const examples = document.querySelectorAll('[data-new-doc-example]');
+    add(
+      '新建文档：第 1 步能看到两份**示例**入口（文档模式示例 / Web 模式示例）',
+      !!step1 && examples.length === 2,
+      step1 ? `示例入口 ${examples.length} 个：${[...examples].map((e) => e.getAttribute('data-new-doc-example')).join('、')}` : '对话框未打开',
+    );
+
+    (document.querySelector('[data-new-doc-example="document"]') as HTMLButtonElement | null)?.click();
+    await wait(620);
+    const afterDoc = {
+      pages: S().pages.length,
+      mode: S().doc.mode,
+      title: S().doc.title,
+      types: new Set(collectTypes(S().doc.document.components)),
+      closed: !document.querySelector('[data-new-doc="1"]'),
+    };
+    add(
+      '新建文档：选「文档模式示例」→ 载入该页（空白首页被直接承载、含全部组件、弹窗关闭）',
+      afterDoc.pages === 1 &&
+        afterDoc.mode === 'document' &&
+        afterDoc.types.size >= 20 &&
+        afterDoc.title.includes('文档模式示例') &&
+        afterDoc.closed,
+      `页数=${afterDoc.pages} 模式=${afterDoc.mode} 标题=「${afterDoc.title}」组件类型 ${afterDoc.types.size} 种；弹窗已关=${afterDoc.closed}`,
+    );
+
+    // 再来一次（此时已有内容页）→ 应该是**新增一页**
+    S().setNewDocOpen(true);
+    await wait(240);
+    (document.querySelector('[data-new-doc-example="web"]') as HTMLButtonElement | null)?.click();
+    await wait(700);
+    const afterWeb = { pages: S().pages.length, mode: S().doc.mode, title: S().doc.title, canvasH: S().doc.web.canvas.height };
+    add(
+      '新建文档：选「Web 模式示例」→ 新增一页（已有页保持不变，画布按内容放大）',
+      afterWeb.pages === 2 && afterWeb.mode === 'web' && afterWeb.canvasH > 900 && afterWeb.title.includes('Web 模式示例'),
+      `页数=${afterWeb.pages} 模式=${afterWeb.mode} 标题=「${afterWeb.title}」画布高 ${afterWeb.canvasH}px`,
     );
   }
 

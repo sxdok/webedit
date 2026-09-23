@@ -157,6 +157,11 @@ export interface EditorStore {
   addPage(doc: EditorDocument): string;
   /** 整体替换分页（示例文档 / 打开工作区用）：`activeId` 不存在时取第一页 */
   setPages(pages: EditorPage[], activeId?: string): void;
+  /**
+   * 载入一份文档（示例 / 打开 JSON）：当前只有一页且是**空白页**时直接替换它（不留空标签），
+   * 否则新增一页。返回最终生效的页 id。
+   */
+  loadDocument(doc: EditorDocument): string;
   setActivePage(id: string): void;
   closePage(id: string): void;
   /** 画布平移（PS 式手抓；不夹边界） */
@@ -331,6 +336,19 @@ export const useEditorStore = create<EditorStore>()(
           history: emptyHistory(),
           ui: { ...s.ui, tableCells: null, pan: { x: 0, y: 0 } },
         }));
+      },
+
+      /** 载入一份文档：空白首页直接替换，否则新增一页 */
+      loadDocument: (doc) => {
+        const s = get();
+        const page: EditorPage = { id: doc.id, title: doc.title, mode: doc.mode, doc };
+        const blank = (d: EditorDocument): boolean => d.document.components.length === 0 && (d.web.root.children?.length ?? 0) === 0;
+        if (s.pages.length === 1 && blank(s.doc)) {
+          log.info('store', 'loadDocument(替换空白首页)', { title: doc.title, mode: doc.mode });
+          set((st) => ({ pages: [page], activePageId: page.id, doc, history: emptyHistory(), ui: { ...st.ui, tableCells: null, pan: { x: 0, y: 0 } } }));
+          return page.id;
+        }
+        return get().addPage(doc);
       },
 
       setActivePage: (id) => {        const s = get();

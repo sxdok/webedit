@@ -4,7 +4,8 @@
  *   ?log=debug|info|warn|error  日志输出级别（默认 dev=debug / prod=warn；缓冲始终全量记录）
  *   ?diag=1                     启动后打开诊断面板（日志/状态/环境）
  *   ?check=1                    运行自检并把结果写到标题、console 与右下角浮层
- *   ?demo=1                     灌入示例文档    ?mode=web|document  启动后切到指定模式
+ *   ?demo=1                     灌入示例文档（两种模式各一页、含全部组件）    ?mode=web|document  启动后切到指定模式
+ *   ?new=1                      启动后打开「新建文档」对话框（先选模式/示例 → 再填参数）
  *   ?select=table              启动后选中第一个该类型的节点（也可给序号），用于核对属性面板排版
  *   ?cell=1,0[;1,1]            再选中该表格的这些单元格（核对单元格格式；行列从 0 起）
  *   ?theme=monokai|light  ?scroll=N  ?printdebug=1
@@ -85,6 +86,11 @@ if (scrollTo > 0) {
 // ?diag=1 → 打开诊断面板
 if (params.get('diag')) {
   setTimeout(() => useEditorStore.getState().toggleUI('showDiagnostics'), 100);
+}
+
+// ?new=1 → 启动后直接打开「新建文档」对话框（先选模式/示例 → 再填参数）
+if (params.get('new')) {
+  setTimeout(() => useEditorStore.getState().setNewDocOpen(true), 200);
 }
 
 // ?check=1 → 自检
