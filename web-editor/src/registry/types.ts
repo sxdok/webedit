@@ -257,7 +257,9 @@ export type PropControlType =
   /** 表格 HTML 源码入口（粘 <table> 导入 / 生成 HTML 导出） */
   | 'tableHtml'
   /** 表格按列排序（选列 + 升/降序 + 清除；渲染期排序，不改数据） */
-  | 'tableSort';
+  | 'tableSort'
+  /** 表格按行行高（列出被单独调过的行，可逐条清除；拖动行边界写的就是它） */
+  | 'tableRowHeights';
 
 export interface SelectOption {
   label: string;

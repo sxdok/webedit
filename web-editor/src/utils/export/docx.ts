@@ -14,7 +14,7 @@
  * 导出成一段「[图片：alt]」占位；跨页续表、单元格合并等按表格原样输出，不做 Word 级重排。
  */
 import { getForest } from '../../store/treeUtils';
-import { parseColWidths, parseRowHeight, parseTableData } from '../../registry/components/common/tableKit';
+import { parseColWidths, parseRowHeight, parseRowHeights, parseTableData } from '../../registry/components/common/tableKit';
 import { asNumber, asString } from '../id';
 import { mmToPx } from '../units';
 import type { ComponentNode, EditorDocument, EditorMode } from '../../registry/types';
@@ -211,6 +211,7 @@ function tableXml(node: ComponentNode, font: string): string {
   const headerBg = asString(node.props.headerBackground, '#e8f1f9');
   const pcts = parseColWidths(node.props.colWidths);
   const rowH = parseRowHeight(node.props.rowHeight);
+  const rowHeights = parseRowHeights(node.props.rowHeights);
   const border = asString(node.props.borderColor, '#c9d6e2');
 
   const cellW = (c: number): string => {
@@ -232,7 +233,10 @@ function tableXml(node: ComponentNode, font: string): string {
           '</w:tc>'
         );
       }).join('');
-      const h = rowH ? `<w:trPr><w:trHeight w:val="${Math.round(Number(rowH.replace('mm', '')) * 56.7)}"/></w:trPr>` : '';
+      // 行高：按行覆盖优先（拖行边界写的就是它），否则用整表默认
+      const perRow = parseRowHeight((rowHeights as Record<string, unknown>)[String(ri + 1)]);
+      const hMm = Number(String(perRow ?? rowH ?? '').replace('mm', ''));
+      const h = Number.isFinite(hMm) && hMm > 0 ? `<w:trPr><w:trHeight w:val="${Math.round(hMm * 56.7)}"/></w:trPr>` : '';
       return `<w:tr>${h}${cells}</w:tr>`;
     })
     .join('');

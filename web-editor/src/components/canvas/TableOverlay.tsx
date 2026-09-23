@@ -328,22 +328,31 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
   };
 
   /* ── 行高拖拽（B8）──
-     `props.rowHeight` 是**整表一个值**（纯数字按 mm），所以拖任意一条行边界都改全表行高；
-     没有设过行高时用"量到的当前行高"当起点，拖一下就落成一个显式值。 */
-  const startRowDrag = (e: React.PointerEvent, startPx: number) => {
+     ★只改**被拖的那一行**（`props.rowHeights[行号]`，行号 1 基、与 A1 记法同一口径）：
+     2026-09-23 用户反馈"拖哪一条都整表一起变"，说明"行高是整表一个值"这个设计不对 ——
+     现在 `props.rowHeight` 退化为"整表默认行高"，按行覆盖写在 `rowHeights` 里，互不影响。
+     起点：该行已有覆盖就用它，否则用**量到的这一行**高度。 */
+  const startRowDrag = (e: React.PointerEvent, rowIndex: number, startPx: number) => {
     e.preventDefault();
     e.stopPropagation();
     if (!nodeId) return;
     const live = useEditorStore.getState();
     const node = findNode(getForest(live.doc), nodeId);
-    const raw = String(node?.props.rowHeight ?? '').trim();
-    const startMm = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : startPx / mmToPx(1);
+    const overrides = (node?.props.rowHeights && typeof node.props.rowHeights === 'object'
+      ? (node.props.rowHeights as Record<string, unknown>)
+      : {}) as Record<string, unknown>;
+    const rawRow = String(overrides[String(rowIndex + 1)] ?? '').trim();
+    const rawDefault = String(node?.props.rowHeight ?? '').trim();
+    const startMm = /^\d+(\.\d+)?$/.test(rawRow)
+      ? Number(rawRow)
+      : startPx / mmToPx(1) || (/^\d+(\.\d+)?$/.test(rawDefault) ? Number(rawDefault) : 0);
     const startY = e.clientY;
     setRowDrag(true);
     const onMove = (ev: PointerEvent) => {
       const dMm = (ev.clientY - startY) / (zoom || 1) / mmToPx(1);
-      const next = Math.min(Math.max(Math.round((startMm + dMm) * 10) / 10, 4), 60);
-      updateProps(nodeId, { rowHeight: String(next) });
+      const next = Math.min(Math.max(Math.round((startMm + dMm) * 10) / 10, 4), 200);
+      // 只写这一行（其它行的高度原样保留）
+      updateProps(nodeId, { rowHeights: { ...overrides, [String(rowIndex + 1)]: String(next) } });
     };
     const onUp = () => {
       window.removeEventListener('pointermove', onMove);
@@ -436,8 +445,8 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
             key={`row-${b.rowIndex}`}
             data-row-handle="1"
             data-row-index={b.rowIndex}
-            title="拖动调整行高（整表统一，单位 mm）"
-            onPointerDown={(e) => startRowDrag(e, b.rowHeightPx)}
+            title={`拖动调整**第 ${b.rowIndex + 1} 行**的行高（单位 mm，只影响这一行）`}
+            onPointerDown={(e) => startRowDrag(e, b.rowIndex, b.rowHeightPx)}
             className="pointer-events-auto absolute"
             style={{
               left: b.x - 26,

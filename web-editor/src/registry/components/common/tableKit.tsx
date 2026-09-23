@@ -42,6 +42,24 @@ export function parseRowHeight(raw: unknown): string | null {
   return /^\d+(\.\d+)?$/.test(v) ? `${v}mm` : v;
 }
 
+/**
+ * **按行行高**：`props.rowHeights = { "2": "12", "4": "9.5" }` —— 键是 **1 基行号**（与 A1 记法同一口径，
+ * 含表头行时第 1 行就是表头），值同 `rowHeight`（纯数字按 mm）。
+ *
+ * 为什么要按行：`rowHeight` 是"整表默认"，但拖某一条行边界时用户期望**只改那一行**
+ * （2026-09-23 用户反馈："拖哪一条都整表一起变" → 改为按行覆盖，未覆盖的行仍用整表默认）。
+ */
+export function parseRowHeights(raw: unknown): Record<number, string> {
+  const out: Record<number, string> = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const row = Number(k);
+    const css = parseRowHeight(v);
+    if (Number.isFinite(row) && row >= 1 && css) out[row] = css;
+  }
+  return out;
+}
+
 /** 把一行按**未转义**的 `|` 分列，并还原转义：`\|` → `|`、`\\` → `\`、`\n` → 格内换行 */
 function splitRow(line: string): string[] {
   const out: string[] = [];
@@ -320,6 +338,8 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   // 列宽 / 行高（对齐 A4 编辑器的表格属性）+ 单元格级格式（Excel 式覆盖）
   const colWidths = parseColWidths(props.colWidths);
   const rowH = parseRowHeight(props.rowHeight);
+  /** 按行行高（拖某一条行边界只改那一行；未覆盖的行用上面的整表默认 rowHeight） */
+  const rowHeights = parseRowHeights(props.rowHeights);
   let styles = parseCellStyles(props.cellStyles);
   // 兼容旧数据：早期只有"按格填背景"（cellFills），读进来当背景覆盖
   const legacyFills = (props.cellFills && typeof props.cellFills === 'object' ? props.cellFills : {}) as Record<string, unknown>;
@@ -407,10 +427,12 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
 
   /** 单元格级覆盖：以表格级样式为底，再叠加该格的 CellStyle（Excel 的"单元格覆盖默认"） */
   const styleFor = (r: number, c: number, base: React.CSSProperties): React.CSSProperties => {
+    // ① 按行行高优先（拖行边界改的就是它；键是 1 基行号）
+    const perRow = rowHeights[r + 1];
     const key = cellStyleKeyAt(styles, r, c);
     const st = key ? styles[key] : undefined;
-    if (!st) return base;
-    const out: React.CSSProperties = { ...base };
+    if (!st) return perRow ? { ...base, height: perRow } : base;
+    const out: React.CSSProperties = perRow ? { ...base, height: perRow } : { ...base };
     if (st.background) out.background = st.background;
     if (st.color) out.color = st.color;
     if (st.fontSize) out.fontSize = ctx.mode === 'document' ? ctx.ptToPx(st.fontSize) : st.fontSize;
@@ -785,11 +807,18 @@ export function tableSchema(
     },
     {
       key: 'rowHeight',
-      label: '行高（如 9；纯数字按 mm）',
+      label: '行高（**整表默认**，如 9；纯数字按 mm；单行高度用画布拖行边界或下面那条）',
       control: 'text',
       group: GROUP.whole,
       defaultValue: defaults.rowHeight ?? '',
       placeholder: '9',
+    },
+    {
+      key: 'rowHeights',
+      label: '按行行高（画布上拖某一行边界只改那一行；这里可逐条清除）',
+      control: 'tableRowHeights',
+      group: GROUP.whole,
+      defaultValue: {},
     },
     { key: 'cellPadding', label: '内边距（默认值）', control: 'number', group: GROUP.whole, defaultValue: 6, min: 0, max: 24 },
     /* —— 文字 —— */

@@ -3202,12 +3202,14 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
-  /* B8 表格**行高拖拽手柄**（整表统一行高，单位 mm） */
+  /* B8 表格**行高拖拽手柄**（按行：拖哪一条只改哪一行；`rowHeight` 退化为整表默认）
+     回归点（用户 2026-09-23 反馈）：以前拖任意一条边界都会**整表一起变**，所以这里额外钉住
+     "其它行的高度必须一点不动"。 */
   {
     S().setMode('document');
     S().clearAll();
     const t8 = S().addComponent('table');
-    if (t8) S().updateProps(t8, { data: 'A | B\nC | D\nE | F', rowHeight: '', cellStyles: {} });
+    if (t8) S().updateProps(t8, { data: 'A | B\nC | D\nE | F', rowHeight: '', rowHeights: {}, cellStyles: {} });
     await wait(460);
     S().selectComponent(t8 ? [t8] : []);
     await wait(360);
@@ -3215,8 +3217,8 @@ async function interactionChecks(): Promise<Result[]> {
     const zoom8 = S().zoom || 1;
     const handles = [...document.querySelectorAll('[data-row-handle="1"]')] as HTMLElement[];
     const rowEls = [...document.querySelectorAll(`[data-node-id="${t8}"] tr`)] as HTMLElement[];
-    const heightOf = (i: number): number => rowEls[i]?.getBoundingClientRect().height ?? 0;
-    const before = heightOf(0);
+    const heights = (): number[] => rowEls.map((tr) => Math.round(tr.getBoundingClientRect().height));
+    const before = heights();
     const hr8 = handles[0]?.getBoundingClientRect();
     const px = hr8 ? hr8.left + 5 : 0;
     const py = hr8 ? hr8.top + 3 : 0;
@@ -3225,19 +3227,68 @@ async function interactionChecks(): Promise<Result[]> {
     );
     await wait(90);
     window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: px, clientY: py + 25, button: 0, pointerId: 9 }));
-    await wait(200);
+    await wait(220);
     window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: px, clientY: py + 25, button: 0, pointerId: 9 }));
-    await wait(320);
+    await wait(340);
 
-    const rh = String(findNode(getForest(S().doc), t8 ?? '')?.props.rowHeight ?? '');
-    const after = heightOf(0);
-    const expectMm8 = Math.round(((before + 25) / zoom8 / mmToPx(1)) * 10) / 10;
+    const props8 = findNode(getForest(S().doc), t8 ?? '')?.props ?? {};
+    const rh = String(props8.rowHeight ?? '');
+    const overrides = (props8.rowHeights ?? {}) as Record<string, unknown>;
+    const after = heights();
+    const expectMm8 = Math.round(((before[0] + 25) / zoom8 / mmToPx(1)) * 10) / 10;
+    const othersUntouched = after.slice(1).every((h, i) => Math.abs(h - before[i + 1]) <= 1);
     add(
-      'B8 表格行边界手柄：拖 25px → 整表行高写回 props.rowHeight（mm），渲染行高跟着变',
+      'B8 拖某一行边界 → **只改那一行**（渲染 +25px、其它行一点不动、写进 props.rowHeights[行号]）',
       handles.length === Math.max(0, rowEls.length - 1) &&
-        Math.abs(after - before - 25) <= 4 &&
-        Math.abs(Number(rh) - expectMm8) <= 3,
-      `手柄 ${handles.length} 个 / 行 ${rowEls.length} 个；渲染行高 ${Math.round(before)}px → ${Math.round(after)}px（期望 +25px）；props.rowHeight=「${rh}」（期望 ≈${expectMm8}mm）`,
+        Math.abs(after[0] - before[0] - 25) <= 4 &&
+        othersUntouched &&
+        Object.keys(overrides).join(',') === '1' &&
+        Math.abs(Number(overrides['1']) - expectMm8) <= 3,
+      `行高 ${before.join('/')}px → ${after.join('/')}px（只有第 1 行 +25px）；props.rowHeights=${JSON.stringify(overrides)}（期望 ≈${expectMm8}mm）；props.rowHeight=「${rh}」（整表默认，没被改）`,
+    );
+
+    // 再拖第 2 条边界：两条按行行高**共存**，互不影响
+    const hr8b = handles[1]?.getBoundingClientRect();
+    const px2 = hr8b ? hr8b.left + 5 : 0;
+    const py2 = hr8b ? hr8b.top + 3 : 0;
+    handles[1]?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: px2, clientY: py2, button: 0, pointerId: 12 }),
+    );
+    await wait(90);
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: px2, clientY: py2 + 15, button: 0, pointerId: 12 }));
+    await wait(200);
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: px2, clientY: py2 + 15, button: 0, pointerId: 12 }));
+    await wait(340);
+    const after2 = heights();
+    const props8b = (findNode(getForest(S().doc), t8 ?? '')?.props ?? {}) as Record<string, unknown>;
+    const overrides2 = (props8b.rowHeights ?? {}) as Record<string, unknown>;
+    add(
+      'B8 再拖另一条边界 → 两条按行行高共存（第 1 行保持上次改动，第 2 行变化，第 3 行不动）',
+      Object.keys(overrides2).sort().join(',') === '1,2' &&
+        Math.abs(after2[0] - after[0]) <= 1 &&
+        Math.abs(after2[1] - before[1] - 15) <= 4 &&
+        Math.abs(after2[2] - before[2]) <= 1,
+      `行高 ${after2.join('/')}px（第 1 行延续 ${after[0]}、第 2 行 ${before[1]}→${after2[1]}、第 3 行 ${before[2]}→${after2[2]}）；rowHeights=${JSON.stringify(overrides2)}`,
+    );
+
+    // 属性面板「按行行高」：列出被改过的行，可逐条清除 / 全部清除
+    await openGroup('表格');
+    await wait(220);
+    const items = [...document.querySelectorAll('[data-row-height-item]')].map((el) => el.getAttribute('data-row-height-item'));
+    const clearOne = document.querySelector('[data-row-height-clear="1"]') as HTMLElement | null;
+    const hasClearAll = !!document.querySelector('[data-row-heights-clear-all="1"]');
+    clearOne?.click();
+    await wait(320);
+    const afterClear = (findNode(getForest(S().doc), t8 ?? '')?.props ?? {}) as Record<string, unknown>;
+    const cleared = (afterClear.rowHeights ?? {}) as Record<string, unknown>;
+    const afterClearHeights = heights();
+    add(
+      'B8 属性面板「按行行高」列出被改过的行，可逐条清除（清掉后那一行回到整表默认）',
+      items.join(',') === '1,2' &&
+        hasClearAll &&
+        Object.keys(cleared).join(',') === '2' &&
+        Math.abs(afterClearHeights[0] - before[0]) <= 2,
+      `列出 ${items.join('/')}；清除第 1 行后 rowHeights=${JSON.stringify(cleared)}；第 1 行渲染高 ${afterClearHeights[0]}px（默认时 ${before[0]}px）`,
     );
 
     S().selectComponent([]);
