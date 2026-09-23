@@ -4365,6 +4365,60 @@ async function interactionChecks(): Promise<Result[]> {
       legacyShown && migrated.includes(pix) && migrated.includes('老图题') && oldProps.src === '',
       `老图显示为第 1 行=${legacyShown}（地址框${legacySrcBox ? '有' : '无'}值、图题框值=「${legacyCapBox?.value ?? ''}」）；迁移后 images 第 1 行=「${migrated.split('\n')[0].slice(0, 40)}…」、src=「${String(oldProps.src ?? '')}」`,
     );
+
+    /* ★用户 2026-09-23 报的两个 bug，同一个根因：行数只能由换行符决定。
+       ① 没填地址时点 ＋ 加不出占位行；② 删掉上面一行后下面的占位行全没了。
+       （原实现 `parseRows` 里 `if (text.trim() === '')` 会把 `'\n\n'` 压回一行。） */
+    S().clearAll();
+    const emptyNode = S().addComponent('image');
+    await wait(460);
+    S().selectComponent(emptyNode ? [emptyNode] : []);
+    await wait(340);
+    const rowsCount = (): number =>
+      Number((document.querySelector('[data-image-rows="1"]') as HTMLElement | null)?.getAttribute('data-image-rows-count') ?? '0');
+    const propsOf = (id: string): Record<string, unknown> => findNode(getForest(S().doc), id)?.props ?? {};
+    const beforeAdd = rowsCount();
+    (document.querySelector('[data-image-row-add="1"]') as HTMLElement | null)?.click();
+    await wait(300);
+    const afterAddEmpty = rowsCount();
+    const emptyImages = String(propsOf(emptyNode ?? '').images ?? '');
+    add(
+      '图片行全空时点 ＋ 照样加出占位行（行数由换行符决定，不因"看着是空的"被压回一行）',
+      beforeAdd === 1 && afterAddEmpty === 2 && emptyImages === '\n',
+      `点 ＋ 前 ${beforeAdd} 行 → 后 ${afterAddEmpty} 行；props.images=「${emptyImages.replace(/\n/g, '⏎')}」`,
+    );
+
+    // 第 1 行有图、下面两行是空占位：删掉第 1 行，下面两行必须还在
+    if (emptyNode) S().updateProps(emptyNode, { images: `${pix} | 图一\n\n` });
+    await wait(320);
+    const threeRows = rowsCount();
+    (document.querySelector('[data-image-row-remove="1"]') as HTMLElement | null)?.click();
+    await wait(300);
+    const afterTopRemove = rowsCount();
+    const restImages = String(propsOf(emptyNode ?? '').images ?? '');
+    add(
+      '删掉最上面一行时，下面的占位行不会被一并清掉',
+      threeRows === 3 && afterTopRemove === 2 && restImages === '\n',
+      `3 行 → 删第 1 行后 ${afterTopRemove} 行；props.images=「${restImages.replace(/\n/g, '⏎')}」`,
+    );
+
+    // 图题里能正常打空格：值是"输入框 → props → 再解析回输入框"往返的，
+    // 尾部空白被 trim 掉的话，敲空格那一下就被吃掉（"图 1-1" 变 "图1-1"）。按真人逐字输入模拟。
+    const capBox = (): HTMLInputElement | null =>
+      document.querySelector('[data-image-row-caption="1"]') as HTMLInputElement | null;
+    for (const ch of '图 1-1') {
+      const el = capBox();
+      if (!el) break;
+      setInput(el, `${el.value}${ch}`);
+      await wait(100);
+    }
+    await wait(200);
+    const capStored = String(propsOf(emptyNode ?? '').images ?? '');
+    add(
+      '图题里能正常打空格（逐字输入 "图 1-1" 不会被吃成 "图1-1"）',
+      capStored.includes('图 1-1'),
+      `props.images=「${capStored.replace(/\n/g, '⏎')}」`,
+    );
   }
 
   /* 文档 ↔ Web 来回切模式：画布尺寸不能被上一种模式的实测值污染（用户 2026-09-23 反馈） */

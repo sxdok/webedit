@@ -26,19 +26,35 @@ interface Row {
   caption: string;
 }
 
-/** `props.images` 文本 ↔ 行数组（与 image.tsx 的 parseImageLines 同一口径）
- *  ★**空行要保留**：刚点 ＋ 加出来的行就是空的，过滤掉它控件会立刻收回去（点 ＋ 看着没反应）。 */
+/**
+ * `props.images` 文本 ↔ 行数组（与 image.tsx 的 parseImageLines 同一口径）。
+ *
+ * ★★两个坑（用户 2026-09-23 报的两个 bug 都出在这里）：
+ *
+ * 1) **行数只能由换行符决定，不能"trim 一下再看空不空"**。
+ *    `parseRows` 与 `joinRows` 必须**严格互逆**：全空的多行拼出来是 `'\n\n'`，
+ *    如果解析时先 `trim()` 判空、直接回落到"一行"，那这串文本就被压成 1 行 ——
+ *    表现就是「没填地址时点 ＋ 加不出占位行」和「删掉上面一行后下面的行全没了」
+ *    （下面的占位行全被压成一行）。所以：**只有真正的空串 `''`** 才算"一行空行"。
+ *
+ * 2) **图题的尾部空白要留着**，否则打字时吃空格：值是从 props 往返的（每次输入 → 写
+ *    props → 再解析回来当 value），把图题 `trim()` 掉的话，用户输 "图 1-1" 刚敲完空格
+ *    就被吃掉（那一下空格正好在末尾）；只去掉"|"后面的前导空白（那是 MCP 写
+ *    `地址 | 图题` 的排版空格，不该进图题）。
+ */
 export function parseRows(raw: unknown): Row[] {
   const text = String(raw ?? '');
-  if (text.trim() === '') return [{ src: '', caption: '' }];
+  if (text === '') return [{ src: '', caption: '' }];
   return text.split(/\r?\n/).map((line) => {
     const i = line.indexOf('|');
-    return i < 0 ? { src: line.trim(), caption: '' } : { src: line.slice(0, i).trim(), caption: line.slice(i + 1).trim() };
+    if (i < 0) return { src: line.trim(), caption: '' };
+    return { src: line.slice(0, i).trim(), caption: line.slice(i + 1).replace(/^\s+/, '') };
   });
 }
 
+/** 行数组 → `props.images` 文本。与 `parseRows` 严格互逆（空行要保留，行数就是张数）。 */
 export function joinRows(rows: Row[]): string {
-  // ★空行也要保留：这是"行编辑器"，刚点 ＋ 加出来的就是空行 ——
+  // ★空行必须保留：这是"行编辑器"，刚点 ＋ 加出来的就是空行 ——
   //   过滤掉的话数据没变化，控件会立刻把新行收回去（点 ＋ 看着没反应）。
   //   渲染端（image.tsx 的 parseImageLines）本来就会忽略空行，所以保留是安全的。
   return rows.map((r) => (r.caption ? `${r.src} | ${r.caption}` : r.src)).join('\n');
