@@ -29,7 +29,6 @@ const TAGS: Record<string, string> = {
   quote: 'blockquote',
   code: 'pre',
   columns: 'div',
-  pageNumber: 'div',
   date: 'div',
   signature: 'div',
   spacer: 'div',

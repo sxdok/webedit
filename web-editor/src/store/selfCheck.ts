@@ -17,6 +17,7 @@ import { mmToPx } from '../utils/units';
 import { log, planPost } from '../utils/logger';
 import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
+import { parseTableHtml, serializeTableHtml } from '../registry/components/common/tableHtml';
 import { saveToRunDir } from '../utils/download';
 import { findNode, getForest } from './treeUtils';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
@@ -973,6 +974,56 @@ async function interactionChecks(): Promise<Result[]> {
           !!tbl.querySelector('colgroup > col') &&
           !!tbl.querySelector('td,th'),
         `DOM 骨架：${skeleton}；td 数=${tbl?.querySelectorAll('td').length ?? 0}、th 数=${tbl?.querySelectorAll('th').length ?? 0}`,
+      );
+
+      /* ── 表格 HTML ↔ 组件数据（"用 HTML 代码写表格"）：纯函数往返 + 面板入口 ── */
+      const src =
+        '<table><thead><tr><th>项目</th><th>取值</th></tr></thead><tbody>' +
+        '<tr><td style="background:#fff2cc">纸张</td><td>A4</td></tr>' +
+        '<tr><td colspan="2">A3/A4/Letter<br>一行两列</td></tr></tbody></table>';
+      const parsed = parseTableHtml(src);
+      const back = parsed ? serializeTableHtml({ data: parsed.data, headerRow: parsed.headerRow, cellStyles: parsed.cellStyles }) : '';
+      const mergeKey = parsed ? Object.keys(parsed.cellStyles).find((k) => k.includes(':')) : undefined;
+      add(
+        '表格 HTML 可解析成组件数据（行/列、首行表头、底色、合并、<br>换行都认得）',
+        !!parsed &&
+          parsed.rows === 3 &&
+          parsed.cols === 2 &&
+          parsed.headerRow &&
+          parsed.data.includes('纸张') &&
+          parsed.data.includes('A3/A4/Letter\\n一行两列') &&
+          Object.values(parsed.cellStyles).some((s) => s.background === '#fff2cc') &&
+          !!mergeKey,
+        parsed
+          ? `${parsed.rows} 行 × ${parsed.cols} 列；表头=${parsed.headerRow}；底色格=${Object.values(parsed.cellStyles).filter((s) => s.background).length}；合并键=${mergeKey ?? '无'}；data=「${parsed.data.replace(/\n/g, ' ⏎ ')}」`
+          : '解析失败（返回 null）',
+      );
+      add(
+        '表格可反向生成 HTML（含 thead/th、合并 colspan、底色与 <br>）',
+        back.includes('<thead>') &&
+          back.includes('<th') &&
+          back.includes('colspan="2"') &&
+          back.includes('background-color:#fff2cc') &&
+          back.includes('<br>'),
+        `生成 ${back.length} 字符；含 thead=${back.includes('<thead>')}、colspan=${back.includes('colspan="2"')}、底色=${back.includes('background-color:#fff2cc')}、<br>=${back.includes('<br>')}`,
+      );
+
+      // 面板入口：粘贴到「HTML 源码」→ 点「导入 HTML」→ 画布表格真的变了
+      const htmlBox = document.querySelector('[data-table-html-text="1"]') as HTMLTextAreaElement | null;
+      typeInto(htmlBox, '<table><tr><th>A</th><th>B</th></tr><tr><td>x</td><td>y</td></tr></table>');
+      await wait(160);
+      (document.querySelector('[data-table-html-import="1"]') as HTMLButtonElement | null)?.click();
+      await wait(360);
+      const importedData = String(S().doc.document.components.find((n) => n.id === tCell)?.props.data ?? '');
+      const importedHtml = (document.querySelector(`[data-node-id="${tCell}"] table`) as HTMLTableElement | null)?.outerHTML ?? '';
+      add(
+        '表格属性面板：粘贴 HTML → 「导入 HTML」→ 直接换成那张表（走的是组件自己的 data/cellStyles）',
+        !!htmlBox &&
+          importedData.includes('A | B') &&
+          importedData.includes('x | y') &&
+          importedHtml.includes('<th') &&
+          importedHtml.includes('>x<'),
+        `data=「${importedData.replace(/\n/g, ' ⏎ ')}」；画布含 <th>=${importedHtml.includes('<th')}、含 x=${importedHtml.includes('>x<')}`,
       );
 
       // 说明不许铺在面板上：展开全部分组后，属性面板里不应有 <p> 说明段落

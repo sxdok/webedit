@@ -531,6 +531,13 @@ export function tableSchema(
       defaultValue: null,
     },
     {
+      key: 'html',
+      label: 'HTML 源码（粘贴 <table>…</table> 点「导入 HTML」即可变成表格；也能把当前表格生成 HTML）',
+      control: 'tableHtml',
+      group: GROUP.whole,
+      defaultValue: '',
+    },
+    {
       key: 'cellStyles',
       label: '单元格格式（先在画布上点选单元格，可拖选一片；没覆盖的项沿用「表格」组的默认值）',
       control: 'cells',
