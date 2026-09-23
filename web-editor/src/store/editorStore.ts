@@ -29,7 +29,7 @@ import {
   findNode,
   getForest,
   moveNode,
-  normalizeDocTables,
+  normalizeDoc,
   removeNode,
   insertNode,
   setForest,
@@ -837,7 +837,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
             return false;
           }
           const history = pushHistory(get().history, get().doc);
-          set({ doc: normalizeDocTables(parsed), history, selectionReset: undefined } as Partial<EditorStore>);
+          set({ doc: normalizeDoc(parsed), history, selectionReset: undefined } as Partial<EditorStore>);
           return true;
         } catch (e) {
           console.error('[store] importJSON 解析失败', e);
@@ -893,7 +893,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
           ...current,
           ...p,
           doc: pDoc
-            ? normalizeDocTables({
+            ? normalizeDoc({
                 ...current.doc,
                 ...pDoc,
                 document: {
@@ -912,7 +912,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
           /* 分页：老存档没有 pages → 用当前文档造一页；有 pages 但**当前页槽位**是旧的 →
              以持久化的 `doc`（每次改动都会写）为准覆盖它。 */
           pages: (() => {
-            const live = (pDoc ? normalizeDocTables({ ...current.doc, ...pDoc }) : current.doc) as EditorDocument;
+            const live = (pDoc ? normalizeDoc({ ...current.doc, ...pDoc }) : current.doc) as EditorDocument;
             const stored = Array.isArray(p.pages) ? (p.pages as EditorPage[]) : [];
             if (!stored.length) return [{ id: live.id, title: live.title, mode: live.mode, doc: live }];
             const activeId = typeof p.activePageId === 'string' && p.activePageId ? p.activePageId : stored[0].id;

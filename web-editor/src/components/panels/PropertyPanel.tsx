@@ -223,27 +223,33 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
 
   return (
     <div className="px-2.5 py-1.5" data-props-panel="1" data-props-renders={nodePropsRenders}>
-      {/* ── 顶部固定区 ── */}
-      <div className="mb-1 flex items-center gap-1.5">
-        <def.icon className="h-4 w-4 text-primary" />
-        <span className="text-[13px] font-semibold text-gray-800">{def.label}</span>
-        <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-2xs text-gray-500">{node.type}</span>
-      </div>
-      <div className="mb-1.5 flex items-center gap-1">
-        <span className="font-mono text-2xs text-gray-400">{node.id}</span>
+      {/* ── 顶部固定区：组件名 + type + **组件 ID**（用户 2026-09-24：是组件 ID 就放在 type 标签后面，
+             别单独占一行）── */}
+      <div className="mb-1.5 flex min-w-0 items-center gap-1.5" data-props-head="1">
+        <def.icon className="h-4 w-4 shrink-0 text-primary" />
+        <span className="min-w-0 truncate text-[13px] font-semibold text-gray-800">{def.label}</span>
+        <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 font-mono text-2xs text-gray-500">{node.type}</span>
+        <span
+          data-props-id="1"
+          className="shrink-0 font-mono text-2xs text-gray-400"
+          title={`组件 ID：${node.id}\n本文档内唯一（读取/导入时会把重复或缺失的 ID 重新生成）；\n它写进文档 JSON，选中、撤销重做、组件树、MCP 的 node.* 都用它。`}
+        >
+          {node.id}
+        </span>
         <button
           type="button"
+          data-copy-id="1"
           title="复制组件 ID"
           onClick={() => {
             void navigator.clipboard?.writeText(node.id);
             setCopied(true);
             setTimeout(() => setCopied(false), 1200);
           }}
-          className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-primary"
+          className="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-primary"
         >
           <Copy className="h-3 w-3" />
         </button>
-        {copied && <span className="text-2xs text-emerald-600">已复制</span>}
+        {copied && <span className="shrink-0 text-2xs text-emerald-600">已复制</span>}
       </div>
       <div className="mb-1.5 flex h-6 items-center gap-1.5 rounded-md border border-line bg-white px-2">
         <Search className="h-3.5 w-3.5 text-gray-400" />

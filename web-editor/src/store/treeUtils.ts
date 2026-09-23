@@ -234,28 +234,46 @@ export function createNode(def: ComponentDefinition, mode: EditorMode): Componen
 const isTableType = (t: string): boolean => t === 'table' || /Table$/.test(t);
 
 /**
- * 把表格类组件的 `data` 统一成**文本形态**（数组 → "a | b\nc | d"）。
+ * 读档 / 导入时的**统一规整**（幂等、纯函数；只在确实需要改时才返回新对象）：
  *
- * 背景：早期组件默认属性里的 `data` 是二维数组，而属性面板的「数据」是文本域 ——
- * 数组进去只能显示成 "a,b,c"（用户反馈"表格数据不显示"）。
- * 在**读档与导入**时规整一次，旧存档与新拖入的表格就都是同一种形态。
- * 纯函数、不改结构（只把 props.data 换掉），可安全用在 persist merge 里。
+ * ① 表格类组件的 `data` 统一成**文本形态**（数组 → "a | b\nc | d"）。
+ *    背景：早期组件默认属性里的 `data` 是二维数组，而属性面板的「数据」是文本域 ——
+ *    数组进去只能显示成 "a,b,c"（用户反馈"表格数据不显示"）。读档与导入时规整一次即可。
+ *
+ * ② **组件 ID 唯一**：缺 ID 或 ID 重复的节点一律重新生成（前缀仍取组件类型前 3 个字母）。
+ *    为什么必须在读档时兜一道：ID 是"组件身份"—— 选中、撤销重做、组件树、画布命中、MCP 的 `node.*`
+ *    全用它，而 `createId()` 只是"类型前缀 + 10 位随机"（≈40 bit），**没有全局强校验**；
+ *    手工改过的 JSON / 老存档 / 外部通道写进来的文档都可能带重复 ID，那就会出现
+ *    "选一个选中俩 / 改一个动两个 / 删除连带"这类怪事（用户 2026-09-24 问"ID 都是唯一的吗"）。
  */
-export function normalizeDocTables(doc: EditorDocument): EditorDocument {
+export function normalizeDoc(doc: EditorDocument): EditorDocument {
+  const seen = new Set<string>();
+  // 先把 Web 根节点占掉，避免某个组件 ID 和根 ID 撞车
+  if (doc.web?.root?.id) seen.add(doc.web.root.id);
   let touched = false;
+
   const walk = (list: ComponentNode[]): ComponentNode[] =>
     list.map((n) => {
+      const rawId = typeof n.id === 'string' ? n.id.trim() : '';
+      let id = n.id;
+      if (!rawId || seen.has(rawId)) {
+        id = createId(String(n.type ?? 'n').slice(0, 3));
+        touched = true;
+      }
+      seen.add(id);
       const children = n.children?.length ? walk(n.children) : n.children;
       const raw = n.props?.data;
       const needData = isTableType(n.type) && raw != null && typeof raw !== 'string';
-      if (!needData && children === n.children) return n;
+      if (!needData && children === n.children && id === n.id) return n;
       touched = true;
       return {
         ...n,
+        id,
         ...(needData ? { props: { ...n.props, data: toTableText(raw) } } : {}),
         ...(children !== n.children ? { children } : {}),
       };
     });
+
   const components = walk(doc.document.components);
   const webChildren = walk(doc.web.root.children ?? []);
   if (!touched) return doc;

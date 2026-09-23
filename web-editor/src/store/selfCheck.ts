@@ -10,7 +10,7 @@ import { Type } from 'lucide-react';
 import { getAllComponents, getCategoriesByMode, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
 import { COMPONENT_MODULES, collectComponents } from '../registry/components';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
-import { CATEGORY_ORDER, pageLabel, type ComponentDefinition } from '../registry/types';
+import { CATEGORY_ORDER, pageLabel, type ComponentDefinition, type ComponentNode, type EditorDocument } from '../registry/types';
 import { createInitialDocument, useEditorStore } from './editorStore';
 import { HISTORY_LIMIT } from './history';
 import { mmToPx } from '../utils/units';
@@ -29,7 +29,7 @@ import { buildPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FOR
 import { buildDocx, docxParts, isZip } from '../utils/export/docx';
 import { continueSeries, fillSeries } from '../registry/components/common/tableFill';
 import { saveToRunDir } from '../utils/download';
-import { findNode, findParentId, getForest } from './treeUtils';
+import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -4679,6 +4679,88 @@ async function interactionChecks(): Promise<Result[]> {
       '图题里能正常打空格（逐字输入 "图 1-1" 不会被吃成 "图1-1"）',
       capStored.includes('图 1-1'),
       `props.images=「${capStored.replace(/\n/g, '⏎')}」`,
+    );
+  }
+
+  /* 组件 ID：面板显示位置 + 唯一性（用户 2026-09-24 问「toc_fe775e9026 是不是组件 ID、都是唯一的吗」） */
+  {
+    const idsOf = (d: EditorDocument): string[] => {
+      const out: string[] = [];
+      const walk = (list: ComponentNode[]): void => {
+        list.forEach((n) => {
+          out.push(n.id);
+          if (n.children?.length) walk(n.children);
+        });
+      };
+      walk(d.document.components);
+      walk(d.web.root.children ?? []);
+      return out;
+    };
+
+    // ① 面板：ID 跟 type 标签同一行（不再单独占一行）
+    S().setMode('document');
+    S().clearAll();
+    const tocNode = S().addComponent('toc');
+    await wait(460);
+    S().selectComponent(tocNode ? [tocNode] : []);
+    await wait(340);
+    const idEls = [...document.querySelectorAll('[data-props-panel] [data-props-id]')] as HTMLElement[];
+    const inHead = !!idEls[0]?.closest('[data-props-head]');
+    add(
+      '属性面板：组件 ID 显示在 type 标签**同一行**（不再单独占一行），内容就是该节点的 node.id',
+      idEls.length === 1 &&
+        inHead &&
+        idEls[0]?.textContent === tocNode &&
+        !!document.querySelector('[data-props-panel] [data-copy-id="1"]'),
+      `面板里 ID 元素 ${idEls.length} 个、在标题行=${inHead}、文本=「${idEls[0]?.textContent ?? ''}」、节点 id=「${String(tocNode ?? '')}」`,
+    );
+
+    // ② 唯一性：示例两页全部节点（含嵌套）
+    const demoIds = buildDemoPages().flatMap((p) => idsOf(p.doc));
+    const dupDemo = demoIds.filter((id, i) => demoIds.indexOf(id) !== i);
+    add(
+      `组件 ID 唯一：示例两页共 ${demoIds.length} 个节点（含嵌套）无重复，且都带"类型前缀_随机"形状`,
+      demoIds.length > 80 &&
+        dupDemo.length === 0 &&
+        demoIds.every((id) => /^[a-z]{2,4}_[0-9a-z]{6,}$/i.test(id)),
+      `重复 ${dupDemo.length} 个${dupDemo.length ? `：${dupDemo.slice(0, 3).join('、')}` : ''}；样例 ${demoIds.slice(0, 3).join('、')}`,
+    );
+
+    // ③ 读档/导入规整：重复 / 缺失的 ID 会被重新生成
+    const dirty = {
+      ...S().doc,
+      document: {
+        ...S().doc.document,
+        components: [
+          { id: 'dup_id', type: 'paragraph', props: {} },
+          { id: 'dup_id', type: 'heading', props: {} },
+          { type: 'bullets', props: {} },
+        ] as ComponentNode[],
+      },
+      web: {
+        ...S().doc.web,
+        root: { ...S().doc.web.root, children: [{ id: 'dup_id', type: 'button', props: {} } as ComponentNode] },
+      },
+    } as EditorDocument;
+    const fixedIds = idsOf(normalizeDoc(dirty));
+    add(
+      '读档/导入规整：重复或缺失的组件 ID 会重新生成（首次出现保留，冲突与空 ID 换新）',
+      fixedIds.length === 4 && new Set(fixedIds).size === 4 && fixedIds[0] === 'dup_id',
+      `规整后 ${fixedIds.length} 个 ID：${fixedIds.join('、')}`,
+    );
+
+    // ④ 复制组件：整棵子树换新 ID
+    S().clearAll();
+    const copyParent = S().addComponent('columns');
+    const copyChild = copyParent ? S().addComponent('paragraph', copyParent) : null;
+    await wait(420);
+    if (copyParent) S().duplicateComponent(copyParent);
+    await wait(460);
+    const afterCopyIds = idsOf(S().doc);
+    add(
+      '复制组件会为整棵子树重新生成 ID（副本与原节点不共用 ID）',
+      afterCopyIds.length >= 4 && new Set(afterCopyIds).size === afterCopyIds.length && !!copyChild,
+      `复制后 ${afterCopyIds.length} 个节点 / ${new Set(afterCopyIds).size} 个不同 ID`,
     );
   }
 
