@@ -12,6 +12,7 @@ import { useShortcuts } from './components/layout/useShortcuts';
 import { ComponentPanel } from './components/panels/ComponentPanel';
 import { ComponentTree } from './components/panels/ComponentTree';
 import { DiagnosticsPanel } from './components/panels/DiagnosticsPanel';
+import { NewDocDialog } from './components/layout/NewDocDialog';
 import { PropertyPanel } from './components/panels/PropertyPanel';
 import { useEditorStore } from './store/editorStore';
 
@@ -169,6 +170,9 @@ export default function App() {
 
       {/* 诊断面板（帮助 → 诊断信息 / ?diag=1） */}
       <DiagnosticsPanel open={ui.showDiagnostics} onClose={() => toggleUI('showDiagnostics')} />
+
+      {/* 新建文档（文件 → 新建 / Ctrl+N）：先选模式 → 再按模式填参数 */}
+      <NewDocDialog />
     </div>
   );
 }

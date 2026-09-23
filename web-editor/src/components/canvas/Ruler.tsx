@@ -41,8 +41,9 @@ export function Ruler({
   if (orientation === 'horizontal') {
     return (
       <div
+        data-ruler="h"
         className="ruler-bg relative select-none overflow-hidden border-b border-line"
-        style={{ height: thickness }}
+        style={{ height: thickness, width: '100%' }}
       >
         {ticks.map((t, i) => (
           <div key={i} className="absolute top-0" style={{ left: scaled(t.pos) }}>
@@ -63,8 +64,10 @@ export function Ruler({
 
   return (
     <div
+      data-ruler="v"
+      /* ★高度必须撑满容器：刻度都是绝对定位的，没有 height 时 auto = 0（纵向标尺会量到 0 高） */
       className="ruler-bg relative select-none overflow-hidden border-r border-line"
-      style={{ width: thickness }}
+      style={{ width: thickness, height: '100%' }}
     >
       {ticks.map((t, i) => (
         <div key={i} className="absolute left-0" style={{ top: scaled(t.pos) }}>

@@ -41,6 +41,8 @@ export function Modal({
 }
 
 export const SHORTCUTS: [string, string][] = [
+  ['Ctrl/Cmd + N', '新建文档（先选模式 → 再填参数）'],
+  ['空格 + 拖拽 / 中键拖拽', '平移画布（像 PS 的手抓工具）'],
   ['Delete / Backspace', '删除选中组件'],
   ['Ctrl/Cmd + Z', '撤销'],
   ['Ctrl/Cmd + Shift + Z', '重做'],

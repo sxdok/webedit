@@ -153,6 +153,67 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     JSON.stringify(selectedIds),
   ]);
   const viewportRef = useRef<HTMLDivElement>(null);
+  /** 平移画布（PS 式手抓工具）：按住空格 + 拖拽，或中键拖拽 */
+  const spaceRef = useRef(false);
+  const panRef = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
+  const [panReady, setPanReady] = useState(false);
+  const [panning, setPanning] = useState(false);
+
+  useEffect(() => {
+    const typing = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      const tag = el?.tagName?.toLowerCase();
+      return tag === 'input' || tag === 'textarea' || tag === 'select' || !!el?.isContentEditable;
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || typing(e.target)) return;
+      e.preventDefault(); // 别让空格把页面往下滚
+      if (!spaceRef.current) {
+        spaceRef.current = true;
+        setPanReady(true);
+      }
+    };
+    const reset = () => {
+      spaceRef.current = false;
+      setPanReady(false);
+      panRef.current = null;
+      setPanning(false);
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      reset();
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', reset);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', reset);
+    };
+  }, []);
+
+  /** 平移起手：只有"空格按住"或"中键"才接管（否则交给节点拖拽/框选） */
+  const startPan = (e: React.PointerEvent): boolean => {
+    const isMiddle = e.button === 1;
+    if (!spaceRef.current && !isMiddle) return false;
+    const el = viewportRef.current;
+    if (!el) return false;
+    panRef.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
+    setPanning(true);
+    return true;
+  };
+  const movePan = (e: React.PointerEvent): void => {
+    const p = panRef.current;
+    const el = viewportRef.current;
+    if (!p || !el) return;
+    el.scrollLeft = p.sl - (e.clientX - p.x);
+    el.scrollTop = p.st - (e.clientY - p.y);
+  };
+  const endPan = (): void => {
+    panRef.current = null;
+    setPanning(false);
+  };
 
   /** 适应宽度（只算画布预览的缩放，不动编辑器界面） */
   const fitWidth = () => {
@@ -193,45 +254,81 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   };
 
   const printDebug = new URLSearchParams(location.search).get('printdebug');
+  const contentW = mode === 'document' ? mmToPx(page.width) : canvas.width;
+  const contentH = mode === 'document' ? mmToPx(page.height) : canvas.height;
+  const rulerW = ui.showRuler ? RULER_H * zoom : 0;
   return (
     <div
       id="canvas-viewport"
       ref={viewportRef}
-      className="thin-scroll relative flex-1 overflow-auto bg-canvasbg px-6 pb-6"
+      data-pan={panning ? '1' : panReady ? 'ready' : '0'}
+      className={`thin-scroll relative flex-1 overflow-auto bg-canvasbg px-6 pb-6 ${
+        panning ? 'cursor-grabbing' : panReady ? 'cursor-grab' : ''
+      }`}
+      onPointerDownCapture={(e) => {
+        // 空格/中键 → 平移画布：在捕获阶段接管，别让下面的节点拖拽/框选也响应
+        if (!startPan(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      onPointerMove={movePan}
+      onPointerUp={endPan}
+      onPointerCancel={endPan}
+      onPointerLeave={endPan}
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) selectComponent([]);
       }}
+      /* 中键默认会触发浏览器自动滚动，这里按掉 */
+      onAuxClick={(e) => {
+        if (e.button === 1) e.preventDefault();
+      }}
     >
-      <div className="mx-auto" style={{ width: outerW || undefined, height: outerH || undefined }}>
+      <div
+        className="mx-auto"
+        style={{
+          width: (outerW || 0) + rulerW || undefined,
+          height: (outerH || 0) + rulerW || undefined,
+        }}
+      >
         {/* ★标尺必须放在缩放层**外面**：sticky 在有 transform 祖先的容器里不生效（会跟着内容一起滚）。
-            这里让标尺自己带 scale，既贴顶又与缩放后的纸张对齐。 */}
+            横向贴顶、纵向贴左，左上角交点单列一格。
+            ★sticky 的"活动空间"受**它的包含块**限制：所以吸顶要写在**整行**上（行高只占一条标尺，
+              但它的包含块是整块内容区），行内的左上角格再 sticky left-0 贴左边。 */}
         {ui.showRuler && (
-          <div className="no-print sticky top-0 z-20" style={{ height: RULER_H * zoom }}>
+          <div className="no-print sticky top-0 z-20 flex" style={{ height: RULER_H * zoom }}>
             <div
-              style={{
-                width: mode === 'document' ? mmToPx(page.width) : canvas.width,
-                transform: `scale(${zoom})`,
-                transformOrigin: 'top left',
-              }}
-            >
-              <Ruler
-                mode={mode}
-                length={mode === 'document' ? mmToPx(page.width) : canvas.width}
-                zoom={zoom}
-                orientation="horizontal"
-              />
+              data-ruler-corner="1"
+              className="ruler-bg no-print sticky left-0 z-30 shrink-0 border-b border-r border-line"
+              style={{ width: RULER_H * zoom, height: RULER_H * zoom }}
+            />
+            <div className="min-w-0" style={{ width: outerW || undefined }}>
+              <div style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+                <Ruler mode={mode} length={contentW} zoom={zoom} orientation="horizontal" />
+              </div>
             </div>
           </div>
         )}
-        <div
-          ref={ref}
-          className="print-reset"
-          style={{
-            width: mode === 'document' ? mmToPx(page.width) : canvas.width,
-            transform: `scale(${zoom})`,
-            transformOrigin: 'top left',
-          }}
-        >
+        {/* items-start：别让纸张被行高拉伸（否则 useScaledBox 量到的高度会自己喂自己，越量越大） */}
+        <div className="flex items-start">
+          {ui.showRuler && (
+            <div
+              className="no-print sticky left-0 z-20 shrink-0"
+              style={{ width: RULER_H * zoom, height: outerH || undefined }}
+            >
+              <div style={{ height: contentH, transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+                <Ruler mode={mode} length={contentH} zoom={zoom} orientation="vertical" />
+              </div>
+            </div>
+          )}
+          <div
+            ref={ref}
+            className="print-reset"
+            style={{
+              width: contentW,
+              transform: `scale(${zoom})`,
+              transformOrigin: 'top left',
+            }}
+          >
           {mode === 'document' ? (
             <PaperCanvas
               nodes={nodes}
@@ -265,6 +362,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
               it={it}
             />
           )}
+          </div>
         </div>
       </div>
       {/* 画布缩放控件：只影响"画布预览"，不像浏览器缩放那样把整个编辑器界面一起放大 */}
@@ -303,6 +401,10 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
         >
           100%
         </button>
+        <span className="mx-0.5 h-4 w-px bg-line" />
+        <span className="whitespace-nowrap pr-0.5 text-2xs text-gray-400" title="像 PS 的手抓工具：按住空格拖拽，或按住鼠标中键拖拽">
+          空格/中键拖拽平移
+        </span>
       </div>
 
       {printDebug ? <PrintDebugPanel /> : null}

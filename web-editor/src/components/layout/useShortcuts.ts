@@ -25,6 +25,11 @@ export function useShortcuts() {
         S.selectComponent([]);
         return;
       }
+      if (mod && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        S.setNewDocOpen(true); // 新建：先选模式再填参数（类似 PS）
+        return;
+      }
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) S.redo();

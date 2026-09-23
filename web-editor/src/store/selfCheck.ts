@@ -2603,5 +2603,182 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
+  /* ── 标尺：顶部 + **左侧**都要有（两种模式）──
+     左侧标尺用 sticky left-0 贴在左边、竖向刻度随内容滚动，与顶部标尺在左上角交汇。 */
+  {
+    const measure = async (m: 'document' | 'web') => {
+      S().setMode(m);
+      await wait(260);
+      const h = document.querySelector('[data-ruler="h"]') as HTMLElement | null;
+      const v = document.querySelector('[data-ruler="v"]') as HTMLElement | null;
+      const corner = document.querySelector('[data-ruler-corner="1"]') as HTMLElement | null;
+      const content = m === 'document' ? mmToPx(S().doc.document.page.width) : S().doc.web.canvas.width;
+      return {
+        hasH: !!h,
+        hasV: !!v,
+        hasCorner: !!corner,
+        // 竖向标尺的可见高度应≈内容高度 × 缩放（±2px 容差）
+        vH: v ? Math.round(v.getBoundingClientRect().height) : -1,
+        want: Math.round((m === 'document' ? mmToPx(S().doc.document.page.height) : S().doc.web.canvas.height) * S().zoom),
+        contentW: content,
+      };
+    };
+    const d = await measure('document');
+    add(
+      '文档模式：顶部与**左侧**都有标尺（左上角有交汇格）',
+      d.hasH && d.hasV && d.hasCorner && Math.abs(d.vH - d.want) <= 3,
+      `横=${d.hasH} 纵=${d.hasV} 角=${d.hasCorner}；竖标尺高 ${d.vH}px（期望≈${d.want}px）`,
+    );
+    const w = await measure('web');
+    add(
+      'Web 模式：顶部与左侧都有标尺（单位 px）',
+      w.hasH && w.hasV && w.hasCorner && Math.abs(w.vH - w.want) <= 3,
+      `横=${w.hasH} 纵=${w.hasV} 角=${w.hasCorner}；竖标尺高 ${w.vH}px（期望≈${w.want}px）`,
+    );
+    S().setMode('document');
+    await wait(160);
+  }
+
+  /* ── 画布平移：按住空格拖拽 / 中键拖拽（PS 式手抓工具）── */
+  {
+    S().setMode('document');
+    S().clearAll();
+    S().addComponent('paragraph');
+    S().setZoom(2); // 放大到 200% 保证两个方向都有滚动余量
+    await wait(320);
+    const vp = document.getElementById('canvas-viewport') as HTMLElement | null;
+    const before = vp ? { l: vp.scrollLeft, t: vp.scrollTop } : null;
+    if (vp && before) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
+      await wait(60);
+      const panReady = vp.getAttribute('data-pan') === 'ready';
+      const rect = vp.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      pe('pointerdown', cx, cy, vp);
+      pe('pointermove', cx - 140, cy - 110, vp);
+      pe('pointerup', cx - 140, cy - 110, vp);
+      await wait(160);
+      const after = { l: vp.scrollLeft, t: vp.scrollTop };
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+      await wait(80);
+      const reset = vp.getAttribute('data-pan') === '0';
+      add(
+        '画布可用**空格 + 拖拽**平移（PS 式手抓；光标随之变化）',
+        panReady && after.l > before.l + 80 && after.t > before.t + 60 && reset,
+        `空格提示=${panReady}；滚动 (${before.l},${before.t}) → (${after.l},${after.t})；松开后状态复原=${reset}`,
+      );
+    } else {
+      add('画布可用**空格 + 拖拽**平移（PS 式手抓；光标随之变化）', false, '找不到 #canvas-viewport');
+    }
+    // 中键拖拽（不按空格也能平移）
+    if (vp) {
+      const before2 = { l: vp.scrollLeft, t: vp.scrollTop };
+      const rect = vp.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      vp.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: cx, clientY: cy, button: 1, pointerId: 21 }));
+      vp.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: cx - 90, clientY: cy - 70, button: 1, pointerId: 21 }));
+      vp.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: cx - 90, clientY: cy - 70, button: 1, pointerId: 21 }));
+      await wait(160);
+      const after2 = { l: vp.scrollLeft, t: vp.scrollTop };
+      add(
+        '画布可用**中键拖拽**平移（不必按空格）',
+        after2.l > before2.l + 50 && after2.t > before2.t + 40,
+        `滚动 (${before2.l},${before2.t}) → (${after2.l},${after2.t})`,
+      );
+    }
+    S().setZoom(1);
+    await wait(160);
+  }
+
+  /* ── 新建文档：先选模式 → 再填参数（类似 PS 的新建）── */
+  {
+    S().setNewDocOpen(true);
+    await wait(240);
+    const step1 = document.querySelector('[data-new-doc="1"][data-new-doc-step="1"]');
+    const modes = document.querySelectorAll('[data-new-doc-mode]');
+    add(
+      '新建文档：第 1 步先选模式（文档模式 / Web 模式）',
+      !!step1 && modes.length === 2,
+      step1 ? `两种模式入口 ${modes.length} 个` : '对话框未打开',
+    );
+
+    // 选「文档模式」→ 第 2 步只有文档相关参数
+    (document.querySelector('[data-new-doc-mode="document"]') as HTMLButtonElement | null)?.click();
+    await wait(220);
+    const p = document.querySelector('[data-new-doc-params="document"]');
+    const paper = document.querySelector('[data-new-doc-paper="1"]') as HTMLSelectElement | null;
+    const titleInput = document.querySelector('[data-new-doc-title="1"]') as HTMLInputElement | null;
+    const orient = document.querySelector('[data-new-doc-orientation="1"]') as HTMLSelectElement | null;
+    add(
+      '新建文档：第 2 步按模式给参数（文档模式=纸张/宽高/方向/页边距）',
+      !!p && !!paper && !!titleInput && !!orient && !document.querySelector('[data-new-doc-device="1"]'),
+      p ? `纸张选项 ${paper?.options.length ?? 0} 个；方向=${!!orient}；无 Web 参数=${!document.querySelector('[data-new-doc-device="1"]')}` : '未进入第 2 步',
+    );
+
+    if (p && paper && titleInput && orient) {
+      const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => {
+        const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      setVal(titleInput, '自检新建的 A3 横向文档');
+      setVal(paper, 'A3');
+      await wait(120);
+      setVal(orient, 'landscape');
+      await wait(120);
+      (document.querySelector('[data-new-doc-create="1"]') as HTMLButtonElement | null)?.click();
+      await wait(420);
+      const doc = S().doc;
+      const pg = doc.document.page;
+      add(
+        '新建文档：按参数创建（标题 / A3 横向 420×297 / 弹窗关闭）',
+        doc.title === '自检新建的 A3 横向文档' &&
+          doc.mode === 'document' &&
+          pg.size === 'A3' &&
+          pg.orientation === 'landscape' &&
+          pg.width === 420 &&
+          pg.height === 297 &&
+          !document.querySelector('[data-new-doc="1"]'),
+        `标题=「${doc.title}」模式=${doc.mode} 纸张=${pg.size} ${pg.width}×${pg.height}（${pg.orientation}）；弹窗已关=${!document.querySelector('[data-new-doc="1"]')}`,
+      );
+    }
+
+    // Web 模式路径
+    S().setNewDocOpen(true);
+    await wait(220);
+    (document.querySelector('[data-new-doc-mode="web"]') as HTMLButtonElement | null)?.click();
+    await wait(220);
+    const dev = document.querySelector('[data-new-doc-device="1"]') as HTMLSelectElement | null;
+    const titleW = document.querySelector('[data-new-doc-title="1"]') as HTMLInputElement | null;
+    if (dev && titleW) {
+      const setVal = (el: HTMLInputElement | HTMLSelectElement, v: string) => {
+        const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+        Object.getOwnPropertyDescriptor(proto, 'value')?.set?.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+      setVal(titleW, '自检新建的手机画布');
+      setVal(dev, 'Mobile');
+      await wait(160);
+      (document.querySelector('[data-new-doc-create="1"]') as HTMLButtonElement | null)?.click();
+      await wait(420);
+      const c = S().doc;
+      add(
+        '新建文档：Web 模式按参数创建（标题 / Mobile 375×812 / 模式=web）',
+        c.title === '自检新建的手机画布' && c.mode === 'web' && c.web.canvas.device === 'Mobile' && c.web.canvas.width === 375 && c.web.canvas.height === 812,
+        `标题=「${c.title}」模式=${c.mode} 设备=${c.web.canvas.device} ${c.web.canvas.width}×${c.web.canvas.height}；步骤标记=${document.querySelector('[data-new-doc="1"]') ? '弹窗还在' : '已关闭'}`,
+      );
+    } else {
+      add('新建文档：Web 模式按参数创建（标题 / Mobile 375×812 / 模式=web）', false, '第 2 步没有设备/标题字段');
+    }
+
+    // 收尾：撤销回新建之前，避免影响后续断言
+    S().undo();
+    await wait(200);
+  }
+
   return out;
 }

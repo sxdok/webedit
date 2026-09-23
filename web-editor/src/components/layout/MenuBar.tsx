@@ -10,7 +10,6 @@ import {
   type PageSizeKey,
 } from '../../registry/types';
 import {
-  createInitialDocument,
   selectCanRedo,
   selectCanUndo,
   selectForest,
@@ -65,11 +64,10 @@ export function MenuBar() {
   const fileMenu: MenuEntry[] = [
     {
       key: 'new',
-      label: '新建',
-      onClick: () => {
-        if (!window.confirm('新建会清空当前文档（两套模式内容都会重置），继续？')) return;
-        S().importJSON(JSON.stringify(createInitialDocument()));
-      },
+      label: '新建…',
+      shortcut: 'Ctrl+N',
+      // 先选模式再填参数（类似 PS 的新建）；创建走 importJSON → 一步历史，可 Ctrl+Z 撤销
+      onClick: () => S().setNewDocOpen(true),
     },
     {
       key: 'open',

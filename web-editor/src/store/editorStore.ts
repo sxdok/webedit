@@ -60,6 +60,8 @@ export interface UIState {
   rightWidth: number;
   /** 诊断面板（帮助 → 诊断信息 / ?diag=1） */
   showDiagnostics: boolean;
+  /** 新建文档对话框（文件 → 新建 / Ctrl+N）：先选模式再填参数（类似 PS 的新建） */
+  newDocOpen: boolean;
   /** 组件注册表版本：运行时（热加载）注册组件后 +1，面板据此重渲染 */
   registryVersion: number;
   /** 编辑器主题：light=浅色，monokai=深色（参考 Monokai 配色） */
@@ -94,6 +96,7 @@ const initialUI: UIState = {
   leftWidth: 240,
   rightWidth: 300,
   showDiagnostics: false,
+  newDocOpen: false,
   registryVersion: 0,
   theme: 'light',
   docPageCount: 1,
@@ -181,6 +184,8 @@ export interface EditorStore {
   /* 视图 */
   setZoom(z: number): void;
   toggleUI(key: keyof UIState): void;
+  /** 打开/关闭「新建文档」对话框（先选模式 → 再填参数） */
+  setNewDocOpen(open: boolean): void;
   /** 拖拽调整面板宽度（side=left 组件面板 / right 属性面板） */
   setPanelWidth(side: 'left' | 'right', width: number): void;
   setTitle(title: string): void;
@@ -608,6 +613,10 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
         log.debug('store', 'toggleUI', { key });
         set((s) => ({ ui: { ...s.ui, [key]: !s.ui[key] } }));
       },
+      setNewDocOpen: (open) => {
+        log.debug('store', 'setNewDocOpen', { open });
+        set((s) => ({ ui: { ...s.ui, newDocOpen: open } }));
+      },
       /** 拖拽调整左右面板宽度（夹在 180–560px；越界时不写盘，避免拖出不可用布局） */
       setPanelWidth: (side, width) => {
         const w = Math.round(Math.max(180, Math.min(560, width)));
@@ -698,7 +707,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
           doc: s.doc,
           zoom: s.zoom,
           // 诊断面板属于临时弹层，不持久化（否则刷新后会自动弹出）
-          ui: { ...s.ui, showDiagnostics: false },
+          ui: { ...s.ui, showDiagnostics: false, newDocOpen: false },
         }) as unknown as EditorStore,
       /**
        * ★恢复时**深合并**，而不是默认的顶层浅合并。
@@ -734,7 +743,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
               })
             : current.doc,
           // ★关键：旧数据缺的新字段一律回落到默认值
-          ui: { ...initialUI, ...(p.ui ?? {}), showDiagnostics: false },
+          ui: { ...initialUI, ...(p.ui ?? {}), showDiagnostics: false, newDocOpen: false },
           // 撤销栈不持久化（partialize 里也没存）；这里显式清空，避免将来加字段时
           // 把一份指向已不存在节点的旧历史合并进来。
           history: emptyHistory(),
