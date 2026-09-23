@@ -34,7 +34,6 @@ import { bridgeStatus, isBridgeEnabled, setBridgeEnabled } from '../../mcp/bridg
 import { fitZoom } from '../canvas/fitZoom';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
 import { Modal, SHORTCUTS } from '../ui/Modal';
-import { useModeSwitch } from './ModeSwitcher';
 
 /** MCP 桥接状态文案（未开启 / 连接中 / 已连接 · 已重连 N 次 / 上次错误） */
 function bridgeStatusLabel(): string {
@@ -64,7 +63,6 @@ export function MenuBar() {
   const title = useEditorStore((s) => s.doc.title);
   const page = useEditorStore((s) => s.doc.document.page);
   const canvas = useEditorStore((s) => s.doc.web.canvas);
-  const switchMode = useModeSwitch();
 
   const S = () => useEditorStore.getState();
 
@@ -177,7 +175,7 @@ export function MenuBar() {
     { key: 'v0', separator: true },
     { key: 'grid', label: '显示网格', checked: ui.showGrid, onClick: () => S().toggleUI('showGrid') },
     { key: 'ruler', label: '显示标尺', checked: ui.showRuler, onClick: () => S().toggleUI('showRuler') },
-    { key: 'guides', label: '显示辅助线（页边距）', checked: ui.showGuides, onClick: () => S().toggleUI('showGuides') },
+    { key: 'guides', label: '显示辅助线', checked: ui.showGuides, onClick: () => S().toggleUI('showGuides') },
     { key: 'snap', label: '对齐吸附', checked: ui.snap, onClick: () => S().toggleUI('snap') },
     { key: 'v1', separator: true },
     { key: 'z50', label: '缩放 50%', onClick: () => S().setZoom(0.5) },
@@ -188,16 +186,9 @@ export function MenuBar() {
     { key: 'v2', separator: true },
     /* ★主题切换只留在「首选项 → 外观 → 界面主题」（用户 2026-09-24：视图菜单里不要重复一个深色模式） */
     { key: 'tree', label: '显示组件树', checked: ui.showTree, onClick: () => S().toggleUI('showTree') },
-    { key: 'md', label: 'Markdown 源码（只读）', checked: ui.showMarkdown, onClick: () => S().toggleUI('showMarkdown') },
+    { key: 'md', label: 'Markdown 源码', checked: ui.showMarkdown, onClick: () => S().toggleUI('showMarkdown') },
     { key: 'autonum', label: '图表按章编号（图 X-Y / 表 X-Y）', checked: ui.autoNumber, onClick: () => S().toggleUI('autoNumber') },
     { key: 'preview', label: '预览模式（隐藏编辑态边框）', checked: ui.preview, onClick: () => S().toggleUI('preview') },
-  ];
-
-  const modeMenu: MenuEntry[] = [
-    { key: 'doc', label: '切换到文档模式', checked: mode === 'document', onClick: () => switchMode('document') },
-    { key: 'web', label: '切换到 Web 模式', checked: mode === 'web', onClick: () => switchMode('web') },
-    { key: 'm1', separator: true },
-    { key: 'note', label: '两套内容分别保留，切换不会互相覆盖', disabled: true },
   ];
 
   const pageMenu: MenuEntry[] =
@@ -354,7 +345,6 @@ export function MenuBar() {
       <DropdownMenu label="文件" items={fileMenu} />
       <DropdownMenu label="编辑" items={editMenu} />
       <DropdownMenu label="视图" items={viewMenu} />
-      <DropdownMenu label="模式" items={modeMenu} />
       <DropdownMenu label="页面" items={pageMenu} />
       <DropdownMenu label="帮助" items={helpMenu} />
       <span className="ml-3 truncate text-2xs text-gray-400">

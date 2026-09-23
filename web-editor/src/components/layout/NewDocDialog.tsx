@@ -149,7 +149,7 @@ export function NewDocDialog() {
         {step === 1 && (
           <div className="space-y-4">
             <div className="space-y-2">
-              <p className="text-2xs text-gray-500">先选模式，下一步再填参数（和 PS 的新建一样）。</p>
+              <p className="text-2xs text-gray-500">先选模式，下一步再填参数。</p>
               <div className="grid grid-cols-2 gap-3">
                 <button
                   type="button"

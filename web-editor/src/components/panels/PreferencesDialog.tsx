@@ -174,7 +174,7 @@ export function PreferencesDialog() {
       <Section title="画布" hint="只影响编辑时的显示，不影响导出与打印">
         <PrefSwitch prefKey="showGrid" label="显示网格" value={ui.showGrid === true} onChange={() => toggleUI('showGrid')} />
         <PrefSwitch prefKey="showRuler" label="显示标尺" value={ui.showRuler === true} onChange={() => toggleUI('showRuler')} />
-        <PrefSwitch prefKey="showGuides" label="显示辅助线（页边距）" value={ui.showGuides === true} onChange={() => toggleUI('showGuides')} />
+        <PrefSwitch prefKey="showGuides" label="显示辅助线" value={ui.showGuides === true} onChange={() => toggleUI('showGuides')} />
         <PrefSwitch prefKey="snap" label="对齐吸附" value={ui.snap === true} onChange={() => toggleUI('snap')} />
         <PrefSwitch
           prefKey="preview"

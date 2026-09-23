@@ -148,11 +148,6 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
           </div>
         </div>
       ))}
-      <div className="pt-0.5 text-2xs text-gray-400">
-        <span data-image-rows-hint="1">
-          一行一张图（共 {rows.length} 张，最多 {IMAGE_ROWS_MAX} 张）；多张时用「列数」控制并排几列，空行不渲染
-        </span>
-      </div>
     </div>
   );
 }

@@ -24,7 +24,10 @@ export function StatusBar({ pointer }: { pointer: { x: number; y: number } }) {
   const primary = primaryId ? { id: primaryId, type: primaryType ?? '未知' } : null;
 
   return (
-    <div className="no-print flex items-center gap-4 border-t border-line bg-white px-3 py-1 text-2xs text-gray-500">
+    <div
+      data-status-bar="1"
+      className="no-print flex items-center gap-4 border-t border-line bg-white px-3 py-1 text-2xs text-gray-500"
+    >
       <span className="font-medium text-gray-700">{mode === 'document' ? '文档模式' : 'Web 模式'}</span>
       <span>画布：{sizeLabel(mode, page, canvas)}</span>
       <span>缩放：{Math.round(zoom * 100)}%</span>
@@ -34,9 +37,6 @@ export function StatusBar({ pointer }: { pointer: { x: number; y: number } }) {
       <span className="truncate">
         选中：{primary ? `${def?.label ?? primary.type}（${primary.id}）` : '无'}
         {selectedIds.length > 1 ? ` 等 ${selectedIds.length} 个` : ''}
-      </span>
-      <span className="ml-auto text-gray-400">
-        布局参照 Qt Designer · 左侧组件面板 / 中间画布 / 右侧属性面板
       </span>
     </div>
   );

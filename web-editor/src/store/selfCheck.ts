@@ -3933,6 +3933,13 @@ async function interactionChecks(): Promise<Result[]> {
       await wait(180);
       return [...document.querySelectorAll('[data-menu-item]')].map((el) => el.getAttribute('data-menu-item') ?? '');
     };
+    /** 菜单项的**显示文字**（核对待清理的括号补充用） */
+    const openMenuLabels = async (label: string): Promise<string[]> => {
+      const btn = document.querySelector(`[data-menu="${label}"]`) as HTMLElement | null;
+      btn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(180);
+      return [...document.querySelectorAll('[data-menu-item]')].map((el) => (el.textContent ?? '').trim());
+    };
     const closeMenu = async (): Promise<void> => {
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       await wait(140);
@@ -3970,6 +3977,44 @@ async function interactionChecks(): Promise<Result[]> {
       !helpItems.includes('reloadlive'),
       `帮助菜单项：${helpItems.join(' / ')}`,
     );
+
+    /* 文案收敛（用户 2026-09-24） */
+    const viewLabels = await openMenuLabels('视图');
+    await closeMenu();
+    /** 勾选项的文字前面带 ✓ / ✔ 前缀，比对前去掉 */
+    const bare = (t: string): string => t.replace(/^[✓✔√\s]+/, '').trim();
+    const bareLabels = viewLabels.map(bare);
+    add(
+      '菜单文案：视图里的「显示辅助线」「Markdown 源码」不再带括号补充（页边距 / 只读）',
+      bareLabels.includes('显示辅助线') &&
+        bareLabels.includes('Markdown 源码') &&
+        !viewLabels.some((t) => /（页边距）|（只读）/.test(t)),
+      `视图菜单文字：${viewLabels.join(' / ')}`,
+    );
+    add(
+      '菜单：**模式菜单已移除**（模式切换只在工具栏的分段控件里）',
+      !document.querySelector('[data-menu="模式"]') &&
+        [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === '文档模式') &&
+        [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Web 模式'),
+      `还有"模式"菜单=${!!document.querySelector('[data-menu="模式"]')}；工具栏有文档/Web 模式按钮=${[...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === '文档模式')}`,
+    );
+    add(
+      '状态栏不再有"布局参照 Qt Designer"这类版式说明（右下角只留真实信息）',
+      !(document.querySelector('[data-status-bar]')?.textContent ?? '').includes('Qt Designer'),
+      `状态栏文字：${(document.querySelector('[data-status-bar]')?.textContent ?? '').trim().slice(0, 60)}`,
+    );
+
+    // 新建对话框不再有"（和 PS 的新建一样）"
+    S().setNewDocOpen(true);
+    await wait(340);
+    const newDocText = document.body.textContent ?? '';
+    add(
+      '新建对话框不再写"（和 PS 的新建一样）"',
+      !newDocText.includes('和 PS 的新建一样') && newDocText.includes('先选模式，下一步再填参数'),
+      `含 PS 字样=${newDocText.includes('和 PS 的新建一样')}`,
+    );
+    S().setNewDocOpen(false);
+    await wait(200);
   }
 
   /* 深色主题（Monokai）：新界面（首选项 / Markdown 视图）必须跟着适配
@@ -4640,6 +4685,11 @@ async function interactionChecks(): Promise<Result[]> {
         !!document.querySelector('[data-image-row-file="1"]') &&
         rowName(1) === '图片1',
       `行数=${count()}；行首=「${rowName(1)}」；地址框=${!!srcInput(1)}；图题框=${!!document.querySelector('[data-image-row-caption="1"]')}；选文件按钮=${!!document.querySelector('[data-image-row-file="1"]')}`,
+    );
+    add(
+      '图片行编辑器不再显示底部说明文字（用户 2026-09-24：描述由属性名与悬停气泡承担）',
+      !document.querySelector('[data-image-rows-hint]'),
+      `说明行还在=${!!document.querySelector('[data-image-rows-hint]')}`,
     );
     add(
       '图片面板不再有单独的「图片（单图）」与「多图」两个字段（只剩这一个图片入口）',

@@ -31,7 +31,7 @@ export function MarkdownDialog({ open, onClose }: { open: boolean; onClose: () =
   };
 
   return (
-    <Modal open={open} title="Markdown 源码（只读）" onClose={onClose} width={860}>
+    <Modal open={open} title="Markdown 源码" onClose={onClose} width={860}>
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
