@@ -18,7 +18,7 @@
 | 八 | 编辑器侧 Bridge Server + 菜单开关 + 状态显示 | ✅ **已完成、Live 端到端已跑绿**（`--live --require-live` 20/20）。中转 hub 在 37650，编辑器侧 `web-editor/src/mcp/*` 接菜单与 `?bridge=1`；MCP 启动即接入中转，`editor://bridge/status` 区分"中转可达"与"编辑器已接入"。本轮修掉的问题见下面「阶段八修了什么」 |
 | 九 | 端到端测试脚本 + README | ✅ 脚本已就位：`scripts/e2e-scenarios.mjs`（20 个场景，无头全跑、`--live` 拉起无头 Edge 跑 Live 场景）；本文档即 README |
 
-能力总计：**Tools 107 个**（+`doc.attach`、`asset.embed`、`asset.embedFromHtml`）、Resources 23、Prompts 12（+`html_to_document`）。
+能力总计：**Tools 108 个**（+`doc.attach`、`asset.embed`、`asset.embedFromHtml`、**`export.docx`**）、Resources 23、Prompts 12（+`html_to_document`）。
 7 个 smoke 脚本（`smoke` / `bridge-smoke` / `tools-smoke` / `table-smoke` / `plugin-smoke` / `rpc-smoke` / `http-smoke`）全部通过。
 端到端：`node scripts/e2e-scenarios.mjs --live --require-live` → **21/21 全部通过**（`Live 就绪=true`，判定耗时约 1 秒）。
 
@@ -122,7 +122,7 @@ editor-mcp/
 │  │  ├─ fallback.ts    双通道降级 + 状态摘要（`bridgeSummary` / `bridgeSummaryLive`）
 │  │  └─ headless.ts    无头引擎：与编辑器「导出 JSON」同格式的文档读写（原子写）
 │  └─ tools/
-│     ├─ index.ts       汇总注册（105 个 Tool）
+│     ├─ index.ts       汇总注册（108 个 Tool）
 │     ├─ document.ts    doc.*（含 doc.attach：接上编辑器当前文档）
 │     ├─ asset.ts       asset.embed / asset.embedFromHtml：本地图 / HTML 内嵌图 → 节点（base64 不过模型上下文）
 │     ├─ component.ts   component.list（Live 优先，无头退回目录 + 插件）
