@@ -1572,24 +1572,61 @@ async function interactionChecks(): Promise<Result[]> {
     const anchor = document.getElementById('canvas-viewport');
     const pan0 = S().ui.pan ?? { x: 0, y: 0 };
     if (body && boxH && boxV && anchor && beforeBox && beforeTick) {
-      // 平移画布 120px（不动标尺本身）
-      S().setPan({ x: pan0.x - 120, y: pan0.y });
+      /**
+       * ★标尺的"跟随量"按模式不同（用户 2026-09-23）：
+       *   · **文档模式** = 滚动量（视口 overflow:auto，刻度随 scrollTop/scrollLeft 走）；
+       *   · **Web 模式** = 平移量（自由平移，刻度随 pan 走）。
+       *   两种模式下"标尺框本身都钉在视口边缘"这一条不变。
+       */
+      const tickOf = (box: HTMLElement): HTMLElement | null => box.querySelector('[data-ruler-ticks="h"]') as HTMLElement | null;
+      const tickBefore2 = tickOf(boxH)?.getBoundingClientRect();
+      // 文档模式：滚动 120px，刻度应跟着走
+      anchor.scrollLeft = 120;
+      anchor.dispatchEvent(new Event('scroll', { bubbles: true }));
       await wait(200);
       const afterBox = boxH.getBoundingClientRect();
-      const afterTick = (boxH.querySelector('div') as HTMLElement).getBoundingClientRect();
+      const afterTick = tickOf(boxH)?.getBoundingClientRect();
       const bodyRect = body.getBoundingClientRect();
       const fixedTop = Math.abs(afterBox.top - bodyRect.top) <= 2;
       const fixedLeft = Math.abs(afterBox.left - (bodyRect.left + RULER_W)) <= 2;
-      const tickMoved = Math.abs(afterTick.left - beforeTick.left + 120) <= 2;
+      const tickMoved = !!tickBefore2 && !!afterTick && Math.abs(afterTick.left - tickBefore2.left + 120) <= 2;
       add(
-        '标尺脱离画布固定在视口顶部/左侧（平移时标尺不动、刻度跟着平移量走）',
+        '标尺脱离画布固定在视口顶部/左侧（文档模式：标尺不动、刻度跟着**滚动量**走）',
         fixedTop && fixedLeft && tickMoved,
-        `标尺框 top ${Math.round(beforeBox.top - bodyRect.top)}→${Math.round(afterBox.top - bodyRect.top)}px、left ${Math.round(afterBox.left - bodyRect.left)}px（期望 ${RULER_W}）；刻度位移 ${Math.round(afterTick.left - beforeTick.left)}px（期望 -120）`,
+        `标尺框 top ${Math.round(beforeBox.top - bodyRect.top)}→${Math.round(afterBox.top - bodyRect.top)}px、left ${Math.round(afterBox.left - bodyRect.left)}px（期望 ${RULER_W}）；刻度位移 ${afterTick && tickBefore2 ? Math.round(afterTick.left - tickBefore2.left) : '?'}px（期望 -120）`,
       );
+      anchor.scrollLeft = 0;
+      anchor.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await wait(140);
+
+      // Web 模式：平移 120px，刻度跟着平移量走
+      S().setMode('web');
+      await wait(260);
+      const boxH2 = document.querySelector('[data-ruler-box="h"]') as HTMLElement | null;
+      const anchor2 = document.getElementById('canvas-viewport');
+      if (boxH2 && anchor2) {
+        const t0 = tickOf(boxH2)?.getBoundingClientRect();
+        const panW = S().ui.pan ?? { x: 0, y: 0 };
+        S().setPan({ x: panW.x - 120, y: panW.y });
+        await wait(220);
+        const boxRect = boxH2.getBoundingClientRect();
+        const bodyRect2 = body.getBoundingClientRect();
+        const t1 = tickOf(boxH2)?.getBoundingClientRect();
+        add(
+          '标尺脱离画布固定在视口顶部/左侧（Web 模式：标尺不动、刻度跟着**平移量**走）',
+          Math.abs(boxRect.top - bodyRect2.top) <= 2 && !!t0 && !!t1 && Math.abs(t1.left - t0.left + 120) <= 2,
+          `标尺框 top=${Math.round(boxRect.top - bodyRect2.top)}px；刻度位移 ${t0 && t1 ? Math.round(t1.left - t0.left) : '?'}px（期望 -120）`,
+        );
+        S().setPan(panW);
+      } else {
+        add('标尺脱离画布固定在视口顶部/左侧（Web 模式：标尺不动、刻度跟着**平移量**走）', false, '找不到 Web 模式标尺框');
+      }
+      S().setMode('document');
+      await wait(200);
       S().setPan(pan0);
       await wait(160);
     } else {
-      add('标尺脱离画布固定在视口顶部/左侧（平移时标尺不动、刻度跟着平移量走）', false, '找不到标尺框/#canvas-viewport');
+      add('标尺脱离画布固定在视口顶部/左侧（文档模式：标尺不动、刻度跟着**滚动量**走）', false, '找不到标尺框/#canvas-viewport');
     }
   }
 
@@ -2681,13 +2718,122 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(160);
   }
 
-  /* ── 画布平移：按住空格拖拽 / 中键拖拽（PS 式手抓工具；**不夹边界**）── */
+  /* ── 文档模式：**滚动条**浏览（不平移）+ 标尺覆盖全文 + 外部写入自动跟随（用户 2026-09-23）── */
   {
     S().setMode('document');
     S().clearAll();
-    S().addComponent('paragraph');
+    S().setZoom(1);
+    // 塞够内容让它分页（≥2 页），这样才能验"标尺覆盖全文"和"跟随下一页"
+    for (let i = 0; i < 28; i += 1) {
+      const h = S().addComponent('heading');
+      if (h) S().updateProps(h, { level: 2, text: `第 ${i + 1} 节` });
+      const p = S().addComponent('paragraph');
+      if (p) S().updateProps(p, { html: `第 ${i + 1} 节的正文内容。`.repeat(6) });
+    }
+    await wait(900);
+    const vp = document.getElementById('canvas-viewport') as HTMLElement | null;
+    add(
+      '文档模式：画布用**滚动条**浏览（视口 overflow=auto，空格/中键不再平移画布）',
+      !!vp &&
+        getComputedStyle(vp).overflowY === 'auto' &&
+        vp.getAttribute('data-scroll') === '1' &&
+        vp.scrollHeight > vp.clientHeight + 40,
+      `overflowY=${vp ? getComputedStyle(vp).overflowY : '—'}、data-scroll=${vp?.getAttribute('data-scroll')}、内容 ${vp?.scrollHeight ?? 0}px / 视口 ${vp?.clientHeight ?? 0}px`,
+    );
+
+    if (vp) {
+      // 空格 + 拖拽在中键/空格按下时也不该平移（pan 不变、纸张位置不变）
+      const panBefore = S().ui.pan ?? { x: 0, y: 0 };
+      const paperBefore = (document.querySelector('#canvas-viewport .print-reset') as HTMLElement | null)?.getBoundingClientRect();
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true }));
+      await wait(60);
+      const panReadyInDoc = vp.getAttribute('data-pan') === 'ready';
+      const r = vp.getBoundingClientRect();
+      pe('pointerdown', r.left + r.width / 2, r.top + r.height / 2, vp);
+      pe('pointermove', r.left + r.width / 2 - 120, r.top + r.height / 2 - 90, vp);
+      pe('pointerup', r.left + r.width / 2 - 120, r.top + r.height / 2 - 90, vp);
+      await wait(160);
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'Space', bubbles: true }));
+      await wait(80);
+      const panAfter = S().ui.pan ?? { x: 0, y: 0 };
+      const paperAfter = (document.querySelector('#canvas-viewport .print-reset') as HTMLElement | null)?.getBoundingClientRect();
+      add(
+        '文档模式：按住空格 + 拖拽**不再平移画布**（回到滚动条浏览）',
+        !panReadyInDoc &&
+          panAfter.x === panBefore.x &&
+          panAfter.y === panBefore.y &&
+          !!paperAfter &&
+          !!paperBefore &&
+          Math.abs(paperAfter.left - paperBefore.left) <= 1,
+        `空格抓手=${panReadyInDoc}；pan (${panBefore.x},${panBefore.y}) → (${panAfter.x},${panAfter.y})；纸张位移 ${paperAfter && paperBefore ? Math.round(paperAfter.left - paperBefore.left) : '?'}px`,
+      );
+
+      // 滚轮 = 原生滚动（能滚到下一页），标尺刻度跟着滚动量走
+      vp.scrollTop = 0;
+      vp.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 400 }));
+      await wait(120);
+      vp.scrollTop = Math.min(vp.scrollHeight - vp.clientHeight, 500);
+      vp.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await wait(160);
+      const vTicks = document.querySelector('[data-ruler-ticks="v"]') as HTMLElement | null;
+      const scrolled = vp.scrollTop;
+      add(
+        '文档模式：滚动时**标尺刻度跟着滚动量走**（标尺本身钉在视口边缘）',
+        scrolled > 0 && !!vTicks && (vTicks.getAttribute('style') ?? '').includes(`translateY(${-scrolled}px)`),
+        `scrollTop=${scrolled}；标尺刻度 transform=${vTicks?.getAttribute('style') ?? '—'}`,
+      );
+
+      // 标尺覆盖**全文**：纵向刻度高度 ≈ 内容总高，而不是一页高
+      const onePage = mmToPx(S().doc.document.page.height);
+      const vBox = document.querySelector('[data-ruler-box="v"]') as HTMLElement | null;
+      const tickH = Number.parseFloat(vTicks?.style.height || '0');
+      const pages = S().ui.docPageCount ?? 1;
+      add(
+        '标尺覆盖**全文**（多页时纵向刻度按内容总高，不再只画一页）',
+        pages >= 2 && tickH > onePage * 1.6 && tickH >= (vBox?.clientHeight ?? 0),
+        `共 ${pages} 页；单页 ${Math.round(onePage)}px；刻度高 ${Math.round(tickH)}px（期望 ≈ 内容总高 ${vp.scrollHeight}px）`,
+      );
+
+      // ★外部（MCP 走同一套 store 写入）继续写 → 预览自动跟到下一页
+      vp.scrollTop = Math.max(0, vp.scrollHeight - vp.clientHeight); // 假装"正在看最后一页"
+      await wait(120);
+      const beforeFollow = vp.scrollTop;
+      const grow = S().addComponent('paragraph');
+      if (grow) S().updateProps(grow, { html: '外部写入的新段落，应该把预览带到新的底部。'.repeat(20) });
+      await wait(700);
+      const afterFollow = vp.scrollTop;
+      const atBottom = vp.scrollHeight - vp.scrollTop - vp.clientHeight;
+      add(
+        '外部写入把文档写长/翻页时，预览**自动跟到新的底部**（原先停在旧位置）',
+        afterFollow > beforeFollow + 10 && atBottom <= 8,
+        `scrollTop ${beforeFollow} → ${afterFollow}（内容 ${vp.scrollHeight}px / 视口 ${vp.clientHeight}px，距底 ${Math.round(atBottom)}px）`,
+      );
+
+      // 用户在中间看别处时不该被拽走
+      vp.scrollTop = 200;
+      vp.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await wait(120);
+      const midBefore = vp.scrollTop;
+      const grow2 = S().addComponent('paragraph');
+      if (grow2) S().updateProps(grow2, { html: '再看一处新内容。'.repeat(20) });
+      await wait(700);
+      add(
+        '正在看中间内容时，外部写入**不抢视线**（不会强制跳到底部）',
+        Math.abs(vp.scrollTop - midBefore) <= 2,
+        `scrollTop ${midBefore} → ${vp.scrollTop}`,
+      );
+    }
+    S().clearAll();
+    await wait(200);
+  }
+
+  /* ── 画布平移：按住空格拖拽 / 中键拖拽（PS 式手抓；**仅 Web 模式**，文档模式用滚动条）── */
+  {
+    S().setMode('web');
+    S().clearAll();
+    S().addComponent('button');
     S().setZoom(2);
-    await wait(320);
+    await wait(360);
     const vp = document.getElementById('canvas-viewport') as HTMLElement | null;
     const paperOf = () => (document.querySelector('#canvas-viewport .print-reset') as HTMLElement | null)?.getBoundingClientRect();
     const before = S().ui.pan ?? { x: 0, y: 0 };
@@ -2710,12 +2856,12 @@ async function interactionChecks(): Promise<Result[]> {
       const reset = vp.getAttribute('data-pan') === '0';
       const moved = !!paperAfter && Math.abs(paperAfter.left - paperBefore.left + 140) <= 3 && Math.abs(paperAfter.top - paperBefore.top + 110) <= 3;
       add(
-        '画布可用**空格 + 拖拽**平移（PS 式手抓；随机数变化，画布整体跟着移动）',
+        'Web 模式：画布可用**空格 + 拖拽**平移（PS 式手抓；自由不夹边界）',
         panReady && after.x === before.x - 140 && after.y === before.y - 110 && moved && reset,
-        `空格提示=${panReady}；pan (${before.x},${before.y}) → (${after.x},${after.y})；画布位移 ${paperAfter ? `${Math.round(paperAfter.left - paperBefore.left)},${Math.round(paperAfter.top - paperBefore.top)}` : '?'}（期望 -140,-110）；松开后状态复原=${reset}`,
+        `空格提示=${panReady}；pan (${before.x},${before.y}) → (${after.x},${after.y})；画布位移 ${paperAfter && paperBefore ? `${Math.round(paperAfter.left - paperBefore.left)},${Math.round(paperAfter.top - paperBefore.top)}` : '?'}（期望 -140,-110）；松开后状态复原=${reset}`,
       );
     } else {
-      add('画布可用**空格 + 拖拽**平移（PS 式手抓；随机数变化，画布整体跟着移动）', false, '找不到 #canvas-viewport');
+      add('Web 模式：画布可用**空格 + 拖拽**平移（PS 式手抓；自由不夹边界）', false, '找不到 #canvas-viewport');
     }
     // 中键拖拽（不按空格也能平移）
     if (vp) {
@@ -2729,13 +2875,15 @@ async function interactionChecks(): Promise<Result[]> {
       await wait(160);
       const after2 = S().ui.pan ?? { x: 0, y: 0 };
       add(
-        '画布可用**中键拖拽**平移（不必按空格）',
+        'Web 模式：中键拖拽也能平移（不必按空格）',
         after2.x === before2.x - 90 && after2.y === before2.y - 70,
         `pan (${before2.x},${before2.y}) → (${after2.x},${after2.y})（期望 -90,-70）`,
       );
     }
     S().setZoom(1);
     await wait(160);
+    S().setPan({ x: 0, y: 0 });
+    await wait(120);
   }
 
   /* ── 新建文档：先选模式 → 再填参数（类似 PS 的新建）── */

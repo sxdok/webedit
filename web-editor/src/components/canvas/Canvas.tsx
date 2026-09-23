@@ -18,7 +18,10 @@ import { WebCanvas } from './WebCanvas';
 import { useCanvasInteraction } from './useCanvasInteraction';
 import { useCellEdit } from './useCellEdit';
 
-/** 量出内容真实高度（未缩放），把外壳高度同步缩小后的大小 */
+/**
+ * 量出内容真实尺寸（**未缩放**；文档模式下就是所有纸张叠起来的总高）。
+ * 返回 `size` 供调用方用：内容是"一页"还是"很多页"，标尺长度与滚动范围都要按它算。
+ */
 function useScaledBox(zoom: number, deps: unknown[]) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -34,7 +37,7 @@ function useScaledBox(zoom: number, deps: unknown[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
-  return { ref, outerW: size.w * zoom, outerH: size.h * zoom };
+  return { ref, size, outerW: size.w * zoom, outerH: size.h * zoom };
 }
 
 function PrintDebugPanel() {
@@ -149,7 +152,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     [mode, page, canvas, ui.preview],
   );
 
-  const { ref } = useScaledBox(zoom, [
+  const { ref, size } = useScaledBox(zoom, [
     mode,
     page,
     canvas,
@@ -158,6 +161,26 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     JSON.stringify(selectedIds),
   ]);
   const viewportRef = useRef<HTMLDivElement>(null);
+  /**
+   * ★两种模式两套浏览方式（用户 2026-09-23）：
+   *   · **文档模式**：回到"滚动条"浏览 —— 视口 `overflow:auto`，滚轮/拖动滚动条看别的页，
+   *     **不再空格/中键平移画布**，标尺固定在视口边缘、刻度跟着滚动量走；
+   *   · **Web 模式**：不变 —— 自由平移（空格/中键/滚轮），画布可以拖出可视区。
+   */
+  const isDoc = mode === 'document';
+  /**
+   * 内容尺寸：文档模式按**实测**（多页时是所有纸张叠起来的总高，标尺才能覆盖全文 ——
+   * 以前写死 `page.height`，于是"只渲染了一页的尺寸，其他页不显示"）；
+   * Web 模式就是画布尺寸。
+   */
+  const contentW = isDoc ? Math.max(size.w, mmToPx(page.width)) : canvas.width;
+  const contentH = isDoc ? Math.max(size.h, mmToPx(page.height)) : canvas.height;
+  /** 文档模式的滚动量（标尺刻度按它偏移；用 ref + 直接改 style，避免每次滚动都重渲染整块画布） */
+  const scrollRef = useRef({ x: 0, y: 0 });
+  const hTickRef = useRef<HTMLDivElement>(null);
+  const vTickRef = useRef<HTMLDivElement>(null);
+  /** 跟随用：上一次的内容高度（判断"是不是被外部写长了"） */
+  const followRef = useRef({ h: 0 });
   /** 双击画布单元格就地改字（输入框挂在缩放层里，坐标按 zoom 折算；见 useCellEdit） */
   const { onDoubleClickCapture, editor: cellEditor } = useCellEdit(zoom, ref);
   /** 平移画布（PS 式手抓工具）：按住空格 + 拖拽，或中键拖拽；偏移存 store.ui.pan，**不夹边界** */
@@ -169,6 +192,8 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const [panning, setPanning] = useState(false);
 
   useEffect(() => {
+    // ★文档模式不玩平移（回到滚动条），所以空格既不该被吃掉、也不该显示"抓手"
+    if (isDoc) return;
     const typing = (t: EventTarget | null): boolean => {
       const el = t as HTMLElement | null;
       const tag = el?.tagName?.toLowerCase();
@@ -200,10 +225,11 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
       window.removeEventListener('keyup', up);
       window.removeEventListener('blur', reset);
     };
-  }, []);
+  }, [isDoc]);
 
-  /** 平移起手：只有"空格按住"或"中键"才接管（否则交给节点拖拽/框选） */
+  /** 平移起手：只有"空格按住"或"中键"才接管（**仅 Web 模式**；文档模式用滚动条） */
   const startPan = (e: React.PointerEvent): boolean => {
+    if (isDoc) return false;
     const isMiddle = e.button === 1;
     if (!spaceRef.current && !isMiddle) return false;
     if (!viewportRef.current) return false;
@@ -222,6 +248,33 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     setPanning(false);
   };
 
+  /** 文档模式滚动：标尺刻度跟着滚动量走（直接改 style，不触发整块画布重渲染） */
+  const onViewportScroll = (e: React.UIEvent<HTMLDivElement>): void => {
+    const el = e.currentTarget;
+    scrollRef.current = { x: el.scrollLeft, y: el.scrollTop };
+    if (hTickRef.current) hTickRef.current.style.transform = `translateX(${-el.scrollLeft}px)`;
+    if (vTickRef.current) vTickRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
+  };
+
+  /**
+   * ★外部（MCP/无头通道）把文档写长了 → 预览要**跟着到下一页**（用户 2026-09-23 反馈）：
+   *   以前内容长出去以后画布不跟，得自己滚。现在内容变高且"用户本来就在底部附近"时自动滚到底；
+   *   用户在中间看别处时不动他的视线。
+   */
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el || !isDoc) return;
+    const h = el.scrollHeight;
+    const prev = followRef.current.h;
+    const nearBottom = prev > 0 && prev - el.scrollTop - el.clientHeight <= 80;
+    if (prev > 0 && h > prev + 4 && nearBottom) {
+      el.scrollTop = Math.max(0, h - el.clientHeight);
+      scrollRef.current = { x: el.scrollLeft, y: el.scrollTop };
+      if (vTickRef.current) vTickRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
+    }
+    followRef.current.h = h;
+  }, [isDoc, contentH, zoom, nodes.length, ui.docPageCount, activePageId]);
+
   /** 适应宽度（只算画布预览的缩放，不动编辑器界面） */
   const fitWidth = () => {
     const el = viewportRef.current;
@@ -234,6 +287,18 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const setZoomAtCenter = (next: number) => {
     const st = useEditorStore.getState();
     const el = viewportRef.current;
+    if (isDoc && el) {
+      // 文档模式：以"当前视野中心"为锚点（滚动量参与计算）
+      const cx = (el.scrollLeft + el.clientWidth / 2) / st.zoom;
+      const cy = (el.scrollTop + el.clientHeight / 2) / st.zoom;
+      st.setZoom(next);
+      window.requestAnimationFrame(() => {
+        el.scrollLeft = Math.max(0, cx * next - el.clientWidth / 2);
+        el.scrollTop = Math.max(0, cy * next - el.clientHeight / 2);
+        scrollRef.current = { x: el.scrollLeft, y: el.scrollTop };
+      });
+      return;
+    }
     const cur = st.ui.pan ?? { x: 0, y: 0 };
     const vw = el?.clientWidth ?? 0;
     const vh = el?.clientHeight ?? 0;
@@ -259,10 +324,28 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     [mode, page.width, page.height, canvas.width, canvas.height, zoom],
   );
 
-  // 切换模式 / 换页时：缩放回 100%，并把画布重新摆到视口中间
+  // 切换模式 / 换页时：缩放回 100%；文档模式滚回顶部，Web 模式把画布摆到视口中间
   useEffect(() => {
     useEditorStore.getState().setZoom(1);
-    setPan(centerPan(1));
+    const el = viewportRef.current;
+    if (isDoc) {
+      if (el) el.scrollTo({ left: 0, top: 0 });
+      scrollRef.current = { x: 0, y: 0 };
+      followRef.current.h = 0; // 换页/换模式后重新学一次内容高度
+      if (hTickRef.current) hTickRef.current.style.transform = 'translateX(0px)';
+      if (vTickRef.current) vTickRef.current.style.transform = 'translateY(0px)';
+    } else {
+      /**
+       * ★切到 Web 模式时也要把**视口自身的滚动位置清零**：视口 DOM 节点在两种模式间是复用的，
+       *   而 `overflow:hidden` 的容器照样能保留 scrollTop —— 不清零的话，文档模式滚动过的位置会带过来，
+       *   Web 画布看起来"一上来就偏了"，纵向平移也会被这个滚动量顶住（真踩过：
+       *   视口 top=128 / pan.y=24，图层却出现在 top=2）。
+       */
+      if (el) el.scrollTo({ left: 0, top: 0 });
+      scrollRef.current = { x: 0, y: 0 };
+      followRef.current.h = 0;
+      setPan(centerPan(1));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, activePageId]);
 
@@ -273,7 +356,8 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     const onWheel = (e: WheelEvent) => {
       const st = useEditorStore.getState();
       if (!e.ctrlKey && !e.metaKey) {
-        // 普通滚轮 → 平移画布（自由，不夹边界）
+        // 文档模式：普通滚轮交给**原生滚动**（滚动条浏览）；Web 模式才是平移画布
+        if (isDoc) return;
         e.preventDefault();
         const cur = st.ui.pan ?? { x: 0, y: 0 };
         st.setPan({ x: Math.round(cur.x - e.deltaX), y: Math.round(cur.y - e.deltaY) });
@@ -286,6 +370,17 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left;
       const py = e.clientY - rect.top;
+      if (isDoc) {
+        const cx = (el.scrollLeft + px) / st.zoom;
+        const cy = (el.scrollTop + py) / st.zoom;
+        st.setZoom(next);
+        window.requestAnimationFrame(() => {
+          el.scrollLeft = Math.max(0, cx * next - px);
+          el.scrollTop = Math.max(0, cy * next - py);
+          scrollRef.current = { x: el.scrollLeft, y: el.scrollTop };
+        });
+        return;
+      }
       const cur = st.ui.pan ?? { x: 0, y: 0 };
       const cx = (px - cur.x) / st.zoom;
       const cy = (py - cur.y) / st.zoom;
@@ -294,7 +389,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [isDoc]);
 
   const onSelect = (id: string, additive: boolean) => {
     if (!id) {
@@ -306,16 +401,51 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   };
 
   const printDebug = new URLSearchParams(location.search).get('printdebug');
-  const contentW = mode === 'document' ? mmToPx(page.width) : canvas.width;
-  const contentH = mode === 'document' ? mmToPx(page.height) : canvas.height;
+  /** 标尺刻度的偏移：文档模式=**滚动量的相反数**（内容左移，刻度跟着左移），Web 模式=平移量 */
+  const rulerOffset = isDoc ? { x: -scrollRef.current.x, y: -scrollRef.current.y } : pan;
   const R = ui.showRuler ? RULER_H : 0;
+
+  const canvasBody = isDoc ? (
+    <PaperCanvas
+      nodes={nodes}
+      ctx={ctx}
+      page={page}
+      showGuides={ui.showGuides}
+      zoom={zoom}
+      selectedIds={selectedIds}
+      hoveredId={hoveredId}
+      showChrome={!ui.preview}
+      onSelect={onSelect}
+      onHover={setHoveredId}
+      onPointerMove={(x, y) => onPointer({ x, y })}
+      canvasRef={canvasElRef}
+      it={it}
+    />
+  ) : (
+    <WebCanvas
+      nodes={nodes}
+      ctx={ctx}
+      canvas={canvas}
+      ui={{ showGrid: ui.showGrid }}
+      zoom={zoom}
+      selectedIds={selectedIds}
+      hoveredId={hoveredId}
+      showChrome={!ui.preview}
+      onSelect={onSelect}
+      onHover={setHoveredId}
+      onPointerMove={(x, y) => onPointer({ x, y })}
+      canvasRef={canvasElRef}
+      it={it}
+    />
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* ── 画布上方的分页（每页一份独立文档，各自可选模式）── */}
       <PageTabs />
 
       <div className="relative min-h-0 flex-1 bg-canvasbg" data-canvas-body="1">
-        {/* ★标尺**脱离画布**固定在视口顶部/左侧（不随画布平移移动，只按平移量移动刻度），
+        {/* ★标尺**脱离画布**固定在视口顶部/左侧（不随内容滚动/平移移动，只按滚动量或平移量移动刻度），
             左上角留一个交汇格；画布区域从标尺内侧开始。 */}
         {ui.showRuler && (
           <div
@@ -330,7 +460,11 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
             className="ruler-bg no-print absolute z-20 overflow-hidden border-b border-line"
             style={{ left: RULER_H, top: 0, right: 0, height: RULER_H }}
           >
-            <div style={{ transform: `translateX(${pan.x}px)`, width: contentW * zoom }}>
+            <div
+              ref={hTickRef}
+              data-ruler-ticks="h"
+              style={{ transform: `translateX(${rulerOffset.x}px)`, width: contentW * zoom }}
+            >
               <Ruler mode={mode} length={contentW} zoom={zoom} orientation="horizontal" thickness={RULER_H} />
             </div>
           </div>
@@ -341,7 +475,11 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
             className="ruler-bg no-print absolute z-20 overflow-hidden border-r border-line"
             style={{ left: 0, top: RULER_H, bottom: 0, width: RULER_H }}
           >
-            <div style={{ transform: `translateY(${pan.y}px)`, height: contentH * zoom }}>
+            <div
+              ref={vTickRef}
+              data-ruler-ticks="v"
+              style={{ transform: `translateY(${rulerOffset.y}px)`, height: contentH * zoom }}
+            >
               <Ruler mode={mode} length={contentH} zoom={zoom} orientation="vertical" thickness={RULER_H} />
             </div>
           </div>
@@ -351,10 +489,14 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           id="canvas-viewport"
           ref={viewportRef}
           data-pan={panning ? '1' : panReady ? 'ready' : '0'}
-          className={`absolute overflow-hidden ${panning ? 'cursor-grabbing' : panReady ? 'cursor-grab' : ''}`}
+          data-scroll={isDoc ? '1' : '0'}
+          className={`absolute ${isDoc ? 'overflow-auto' : 'overflow-hidden'} ${
+            !isDoc && panning ? 'cursor-grabbing' : !isDoc && panReady ? 'cursor-grab' : ''
+          }`}
           style={{ left: R, top: R, right: 0, bottom: 0 }}
+          onScroll={isDoc ? onViewportScroll : undefined}
           onPointerDownCapture={(e) => {
-            // 空格/中键 → 平移画布：在捕获阶段接管，别让下面的节点拖拽/框选也响应
+            // 空格/中键 → 平移画布（**仅 Web 模式**）：在捕获阶段接管，别让下面的节点拖拽/框选也响应
             if (!startPan(e)) return;
             e.preventDefault();
             e.stopPropagation();
@@ -371,55 +513,44 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
             if (e.button === 1) e.preventDefault();
           }}
         >
-          {/* 平移层：translate 不夹边界（纸张能拖到视口任意位置） */}
-          <div
-            data-pan-layer="1"
-            className="absolute left-0 top-0"
-            style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, width: contentW, height: contentH }}
-          >
+          {isDoc ? (
+            /* 文档模式：这层就是**滚动内容**（不 translate），宽度按缩放后尺寸撑开滚动范围；
+               内容比视口窄时 `margin:0 auto` 让它居中 */
             <div
-              ref={ref}
-              className="print-reset"
-              style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
-              onDoubleClickCapture={onDoubleClickCapture}
+              data-pan-layer="1"
+              className="relative"
+              style={{ width: contentW * zoom, height: contentH * zoom, margin: '0 auto' }}
             >
-              {mode === 'document' ? (
-                <PaperCanvas
-                  nodes={nodes}
-                  ctx={ctx}
-                  page={page}
-                  showGuides={ui.showGuides}
-                  zoom={zoom}
-                  selectedIds={selectedIds}
-                  hoveredId={hoveredId}
-                  showChrome={!ui.preview}
-                  onSelect={onSelect}
-                  onHover={setHoveredId}
-                  onPointerMove={(x, y) => onPointer({ x, y })}
-                  canvasRef={canvasElRef}
-                  it={it}
-                />
-              ) : (
-                <WebCanvas
-                  nodes={nodes}
-                  ctx={ctx}
-                  canvas={canvas}
-                  ui={{ showGrid: ui.showGrid }}
-                  zoom={zoom}
-                  selectedIds={selectedIds}
-                  hoveredId={hoveredId}
-                  showChrome={!ui.preview}
-                  onSelect={onSelect}
-                  onHover={setHoveredId}
-                  onPointerMove={(x, y) => onPointer({ x, y })}
-                  canvasRef={canvasElRef}
-                  it={it}
-                />
-              )}
-              {/* 双击单元格的就地输入框（挂在缩放层里，跟着纸张一起缩放/平移） */}
-              {cellEditor}
+              <div
+                ref={ref}
+                className="print-reset"
+                style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+                onDoubleClickCapture={onDoubleClickCapture}
+              >
+                {canvasBody}
+                {/* 双击单元格的就地输入框（挂在缩放层里，跟着纸张一起缩放） */}
+                {cellEditor}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Web 模式：平移层（translate 不夹边界，画布能拖到视口任意位置） */
+            <div
+              data-pan-layer="1"
+              className="absolute left-0 top-0"
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px)`, width: contentW, height: contentH }}
+            >
+              <div
+                ref={ref}
+                className="print-reset"
+                style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+                onDoubleClickCapture={onDoubleClickCapture}
+              >
+                {canvasBody}
+                {/* 双击单元格的就地输入框（挂在缩放层里，跟着画布一起缩放/平移） */}
+                {cellEditor}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 画布缩放控件：固定在右下角，只影响"画布预览" */}
@@ -449,7 +580,13 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
             onClick={() => {
               const z = fitWidth();
               useEditorStore.getState().setZoom(z);
-              setPan(centerPan(z));
+              const el = viewportRef.current;
+              if (isDoc) {
+                if (el) el.scrollTo({ left: 0, top: el.scrollTop });
+                scrollRef.current = { x: el?.scrollLeft ?? 0, y: el?.scrollTop ?? 0 };
+              } else {
+                setPan(centerPan(z));
+              }
             }}
           >
             适应宽度
@@ -460,14 +597,29 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
             title="实际大小并居中"
             onClick={() => {
               useEditorStore.getState().setZoom(1);
-              setPan(centerPan(1));
+              const el = viewportRef.current;
+              if (isDoc) {
+                if (el) el.scrollTo({ left: 0, top: 0 });
+                scrollRef.current = { x: 0, y: 0 };
+                if (hTickRef.current) hTickRef.current.style.transform = 'translateX(0px)';
+                if (vTickRef.current) vTickRef.current.style.transform = 'translateY(0px)';
+              } else {
+                setPan(centerPan(1));
+              }
             }}
           >
             100%
           </button>
           <span className="mx-0.5 h-4 w-px bg-line" />
-          <span className="whitespace-nowrap pr-0.5 text-2xs text-gray-400" title="像 PS 的手抓工具：按住空格拖拽，或按住鼠标中键拖拽；滚轮也可平移">
-            空格/中键/滚轮 平移
+          <span
+            className="whitespace-nowrap pr-0.5 text-2xs text-gray-400"
+            title={
+              isDoc
+                ? '文档模式：滚轮 / 滚动条翻页，标尺固定在视口边缘（不再拖动画布）'
+                : '像 PS 的手抓工具：按住空格拖拽，或按住鼠标中键拖拽；滚轮也可平移'
+            }
+          >
+            {isDoc ? '滚轮/滚动条 翻页' : '空格/中键/滚轮 平移'}
           </span>
         </div>
 
