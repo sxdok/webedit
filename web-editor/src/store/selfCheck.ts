@@ -1574,14 +1574,20 @@ async function interactionChecks(): Promise<Result[]> {
     if (body && boxH && boxV && anchor && beforeBox && beforeTick) {
       /**
        * ★标尺的"跟随量"按模式不同（用户 2026-09-23）：
-       *   · **文档模式** = 滚动量（视口 overflow:auto，刻度随 scrollTop/scrollLeft 走）；
+       *   · **文档模式** = 滚动量（视口 overflow:auto，刻度随 scrollLeft/scrollTop 走）；
        *   · **Web 模式** = 平移量（自由平移，刻度随 pan 走）。
        *   两种模式下"标尺框本身都钉在视口边缘"这一条不变。
+       * ★2026-09-23 修正：文档模式的内容宽**就是纸张宽 794px**，比视口还窄 —— 正常情况下横向
+       *   根本滚不动。原来这条断言"能横滚 120px"其实是靠 `contentW` 被 Web 模式的实测值污染成
+       *   1440 才成立的（那个 bug 已修，见「文档 ↔ Web 来回切模式」那条断言）。这里改成先把画布
+       *   放大到 150%（794×1.5=1191 > 视口宽），再验证刻度跟着**真实滚动量**走。
        */
+      S().setZoom(1.5);
+      await wait(240);
       const tickOf = (box: HTMLElement): HTMLElement | null => box.querySelector('[data-ruler-ticks="h"]') as HTMLElement | null;
       const tickBefore2 = tickOf(boxH)?.getBoundingClientRect();
-      // 文档模式：滚动 120px，刻度应跟着走
-      anchor.scrollLeft = 120;
+      // 文档模式：横向滚动 100px（放大后才有得滚），刻度应跟着走
+      anchor.scrollLeft = 100;
       anchor.dispatchEvent(new Event('scroll', { bubbles: true }));
       await wait(200);
       const afterBox = boxH.getBoundingClientRect();
@@ -1589,15 +1595,17 @@ async function interactionChecks(): Promise<Result[]> {
       const bodyRect = body.getBoundingClientRect();
       const fixedTop = Math.abs(afterBox.top - bodyRect.top) <= 2;
       const fixedLeft = Math.abs(afterBox.left - (bodyRect.left + RULER_W)) <= 2;
-      const tickMoved = !!tickBefore2 && !!afterTick && Math.abs(afterTick.left - tickBefore2.left + 120) <= 2;
+      const sx = anchor.scrollLeft;
+      const tickMoved = !!tickBefore2 && !!afterTick && sx > 50 && Math.abs(afterTick.left - tickBefore2.left + sx) <= 2;
       add(
         '标尺脱离画布固定在视口顶部/左侧（文档模式：标尺不动、刻度跟着**滚动量**走）',
         fixedTop && fixedLeft && tickMoved,
-        `标尺框 top ${Math.round(beforeBox.top - bodyRect.top)}→${Math.round(afterBox.top - bodyRect.top)}px、left ${Math.round(afterBox.left - bodyRect.left)}px（期望 ${RULER_W}）；刻度位移 ${afterTick && tickBefore2 ? Math.round(afterTick.left - tickBefore2.left) : '?'}px（期望 -120）`,
+        `标尺框 top ${Math.round(beforeBox.top - bodyRect.top)}→${Math.round(afterBox.top - bodyRect.top)}px、left ${Math.round(afterBox.left - bodyRect.left)}px（期望 ${RULER_W}）；实际滚动 ${sx}px，刻度位移 ${afterTick && tickBefore2 ? Math.round(afterTick.left - tickBefore2.left) : '?'}px（期望 -${sx}）`,
       );
       anchor.scrollLeft = 0;
       anchor.dispatchEvent(new Event('scroll', { bubbles: true }));
-      await wait(140);
+      S().setZoom(1);
+      await wait(160);
 
       // Web 模式：平移 120px，刻度跟着平移量走
       S().setMode('web');
@@ -4356,6 +4364,41 @@ async function interactionChecks(): Promise<Result[]> {
       '老文档（只有单图 src/caption）在面板里当第 1 行显示，一编辑就迁移进 images 并清空 src',
       legacyShown && migrated.includes(pix) && migrated.includes('老图题') && oldProps.src === '',
       `老图显示为第 1 行=${legacyShown}（地址框${legacySrcBox ? '有' : '无'}值、图题框值=「${legacyCapBox?.value ?? ''}」）；迁移后 images 第 1 行=「${migrated.split('\n')[0].slice(0, 40)}…」、src=「${String(oldProps.src ?? '')}」`,
+    );
+  }
+
+  /* 文档 ↔ Web 来回切模式：画布尺寸不能被上一种模式的实测值污染（用户 2026-09-23 反馈） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const mNode2 = S().addComponent('paragraph');
+    if (mNode2) S().updateProps(mNode2, { text: '模式来回切' });
+    await wait(460);
+    const layerW = (): number => {
+      const el = document.querySelector('[data-pan-layer="1"]') as HTMLElement | null;
+      return el ? el.getBoundingClientRect().width : 0;
+    };
+    const docLayerW1 = layerW();
+
+    S().setMode('web');
+    await wait(520);
+    const webLayerW = layerW();
+
+    S().setMode('document');
+    await wait(560);
+    const vpRect = document.getElementById('canvas-viewport')?.getBoundingClientRect();
+    const layerEl = document.querySelector('[data-pan-layer="1"]') as HTMLElement | null;
+    const lr = layerEl?.getBoundingClientRect();
+    const pageW = mmToPx(S().doc.document.page.width);
+    const leftGap = lr && vpRect ? lr.x - vpRect.x : -1;
+    add(
+      '文档 ↔ Web 来回切模式：切回文档模式后 A4 仍居中（实测宽不会被 Web 画布宽度锁死）',
+      Math.round(docLayerW1) === Math.round(pageW) &&
+        Math.round(webLayerW) === S().doc.web.canvas.width &&
+        !!lr &&
+        Math.abs(lr.width - pageW) < 2 &&
+        leftGap > 20,
+      `文档图层宽=${Math.round(docLayerW1)}（期望 ${Math.round(pageW)}）→ Web 图层宽=${Math.round(webLayerW)}（画布 ${S().doc.web.canvas.width}）→ 切回文档图层宽=${Math.round(lr?.width ?? 0)}、左边距=${Math.round(leftGap)}px`,
     );
   }
 

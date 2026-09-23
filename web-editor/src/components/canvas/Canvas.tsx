@@ -21,22 +21,29 @@ import { useCellEdit } from './useCellEdit';
 /**
  * 量出内容真实尺寸（**未缩放**；文档模式下就是所有纸张叠起来的总高）。
  * 返回 `size` 供调用方用：内容是"一页"还是"很多页"，标尺长度与滚动范围都要按它算。
+ *
+ * ★`scope`（就是当前模式）标记这个实测值是**哪个模式**下量的 —— 两种模式的内容尺寸完全不同
+ *   （文档模式 A4 = 794px 宽，Web 模式是画布宽，示例里 1440px），而 `contentW` 又会被写回被测量
+ *   元素自身的宽度，于是换模式后**旧的实测值会自我锁定**：Web→文档时 contentW 一直停在 1440，
+ *   `margin:0 auto` 失效，A4 贴在视口左边（用户 2026-09-23 反馈："切回文档模式画布偏移到 0,0"）。
+ *   所以换模式就作废：本次渲染按纸张/画布尺寸兜底，紧接着布局阶段量出真实值。
  */
-function useScaledBox(zoom: number, deps: unknown[]) {
+function useScaledBox(zoom: number, deps: unknown[], scope: string) {
   const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [box, setBox] = useState<{ scope: string; w: number; h: number }>({ scope, w: 0, h: 0 });
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const measure = () => setSize({ w: el.offsetWidth, h: el.offsetHeight });
+    const measure = () => setBox({ scope, w: el.offsetWidth, h: el.offsetHeight });
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, scope]);
 
+  const size = box.scope === scope ? { w: box.w, h: box.h } : { w: 0, h: 0 };
   return { ref, size, outerW: size.w * zoom, outerH: size.h * zoom };
 }
 
@@ -152,14 +159,11 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     [mode, page, canvas, ui.preview],
   );
 
-  const { ref, size } = useScaledBox(zoom, [
-    mode,
-    page,
-    canvas,
-    nodes.length,
-    ui.showRuler,
-    JSON.stringify(selectedIds),
-  ]);
+  const { ref, size } = useScaledBox(
+    zoom,
+    [mode, page, canvas, nodes.length, ui.showRuler, JSON.stringify(selectedIds)],
+    mode, // ★实测值按模式归属；换模式即作废（否则 Web 的 1440 会锁死文档模式的 contentW）
+  );
   const viewportRef = useRef<HTMLDivElement>(null);
   /**
    * ★两种模式两套浏览方式（用户 2026-09-23）：
