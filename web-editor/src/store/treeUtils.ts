@@ -15,6 +15,7 @@ import type {
   Frame,
 } from '../registry/types';
 import { createId } from '../utils/id';
+import { toTableText } from '../registry/components/common/tableKit';
 
 /* ══════════════ 森林读写（两模式统一入口） ══════════════ */
 
@@ -226,4 +227,41 @@ export function createNode(def: ComponentDefinition, mode: EditorMode): Componen
   if (def.isContainer) node.children = [];
   if (frame) node.frame = frame;
   return node;
+}
+
+/* ══════════════ 文档规整（读档/导入时统一一次） ══════════════ */
+
+const isTableType = (t: string): boolean => t === 'table' || /Table$/.test(t);
+
+/**
+ * 把表格类组件的 `data` 统一成**文本形态**（数组 → "a | b\nc | d"）。
+ *
+ * 背景：早期组件默认属性里的 `data` 是二维数组，而属性面板的「数据」是文本域 ——
+ * 数组进去只能显示成 "a,b,c"（用户反馈"表格数据不显示"）。
+ * 在**读档与导入**时规整一次，旧存档与新拖入的表格就都是同一种形态。
+ * 纯函数、不改结构（只把 props.data 换掉），可安全用在 persist merge 里。
+ */
+export function normalizeDocTables(doc: EditorDocument): EditorDocument {
+  let touched = false;
+  const walk = (list: ComponentNode[]): ComponentNode[] =>
+    list.map((n) => {
+      const children = n.children?.length ? walk(n.children) : n.children;
+      const raw = n.props?.data;
+      const needData = isTableType(n.type) && raw != null && typeof raw !== 'string';
+      if (!needData && children === n.children) return n;
+      touched = true;
+      return {
+        ...n,
+        ...(needData ? { props: { ...n.props, data: toTableText(raw) } } : {}),
+        ...(children !== n.children ? { children } : {}),
+      };
+    });
+  const components = walk(doc.document.components);
+  const webChildren = walk(doc.web.root.children ?? []);
+  if (!touched) return doc;
+  return {
+    ...doc,
+    document: { ...doc.document, components },
+    web: { ...doc.web, root: { ...doc.web.root, children: webChildren } },
+  };
 }

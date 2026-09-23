@@ -5,7 +5,7 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { getCategoriesByMode } from '../../registry';
-import type { ComponentDefinition } from '../../registry/types';
+import { categoryLabel, type ComponentDefinition } from '../../registry/types';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { selectMode, useEditorStore } from '../../store/editorStore';
 import { Tooltip } from '../ui/Tooltip';
@@ -80,11 +80,14 @@ function Category({
     <div className="mb-1">
       <button
         type="button"
+        data-category-name={name}
+        /* 面板显示短名（Word/Excel/PPT/布局）；契约里仍是全名，所以 title 里给出全名 */
+        title={`${categoryLabel(name)}（${name}）`}
         onClick={onToggle}
         className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-1 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
       >
         {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        <span className="flex-1">{name}</span>
+        <span className="flex-1">{categoryLabel(name)}</span>
         <span className="text-2xs font-normal text-gray-400">{items.length}</span>
       </button>
       {open && (

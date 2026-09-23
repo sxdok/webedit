@@ -87,6 +87,16 @@ export function serializeTableData(rows: string[][]): string {
   return rows.map((r) => r.map(escapeCell).join(' | ')).join('\n');
 }
 
+/**
+ * 任意形态的表格数据（二维数组 / 文本）→ **规范文本**。
+ * ★组件默认属性里早期写的是二维数组，而属性面板的「数据」是文本域：
+ *   数组进去会被 `String()` 成 "a,b,c,d" 这种逗号串（等于"表格数据不显示"）。
+ *   统一在入口处转成文本，面板、导出、MCP 三条路看到的就是同一份内容。
+ */
+export function toTableText(raw: unknown): string {
+  return typeof raw === 'string' ? raw : serializeTableData(parseTableData(raw));
+}
+
 /** 把 data 属性（二维数组或 "a | b" 文本）解析成行
  *  ★空行**要保留**（Excel 里空行就是一行空单元格）：只把"末尾换行"这个书写残留去掉，
  *    中间和末尾的空行都算真实行 —— 否则"插入空行"会看不见、行列数量也对不上。
@@ -278,6 +288,9 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   const rows = parseTableData(props.data);
   const variant = forceVariant ?? (asString(props.variant, 'normal') as TableVariant);
   const headerRow = asBool(props.headerRow, true);
+  /* ★首列为表头（用户 2026-09-23 要求新增）：第一列作为"行标题"，渲染成 <th scope="row">、
+     加粗并按全框线的表头底色上色；默认 **false**（默认仍是首行为表头，行为不变）。 */
+  const headerCol = asBool(props.headerCol, false);
   const bw = asNumber(props.borderWidth, 1);
   const bc = asString(props.borderColor, '#c9d6e2');
   const pad = asNumber(props.cellPadding, 6);
@@ -349,6 +362,13 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   };
   if (variant === 'threeLine') headCell.borderBottom = `1px solid ${asString(props.headerColor, '#1f2329')}`;
   if (variant === 'hLines') headCell.borderBottom = `1.5px solid ${bc}`;
+
+  /** 行标题格（首列为表头）：只加粗 + 底色，**不继承**表头行的线条覆盖（三线表/横线表不会多出横线） */
+  const rowHeadCell: React.CSSProperties = {
+    ...cell,
+    fontWeight: 600,
+    background: variant === 'normal' ? asString(props.headerBackground, '#e8f1f9') : undefined,
+  };
 
   /* ── 合并区：范围键（如 "B2:C3"）即合并；被覆盖的非锚点格子不渲染，锚点带 colSpan/rowSpan ── */
   const spans = new Map<string, { rs: number; cs: number }>();
@@ -455,18 +475,21 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
                 const k = `${rowIndex},${ci}`;
                 if (covered.has(k)) return null; // 被合并覆盖 → 不渲染
                 const sp = spans.get(k);
+                const isHeadCol = headerCol && ci === 0;
+                const Cell = isHeadCol ? 'th' : 'td';
                 return (
-                  <td
+                  <Cell
                     key={ci}
                     data-cell={k}
                     data-cell-row={rowIndex}
                     data-cell-col={ci}
+                    {...(isHeadCol ? { scope: 'row' as const } : {})}
                     colSpan={sp?.cs}
                     rowSpan={sp?.rs}
-                    style={styleFor(rowIndex, ci, cell)}
+                    style={styleFor(rowIndex, ci, isHeadCol ? rowHeadCell : cell)}
                   >
                     {c}
-                  </td>
+                  </Cell>
                 );
               })}
             </tr>
@@ -493,6 +516,7 @@ export function tableSchema(
       placeholder: '列1 | 列2 | 列3',
     },
     { key: 'headerRow', label: '首行为表头', control: 'switch', group: GROUP.whole, defaultValue: true },
+    { key: 'headerCol', label: '首列为表头（第一列作为行标题：加粗 + 表头底色）', control: 'switch', group: GROUP.whole, defaultValue: false },
     { key: 'caption', label: '表题（显示在表格上方）', control: 'text', group: GROUP.whole, defaultValue: '' },
     { key: 'captionAlign', label: '表题对齐', control: 'align', group: GROUP.whole, defaultValue: 'left' },
     { key: 'captionSize', label: '表题字号', control: 'unit', group: GROUP.whole, defaultValue: 10.5, unit: 'pt', min: 6, max: 24 },

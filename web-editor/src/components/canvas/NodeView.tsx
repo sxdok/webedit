@@ -19,6 +19,7 @@ import {
 } from 'react';
 import { getComponent } from '../../registry';
 import type { ComponentDefinition } from '../../registry/types';
+import { useEditorStore } from '../../store/editorStore';
 import { asNumber } from '../../utils/id';
 import { log } from '../../utils/logger';
 import type { ComponentNode, EditorMode, RenderContext } from '../../registry/types';
@@ -32,8 +33,13 @@ export interface NodeViewProps {
   showChrome: boolean;
   onSelect: (id: string, additive: boolean) => void;
   onHover: (id: string | null) => void;
-  /** 按下节点（拖动/排序由画布交互层处理） */
-  onNodePointerDown?: (e: ReactPointerEvent) => void;
+  /**
+   * 按下节点（拖动/排序由画布交互层处理）。
+   * ★第二个参数必须是**这个节点自己的 id**：容器里的子节点复用的是同一份回调，
+   *   若把它绑成"顶层节点 id"传下去，点子组件会变成选中/拖动它的祖先容器
+   *   （用户 2026-09-23 反馈"放进容器里的组件选不中"就是这个根因）。
+   */
+  onNodePointerDown?: (e: ReactPointerEvent, id: string) => void;
   /** 离屏测量模式：无交互、无数据属性 */
   measure?: boolean;
   /** 本块是"跨页续表"（表格第 2..n 段）：标记 data-node-split，拖动排序要忽略 */
@@ -105,13 +111,6 @@ function NodeViewInner({
   continuation,
 }: NodeViewProps) {
   const def = getComponent(node.type);
-  if (!def) {
-    return (
-      <div className="rounded border border-dashed border-red-300 bg-red-50 px-2 py-1 text-2xs text-red-500">
-        未注册组件：{node.type}
-      </div>
-    );
-  }
   if (node.hidden) return null;
 
   const selected = !measure && selectedIds.includes(node.id);
@@ -138,7 +137,7 @@ function NodeViewInner({
       }
     : {};
 
-  const childNodes: ReactNode = def.isContainer
+  const childNodes: ReactNode = def?.isContainer
     ? (node.children ?? []).map((child) => (
         <NodeView
           key={child.id}
@@ -156,10 +155,40 @@ function NodeViewInner({
       ))
     : null;
 
-  const content = (
+  /**
+   * ★未注册组件（比如外部插件被删掉、或旧存档里的组件没了）：
+   *   以前这里**直接 return 一个红框**，它没有 data-node-id、也没有选中/删除入口 ——
+   *   结果就是"红框删不掉"（用户 2026-09-23 反馈）。
+   *   现在红色提示渲染在**同一个包装节点内部**：能点选、能进组件树、能按 Delete，
+   *   并且就地给一个「删除该节点」按钮，不必先猜它在哪。
+   */
+  const content = def ? (
     <NodeErrorBoundary type={node.type}>
       <NodeBody def={def} props={node.props} rctx={{ ...ctx, isSelected: selected }} childNodes={childNodes} />
     </NodeErrorBoundary>
+  ) : (
+    <div
+      data-node-unregistered={node.type}
+      className="flex items-center gap-2 rounded border border-dashed border-red-300 bg-red-50 px-2 py-1 text-2xs text-red-600"
+    >
+      <span className="min-w-0 flex-1 truncate">
+        未注册组件：{node.type}
+        {(node.children?.length ?? 0) > 0 ? `（含 ${node.children?.length} 个子节点）` : ''}
+        —— 点选后按 Delete 删除，或
+      </span>
+      <button
+        type="button"
+        data-remove-unregistered="1"
+        className="shrink-0 rounded border border-red-300 bg-white px-1.5 py-0.5 text-2xs text-red-600 hover:bg-red-100"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          useEditorStore.getState().removeComponent(node.id);
+        }}
+      >
+        删除该节点
+      </button>
+    </div>
   );
 
   const extra = measure
@@ -185,7 +214,7 @@ function NodeViewInner({
           : (e) => {
               e.stopPropagation();
               onSelect(node.id, e.shiftKey);
-              onNodePointerDown?.(e);
+              onNodePointerDown?.(e, node.id);
             }
       }
     >

@@ -138,7 +138,7 @@ export function WebCanvas({
             showChrome={showChrome}
             onSelect={onSelect}
             onHover={onHover}
-            onNodePointerDown={(e) => it.onNodePointerDown(e, n.id)}
+            onNodePointerDown={it.onNodePointerDown}
           />
         ))}
 

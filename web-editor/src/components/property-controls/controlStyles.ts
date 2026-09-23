@@ -14,8 +14,13 @@ export const smallBtnCls =
 export const badgeCls =
   'flex h-7 min-w-8 shrink-0 items-center justify-center rounded-md border border-line bg-gray-50 px-1 text-2xs text-gray-500';
 
+/**
+ * 小按钮（属性面板内的操作按钮）。
+ * ★用 inline-flex + 居中：放进 `grid grid-cols-2` 里时按钮会拉伸成等宽，
+ *   文字/图标必须自己居中，否则靠左看着像没对齐。
+ */
 export const btnCls =
-  'h-6 shrink-0 rounded-md border border-line px-1.5 text-2xs hover:border-primary hover:text-primary disabled:opacity-40';
+  'inline-flex h-6 shrink-0 items-center justify-center gap-0.5 rounded-md border border-line px-1.5 text-2xs hover:border-primary hover:text-primary disabled:opacity-40';
 
 /** 焦点态统一：数字/文本输入聚焦时加 2px 外发光 */
 export const focusRing = 'focus:ring-2 focus:ring-primary/20';

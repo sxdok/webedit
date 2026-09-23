@@ -163,9 +163,9 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
   };
 
   return (
-    <div className="space-y-1" data-cell-format="1">
-      {/* 内容：改选中那一格的文字（支持格内换行；“|”会被转义，不会拆列） */}
-      <div className="flex items-start gap-1" data-cell-text-row="1">
+    <div className="space-y-1.5" data-cell-format="1">
+      {/* ① 内容：改选中那一格的文字（支持格内换行；“|”会被转义，不会拆列） */}
+      <div className="flex items-start gap-1.5" data-cell-text-row="1">
         <Tooltip
           side="right"
           content={{
@@ -177,14 +177,14 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
             ],
           }}
         >
-          <span className="mt-1 w-8 shrink-0 cursor-help text-2xs text-gray-400">内容</span>
+          <span className="mt-1 w-9 shrink-0 cursor-help text-right text-2xs text-gray-400">内容</span>
         </Tooltip>
         <textarea
           data-cell-text="1"
           rows={2}
           disabled={!single}
-          className="min-h-[38px] min-w-0 flex-1 resize-y rounded border border-line bg-white px-1 py-0.5 text-xs leading-4 disabled:bg-gray-50 disabled:text-gray-400"
-          placeholder={single ? '' : '先只选一格'}
+          className="min-h-[38px] min-w-0 flex-1 resize-y rounded border border-line bg-white px-1.5 py-1 text-xs leading-4 disabled:bg-gray-50 disabled:text-gray-400"
+          placeholder={single ? '' : '先在画布上只选一格'}
           value={single ? draft : ''}
           onChange={(e) => {
             setDraft(e.target.value);
@@ -201,165 +201,177 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-1 text-2xs text-gray-500">
+      {/* ② 选中范围 + 清除 */}
+      <div className="flex items-center gap-1 text-2xs text-gray-500">
         {range ? (
           <>
-            <span>
+            <span className="truncate">
               当前选中：<b className="font-mono text-primary">{rangeLabel(range)}</b>（
               {range.r1 - range.r0 + 1} 行 × {range.c1 - range.c0 + 1} 列）
             </span>
-            <button type="button" data-cell-clear="1" className={`${btnCls} ml-auto`} onClick={() => apply({ __clear: true })}>
+            <button type="button" data-cell-clear="1" className={`${btnCls} ml-auto shrink-0`} onClick={() => apply({ __clear: true })}>
               <Trash2 className="mr-0.5 h-3 w-3" />
               清除选中
             </button>
           </>
         ) : (
-          <span className="text-gray-400">未选单元格</span>
+          <span className="text-gray-400">未选单元格 —— 在画布上点选（可拖选一片）后再改下面的格式</span>
         )}
       </div>
 
-      {/* 填充 / 文字色 / 字号 / 字重 */}
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="w-8 shrink-0 text-2xs text-gray-400">填充</span>
-        <input
-          type="color"
-          data-cell-bg="1"
-          disabled={disabled}
-          className="h-6 w-7 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5 disabled:opacity-40"
-          value={bgValue}
-          onChange={(e) => apply({ background: e.target.value })}
-        />
-        <span className="ml-1 w-10 shrink-0 text-2xs text-gray-400">文字色</span>
-        <input
-          type="color"
-          data-cell-fg="1"
-          disabled={disabled}
-          className="h-6 w-7 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5 disabled:opacity-40"
-          value={fgValue}
-          onChange={(e) => apply({ color: e.target.value })}
-        />
-        <span className="ml-1 shrink-0 text-2xs text-gray-400">字号</span>
-        <input
-          type="number"
-          data-cell-size="1"
-          disabled={disabled}
-          step={0.5}
-          min={6}
-          max={36}
-          className="h-6 w-11 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
-          value={fontSizeValue}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            if (Number.isFinite(v) && v > 0) apply({ fontSize: v });
-          }}
-        />
-        <select
-          data-cell-weight="1"
-          disabled={disabled}
-          className="h-6 shrink-0 rounded border border-line bg-white px-0.5 text-2xs disabled:opacity-40"
-          value={String(weightValue)}
-          onChange={(e) => apply({ fontWeight: Number(e.target.value) })}
-          title="字重"
-        >
-          <option value="400">常规</option>
-          <option value="600">中粗</option>
-          <option value="700">加粗</option>
-        </select>
-      </div>
-
-      {/* 水平 / 垂直对齐 */}
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="w-8 shrink-0 text-2xs text-gray-400">对齐</span>
-        {(
-          [
-            ['left', AlignLeft],
-            ['center', AlignCenter],
-            ['right', AlignRight],
-            ['justify', AlignJustify],
-          ] as const
-        ).map(([v, Icon]) => (
-          <button
-            key={v}
-            type="button"
-            data-cell-align={v}
-            disabled={disabled}
-            className={`${btnCls} ${alignValue === v ? 'border-primary bg-primary/10 text-primary' : ''} w-6 px-0`}
-            title={`水平对齐：${v}`}
-            onClick={() => apply({ align: v })}
-          >
-            <Icon className="h-3 w-3" />
-          </button>
-        ))}
-        <span className="ml-1 shrink-0 text-2xs text-gray-400">垂直</span>
-        <select
-          data-cell-valign="1"
-          disabled={disabled}
-          className="h-6 shrink-0 rounded border border-line bg-white px-0.5 text-2xs disabled:opacity-40"
-          value={valignValue}
-          onChange={(e) => apply({ valign: e.target.value as NonNullable<CellStyle['valign']> })}
-        >
-          <option value="top">顶部</option>
-          <option value="middle">居中</option>
-          <option value="bottom">底部</option>
-        </select>
-        <span className="ml-1 shrink-0 text-2xs text-gray-400">内边距</span>
-        <input
-          type="number"
-          data-cell-pad="1"
-          disabled={disabled}
-          min={0}
-          max={24}
-          className="h-6 w-9 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
-          value={paddingValue}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            if (Number.isFinite(v) && v >= 0) apply({ padding: v });
-          }}
-        />
-      </div>
-
-      {/* 边框（折叠，避免占满面板） */}
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" className={btnCls} onClick={() => setShowBorder((v) => !v)} title="单元格边框">
-          边框{showBorder ? ' ▲' : ' ▼'}
-        </button>
-        {showBorder &&
-          (['top', 'right', 'bottom', 'left'] as const).map((side) => (
-            <label key={side} className="flex shrink-0 items-center gap-0.5">
-              <span className="text-2xs text-gray-400">{{ top: '上', right: '右', bottom: '下', left: '左' }[side]}</span>
-              <input
-                type="number"
-                data-cell-border={side}
-                disabled={disabled}
-                min={0}
-                max={6}
-                className="h-6 w-8 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
-                value={border[side] ?? 0}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (Number.isFinite(v)) apply({ border: { ...border, [side]: v, color: borderColor } });
-                }}
-              />
-            </label>
-          ))}
-        {showBorder && (
+      {/* ③ 格式：一行一项、标签右对齐，控件按面板宽度自适应（不再是挤在一行的 flex-wrap） */}
+      <div className="space-y-1 rounded-md border border-line/80 bg-gray-50/70 px-1.5 py-1.5" data-cell-format-box="1">
+        <div className="flex items-center gap-1.5">
+          <span className="w-9 shrink-0 text-right text-2xs text-gray-400">填充</span>
           <input
             type="color"
-            data-cell-border-color="1"
+            data-cell-bg="1"
             disabled={disabled}
-            className="h-6 w-7 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5"
-            value={borderColor}
-            onChange={(e) => apply({ border: { ...border, color: e.target.value } })}
+            className="h-6 w-8 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5 disabled:opacity-40"
+            value={bgValue}
+            onChange={(e) => apply({ background: e.target.value })}
           />
-        )}
+          <span className="w-9 shrink-0 text-right text-2xs text-gray-400">文字色</span>
+          <input
+            type="color"
+            data-cell-fg="1"
+            disabled={disabled}
+            className="h-6 w-8 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5 disabled:opacity-40"
+            value={fgValue}
+            onChange={(e) => apply({ color: e.target.value })}
+          />
+          <span className="w-7 shrink-0 text-right text-2xs text-gray-400">字号</span>
+          <input
+            type="number"
+            data-cell-size="1"
+            disabled={disabled}
+            step={0.5}
+            min={6}
+            max={36}
+            className="h-6 min-w-0 flex-1 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
+            value={fontSizeValue}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && v > 0) apply({ fontSize: v });
+            }}
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="w-9 shrink-0 text-right text-2xs text-gray-400">字重</span>
+          <select
+            data-cell-weight="1"
+            disabled={disabled}
+            className="h-6 min-w-0 flex-1 rounded border border-line bg-white px-1 text-2xs disabled:opacity-40"
+            value={String(weightValue)}
+            onChange={(e) => apply({ fontWeight: Number(e.target.value) })}
+            title="字重"
+          >
+            <option value="400">常规</option>
+            <option value="600">中粗</option>
+            <option value="700">加粗</option>
+          </select>
+          <span className="w-9 shrink-0 text-right text-2xs text-gray-400">内边距</span>
+          <input
+            type="number"
+            data-cell-pad="1"
+            disabled={disabled}
+            min={0}
+            max={24}
+            className="h-6 w-12 shrink-0 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
+            value={paddingValue}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v) && v >= 0) apply({ padding: v });
+            }}
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <span className="w-9 shrink-0 text-right text-2xs text-gray-400">对齐</span>
+          {(
+            [
+              ['left', AlignLeft],
+              ['center', AlignCenter],
+              ['right', AlignRight],
+              ['justify', AlignJustify],
+            ] as const
+          ).map(([v, Icon]) => (
+            <button
+              key={v}
+              type="button"
+              data-cell-align={v}
+              disabled={disabled}
+              className={`${btnCls} ${alignValue === v ? 'border-primary bg-primary/10 text-primary' : ''} w-6 shrink-0 justify-center px-0`}
+              title={`水平对齐：${{ left: '左', center: '中', right: '右', justify: '两端' }[v]}`}
+              onClick={() => apply({ align: v })}
+            >
+              <Icon className="h-3 w-3" />
+            </button>
+          ))}
+          <span className="w-7 shrink-0 text-right text-2xs text-gray-400">垂直</span>
+          <select
+            data-cell-valign="1"
+            disabled={disabled}
+            className="h-6 min-w-0 flex-1 rounded border border-line bg-white px-1 text-2xs disabled:opacity-40"
+            value={valignValue}
+            onChange={(e) => apply({ valign: e.target.value as NonNullable<CellStyle['valign']> })}
+          >
+            <option value="top">顶部</option>
+            <option value="middle">居中</option>
+            <option value="bottom">底部</option>
+          </select>
+        </div>
+
+        {/* 边框（折叠，避免占满面板）；展开后 4 个方向各一行，宽度不再是 8px 的窄格子 */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className="w-9 shrink-0 text-right text-2xs text-gray-400">边框</span>
+            <button type="button" className={`${btnCls} shrink-0`} onClick={() => setShowBorder((v) => !v)} title="单元格边框（四边各自设宽度）">
+              {showBorder ? '收起 ▲' : '展开 ▼'}
+            </button>
+            {showBorder && (
+              <input
+                type="color"
+                data-cell-border-color="1"
+                disabled={disabled}
+                className="h-6 w-8 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5"
+                value={borderColor}
+                onChange={(e) => apply({ border: { ...border, color: e.target.value } })}
+                title="边框颜色"
+              />
+            )}
+          </div>
+          {showBorder &&
+            (['top', 'right', 'bottom', 'left'] as const).map((side) => (
+              <label key={side} className="flex items-center gap-1.5">
+                <span className="w-9 shrink-0 text-right text-2xs text-gray-400">{{ top: '上', right: '右', bottom: '下', left: '左' }[side]}</span>
+                <input
+                  type="number"
+                  data-cell-border={side}
+                  disabled={disabled}
+                  min={0}
+                  max={6}
+                  step={0.5}
+                  className="h-6 min-w-0 flex-1 rounded border border-line bg-white px-1 text-center text-xs disabled:opacity-40"
+                  value={border[side] ?? 0}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    if (Number.isFinite(v)) apply({ border: { ...border, [side]: v, color: borderColor } });
+                  }}
+                />
+                <span className="shrink-0 text-2xs text-gray-400">px</span>
+              </label>
+            ))}
+        </div>
       </div>
 
-      {/* 合并 / 拆分 + 区域操作 */}
-      <div className="flex flex-wrap items-center gap-1">
+      {/* ④ 区域操作：合并/拆分 + 整行/整列，再一行放"清空全部"与覆盖计数 */}
+      <div className="grid grid-cols-2 gap-1">
         <button
           type="button"
           data-cell-merge="1"
-          className={btnCls}
+          className={`${btnCls} justify-center`}
           disabled={disabled || (range ? range.r0 === range.r1 && range.c0 === range.c1 : true)}
           title="合并选中的单元格"
           onClick={merge}
@@ -367,14 +379,14 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
           <Combine className="mr-0.5 h-3 w-3" />
           合并单元格
         </button>
-        <button type="button" data-cell-split="1" className={btnCls} disabled={disabled} title="拆分（去掉合并与格式）" onClick={split}>
+        <button type="button" data-cell-split="1" className={`${btnCls} justify-center`} disabled={disabled} title="拆分（去掉合并与格式）" onClick={split}>
           <Split className="mr-0.5 h-3 w-3" />
           拆分
         </button>
         <button
           type="button"
           data-cell-apply-row="1"
-          className={btnCls}
+          className={`${btnCls} justify-center`}
           disabled={disabled}
           title="把左上角那格的格式复制到整行"
           onClick={() => apply({ ...first }, range ? rowKeys(range) : undefined)}
@@ -385,7 +397,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
         <button
           type="button"
           data-cell-apply-col="1"
-          className={btnCls}
+          className={`${btnCls} justify-center`}
           disabled={disabled}
           title="把左上角那格的格式复制到整列"
           onClick={() => apply({ ...first }, range ? colKeys(range) : undefined)}
@@ -393,11 +405,20 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
           <ArrowDownToLine className="mr-0.5 h-3 w-3" />
           整列
         </button>
-        <button type="button" disabled={!filled} className={btnCls} onClick={() => updateProps(nodeId ?? '', { cellStyles: {} })}>
+      </div>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          data-cell-clear-all="1"
+          disabled={!filled}
+          className={btnCls}
+          onClick={() => updateProps(nodeId ?? '', { cellStyles: {} })}
+          title="清空这张表上所有的单元格格式"
+        >
           <Paintbrush className="mr-0.5 h-3 w-3" />
-          清空全部
+          清空全部格式
         </button>
-        <span className="shrink-0 text-2xs text-gray-400">{filled} 格有覆盖</span>
+        <span className="ml-auto shrink-0 text-2xs text-gray-400">{filled} 格有覆盖</span>
       </div>
     </div>
   );

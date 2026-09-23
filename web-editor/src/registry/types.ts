@@ -324,16 +324,38 @@ export interface ComponentDefinition {
   render: (props: ComponentProps, ctx: RenderContext, children?: ReactNode) => ReactNode;
 }
 
-/** 左侧面板的分组顺序（未列出的分组排在最后，按字母序） */
+/**
+ * 左侧面板的分组顺序（未列出的分组排在最后，按字母序）。
+ * 用户 2026-09-23 指定：**通用 → 布局 → Word → Excel → PPT**（Web 两类排最后，只在 Web 模式出现）。
+ */
 export const CATEGORY_ORDER = [
-  'Word 常用',
-  'Excel 表格',
   '通用',
   '布局分页',
+  'Word 常用',
+  'Excel 表格',
   'PPT 专用',
   'Web 控件',
   'Web 容器',
 ] as const;
+
+/**
+ * 分类的**显示名**（左侧面板标题用）——分类 key 是组件契约的一部分
+ * （组件定义、分组策略、插件文档都按 key 走），所以只做显示层映射，不改 key：
+ * 面板上显示短名（Word / Excel / PPT / 布局），契约里仍是 `Word 常用` 等全名。
+ */
+export const CATEGORY_LABELS: Record<string, string> = {
+  通用: '通用',
+  布局分页: '布局',
+  'Word 常用': 'Word',
+  'Excel 表格': 'Excel',
+  'PPT 专用': 'PPT',
+  'Web 控件': 'Web 控件',
+  'Web 容器': 'Web 容器',
+};
+
+export function categoryLabel(name: string): string {
+  return CATEGORY_LABELS[name] ?? name;
+}
 
 /* ══════════════ 默认值工厂 ══════════════ */
 

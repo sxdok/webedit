@@ -5,7 +5,7 @@
  */
 import { Table as TableIcon } from 'lucide-react';
 import type { ComponentDefinition } from '../../types';
-import { renderTable, tableSchema } from './tableKit';
+import { renderTable, serializeTableData, tableSchema } from './tableKit';
 
 const DEFAULT_DATA: string[][] = [
   ['项目', '取值', '说明'],
@@ -24,8 +24,10 @@ export const tableComponent: ComponentDefinition = {
   defaultFrame: { x: 40, y: 240, w: 560, h: 160 },
   propSchema: tableSchema(DEFAULT_DATA, 'normal'),
   defaultProps: {
-    data: DEFAULT_DATA,
+    // ★存**文本**（不是二维数组）：属性面板的「数据」是文本域，数组进去只会显示成 "a,b,c"（等于数据不显示）
+    data: serializeTableData(DEFAULT_DATA),
     headerRow: true,
+    headerCol: false,
     caption: '',
     captionAlign: 'left',
     captionSize: 10.5,

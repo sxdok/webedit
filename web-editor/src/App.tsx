@@ -29,10 +29,66 @@ function CollapseBar({ side, onClick }: { side: 'left' | 'right'; onClick: () =>
   );
 }
 
+/**
+ * 面板宽度拖拽手柄（用户 2026-09-23：左右面板要能拖拽调宽）。
+ * · 用 Pointer Events + setPointerCapture：拖到面板外也不会丢事件；
+ * · 双保险：pointerup/cancel 都收尾，并清掉 body 上的 cursor 覆盖；
+ * · 只改宽度（180–560），不改文档、不入历史。
+ */
+function PanelResizer({ side, width, onResize }: { side: 'left' | 'right'; width: number; onResize: (w: number) => void }) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={side === 'left' ? '拖动调整组件面板宽度' : '拖动调整属性面板宽度'}
+      data-panel-resizer={side}
+      title="拖动调整宽度（双击恢复默认）"
+      className="no-print group relative z-10 w-1 shrink-0 cursor-col-resize bg-transparent"
+      onDoubleClick={() => onResize(side === 'left' ? 240 : 300)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        const el = e.currentTarget;
+        const startX = e.clientX;
+        const startW = width;
+        // ★setPointerCapture 在"非真实指针"（自检里 dispatchEvent 的合成事件）上会抛
+        //   InvalidPointerId；这里兜住，拖拽逻辑本身不依赖捕获成功。
+        try {
+          el.setPointerCapture(e.pointerId);
+        } catch {
+          /* 忽略：合成事件没有活动指针 */
+        }
+        const prevCursor = document.body.style.cursor;
+        const prevSelect = document.body.style.userSelect;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        const move = (ev: PointerEvent) => {
+          const dx = ev.clientX - startX;
+          onResize(startW + (side === 'left' ? dx : -dx));
+        };
+        const done = () => {
+          el.removeEventListener('pointermove', move);
+          el.removeEventListener('pointerup', done);
+          el.removeEventListener('pointercancel', done);
+          document.body.style.cursor = prevCursor;
+          document.body.style.userSelect = prevSelect;
+        };
+        el.addEventListener('pointermove', move);
+        el.addEventListener('pointerup', done);
+        el.addEventListener('pointercancel', done);
+      }}
+    >
+      {/* 视觉上是一条 1px 分隔线，hover/拖动时高亮 */}
+      <span className="absolute inset-y-0 left-0 w-px bg-line group-hover:bg-primary/60" />
+    </div>
+  );
+}
+
 export default function App() {
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const ui = useEditorStore((s) => s.ui);
   const toggleUI = useEditorStore((s) => s.toggleUI);
+  const setPanelWidth = useEditorStore((s) => s.setPanelWidth);
   useShortcuts();
 
   // 主题：写到 <html data-theme>（index.css 里按该属性切换 Monokai 深色）
@@ -68,9 +124,14 @@ export default function App() {
       <div className="print-block flex min-h-0 flex-1">
         {!ui.leftCollapsed ? (
           <>
-            <aside className="no-print flex w-[240px] shrink-0 flex-col border-r border-line bg-white">
+            <aside
+              className="no-print flex shrink-0 flex-col border-r border-line bg-white"
+              style={{ width: ui.leftWidth ?? 240 }}
+              data-panel="left"
+            >
               <ComponentPanel />
             </aside>
+            <PanelResizer side="left" width={ui.leftWidth ?? 240} onResize={(w) => setPanelWidth('left', w)} />
             <CollapseBar side="left" onClick={() => toggleUI('leftCollapsed')} />
           </>
         ) : (
@@ -90,7 +151,12 @@ export default function App() {
         {!ui.rightCollapsed ? (
           <>
             <CollapseBar side="left" onClick={() => toggleUI('rightCollapsed')} />
-            <aside className="no-print flex w-[300px] shrink-0 flex-col border-l border-line bg-white">
+            <PanelResizer side="right" width={ui.rightWidth ?? 300} onResize={(w) => setPanelWidth('right', w)} />
+            <aside
+              className="no-print flex shrink-0 flex-col border-l border-line bg-white"
+              style={{ width: ui.rightWidth ?? 300 }}
+              data-panel="right"
+            >
               <PropertyPanel />
             </aside>
           </>

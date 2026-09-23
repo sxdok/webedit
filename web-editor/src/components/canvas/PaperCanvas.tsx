@@ -335,7 +335,7 @@ export function PaperCanvas({
             continuation={cont}
             onSelect={onSelect}
             onHover={onHover}
-            onNodePointerDown={(e) => it.onNodePointerDown(e, n.id)}
+            onNodePointerDown={it.onNodePointerDown}
           />
         );
       })}

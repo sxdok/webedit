@@ -6,7 +6,7 @@
  */
 import { LayoutDashboard, List, ShieldCheck, Table as TableIcon } from 'lucide-react';
 import type { ComponentDefinition } from '../../types';
-import { renderTable, tableSchema } from './tableKit';
+import { renderTable, serializeTableData, tableSchema } from './tableKit';
 
 const THREE_LINE_DATA: string[][] = [
   ['项目', '指标', '依据'],
@@ -35,8 +35,10 @@ const CHECK_DATA: string[][] = [
 
 function presetProps(data: string[][], variant: string, colWidths = '', rowHeight = '', caption = '') {
   return {
-    data,
+    // ★文本形态（见 table.tsx 里的说明）：属性面板「数据」文本域才能正确显示
+    data: serializeTableData(data),
     headerRow: true,
+    headerCol: false,
     caption,
     captionAlign: 'left',
     captionSize: 10.5,

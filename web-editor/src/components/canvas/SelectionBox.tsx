@@ -52,9 +52,11 @@ export function SelectionBox({
         {label} · {Math.round(frame.w)}×{Math.round(frame.h)}
       </span>
       {showHandles && (
-        <div className="pointer-events-auto absolute inset-0">
-          <ResizeHandles w={frame.w} h={frame.h} onStart={onHandleDown} />
-        </div>
+        /* ★这里**不能**再套一层 `pointer-events-auto absolute inset-0` 的透明层：
+           它会把整个选中节点盖住，导致"选中后就再也点不到节点/表格单元格/容器里的子组件"
+           （用户 2026-09-23 反馈的三个 Web 模式问题都是这个根因）。
+           手柄自己带 pointer-events-auto，只有手柄那 8×8 的区域吃事件。 */
+        <ResizeHandles w={frame.w} h={frame.h} onStart={onHandleDown} />
       )}
     </div>
   );

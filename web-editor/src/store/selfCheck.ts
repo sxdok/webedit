@@ -285,6 +285,22 @@ async function interactionChecks(): Promise<Result[]> {
   const add = (name: string, pass: boolean, note = '') => out.push({ name, pass, note });
   const S = () => useEditorStore.getState();
   const wait = (ms = 160) => new Promise((r) => setTimeout(r, ms));
+  /* ★自检报告面板是 fixed 覆盖层（z-index 9999），会挡住"按真实命中点派发"的指针事件：
+     不藏起来的话，下面用 elementFromPoint 做的命中测试量到的全是报告面板本身。
+     （不用还原：selfCheck 结束时的 finish() 会 remove + 重建报告元素） */
+  const reportHost = document.getElementById('__check_report');
+  if (reportHost) reportHost.style.display = 'none';
+  /**
+   * 取元素中心的**屏幕坐标**，并先把它滚进视口。
+   * ★必须滚进来：画布视口比设备画布（1440px）窄，不滚的话元素中心可能落在面板底下，
+   *   elementFromPoint 命中的就是左侧/右侧面板，而不是画布里的元素。
+   */
+  const centerOf = async (el: HTMLElement): Promise<{ x: number; y: number }> => {
+    el.scrollIntoView({ block: 'center', inline: 'center' });
+    await wait(80);
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  };
   const pe = (type: string, x: number, y: number, target: EventTarget) =>
     target.dispatchEvent(
       new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1 }),
@@ -348,6 +364,236 @@ async function interactionChecks(): Promise<Result[]> {
     add('Web 框选能选中元素', S().doc.selectedIds.length >= 1, `选中 ${S().doc.selectedIds.length} 个`);
   } else {
     add('Web 框选能选中元素', false, '找不到设备画布');
+  }
+
+  /* ── 选中框**不能挡住**节点（用户 2026-09-23 反馈的 Web 模式三个问题是同一个根因）──
+     以前选中框里有一层 `pointer-events-auto absolute inset-0` 的透明层，把整个节点盖住：
+       ① 拖过一次之后再拖就不动了；② 容器里的子组件点不中；③ 表格单元格必须先取消选中才能点。
+     这里用"节点中心 elementFromPoint 命中谁 + 连续两次真实拖动"把根因钉住。 */
+  S().setMode('web');
+  S().clearAll();
+  const dragId = S().addComponent('button');
+  if (dragId) S().updateFrame(dragId, { x: 60, y: 60, w: 140, h: 36 });
+  await wait(240);
+  S().selectComponent(dragId ? [dragId] : []);
+  await wait(240);
+  {
+    const el = dragId ? (document.querySelector(`[data-node-id="${dragId}"]`) as HTMLElement | null) : null;
+    const r = el?.getBoundingClientRect();
+    const cx = r ? r.left + r.width / 2 : 0;
+    const cy = r ? r.top + r.height / 2 : 0;
+    const hit = r ? (document.elementFromPoint(cx, cy) as HTMLElement | null) : null;
+    const stack = (r ? (document.elementsFromPoint(cx, cy) as HTMLElement[]) : [])
+      .slice(0, 3)
+      .map((n) => n.outerHTML.slice(0, 90).replace(/\s+/g, ' '))
+      .join(' ‖ ');
+    add(
+      '选中框不吃指针事件（节点中心命中的仍是节点自己）',
+      !!hit && !!hit.closest(`[data-node-id="${dragId}"]`),
+      `命中栈：${stack || '无'}`,
+    );
+
+    const f0 = dragId ? frameOf(dragId) : undefined;
+    // 第一次拖动：直接派发在节点上（先滚进视口）
+    if (el) {
+      const c1 = await centerOf(el);
+      pe('pointerdown', c1.x, c1.y, el);
+      pe('pointermove', c1.x + 45, c1.y + 30, window);
+      pe('pointerup', c1.x + 45, c1.y + 30, window);
+    }
+    await wait(240);
+    const f1 = dragId ? frameOf(dragId) : undefined;
+    // 第二次拖动：事件派发到"该点最顶层的元素"（真人再按一次时命中的就是它）
+    const el2 = dragId ? (document.querySelector(`[data-node-id="${dragId}"]`) as HTMLElement | null) : null;
+    let diag = '';
+    if (el2) {
+      const c2 = await centerOf(el2);
+      const top2 = (document.elementFromPoint(c2.x, c2.y) as HTMLElement | null) ?? el2;
+      diag = `命中=${top2.outerHTML.slice(0, 46).replace(/\s+/g, ' ')}`;
+      pe('pointerdown', c2.x, c2.y, top2);
+      await wait(40);
+      diag += `；down 后 selected=${S().doc.selectedIds.join('|') || '无'}`;
+      pe('pointermove', c2.x + 45, c2.y + 30, window);
+      await wait(40);
+      diag += `；move 后 x=${frameOf(dragId!)?.x ?? '?'}`;
+      pe('pointerup', c2.x + 45, c2.y + 30, window);
+    }
+    await wait(240);
+    const f2 = dragId ? frameOf(dragId) : undefined;
+    add(
+      '定位后还能继续拖动（连续两次拖动都生效，不必重新点选）',
+      !!f0 && !!f1 && !!f2 && f1.x > f0.x + 20 && f2.x > f1.x + 20,
+      f0 && f1 && f2 ? `x：${f0.x} → ${f1.x} → ${f2.x}；${diag}` : `无 frame；${diag}`,
+    );
+  }
+
+  /* ── 容器里的子组件：容器被选中时子组件仍可直接点选 ── */
+  S().clearAll();
+  const contId = S().addComponent('container');
+  if (contId) S().updateFrame(contId, { x: 40, y: 40, w: 420, h: 220 });
+  await wait(200);
+  const childId = contId ? S().addComponent('button', contId) : null;
+  if (childId) S().updateFrame(childId, { x: 24, y: 24, w: 130, h: 34 });
+  await wait(300);
+  S().selectComponent(contId ? [contId] : []); // 容器先选中：选中框正盖在容器上
+  await wait(240);
+  {
+    const childEl = childId ? (document.querySelector(`[data-node-id="${childId}"]`) as HTMLElement | null) : null;
+    if (childEl) {
+      const c = await centerOf(childEl);
+      const top = (document.elementFromPoint(c.x, c.y) as HTMLElement | null) ?? childEl;
+      const before = S().doc.selectedIds.join('|');
+      pe('pointerdown', c.x, c.y, top);
+      const immediate = S().doc.selectedIds.join('|');
+      await wait(200);
+      const later = S().doc.selectedIds.join('|');
+      add(
+        '容器里的子组件可以直接点选（不必先取消选中容器）',
+        !!childId && S().doc.selectedIds[0] === childId,
+        `选中 ${later || '无'}（子组件=${childId ?? '无'}）；点前=${before} 点后立即=${immediate} 200ms 后=${later}；命中 ${top.outerHTML.slice(0, 60).replace(/\s+/g, ' ')}`,
+      );
+    } else {
+      add('容器里的子组件可以直接点选（不必先取消选中容器）', false, '找不到子组件 DOM（容器未渲染出子节点？）');
+    }
+  }
+
+  /* ── 表格单元格：Web 模式下也能直接点选、直接改选另一格 ── */
+  S().clearAll();
+  const tblId = S().addComponent('table');
+  if (tblId) {
+    S().updateFrame(tblId, { x: 20, y: 20, w: 520, h: 190 });
+    S().updateProps(tblId, { data: '列1 | 列2 | 列3\nA | B | C\nD | E | F' });
+  }
+  await wait(320);
+  S().selectComponent(tblId ? [tblId] : []);
+  await wait(280);
+  {
+    const cells = tblId ? ([...document.querySelectorAll(`[data-node-id="${tblId}"] [data-cell]`)] as HTMLElement[]) : [];
+    let lastHit = '';
+    const clickCell = async (el: HTMLElement) => {
+      const c = await centerOf(el);
+      const top = (document.elementFromPoint(c.x, c.y) as HTMLElement | null) ?? el;
+      lastHit = top.outerHTML.slice(0, 70).replace(/\s+/g, ' ');
+      pe('pointerdown', c.x, c.y, top);
+      pe('pointerup', c.x, c.y, window);
+    };
+    if (cells.length >= 6) {
+      await clickCell(cells[1]);
+      await wait(160);
+      const first = (S().ui.tableCells?.cells ?? []).join('|');
+      await clickCell(cells[5]); // 不取消选中，直接点另一格
+      await wait(160);
+      const second = (S().ui.tableCells?.cells ?? []).join('|');
+      add(
+        'Web 模式表格单元格可直接点选并改选另一格（无需先取消选中）',
+        !!first && !!second && first !== second && S().doc.selectedIds.includes(tblId!),
+        `第一次 [${first}] → 第二次 [${second}]；整表仍选中=${S().doc.selectedIds.includes(tblId!)}；单元格 DOM=${cells.length}；末次命中=${lastHit}`,
+      );
+    } else {
+      add('Web 模式表格单元格可直接点选并改选另一格（无需先取消选中）', false, `只找到 ${cells.length} 个单元格 DOM`);
+    }
+  }
+
+  /* ── 表格属性面板三件事（用户 2026-09-23 反馈 ③）──
+     ① 「数据」文本域要显示**真实数据**（以前组件默认值是二维数组，String(数组) = "a,b,c"，面板看着像空的）；
+     ② 新增「首列为表头」：默认关（默认仍是首行为表头），打开后第一列渲染成 th[scope=row]；
+     ③ 行/列数量与单元格格式两组控件重排后不能把面板撑出横向滚动。 */
+  {
+    const panel = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
+    const ta = panel ? ([...panel.querySelectorAll('textarea')] as HTMLTextAreaElement[]).find((t) => t.value.includes('|')) : undefined;
+    add(
+      '表格「数据」文本域显示真实数据（文本形态，不是数组被 String 成的逗号串）',
+      !!ta && ta.value.includes('列1 | 列2 | 列3') && ta.value.includes('A | B | C'),
+      ta ? `值=${ta.value.replace(/\n/g, '⏎').slice(0, 44)}` : '找不到「数据」文本域',
+    );
+
+    const headColBefore = tblId ? document.querySelectorAll(`[data-node-id="${tblId}"] th[scope="row"]`).length : -1;
+    if (tblId) S().updateProps(tblId, { headerCol: true });
+    await wait(220);
+    const headColAfter = tblId ? document.querySelectorAll(`[data-node-id="${tblId}"] th[scope="row"]`).length : -1;
+    if (tblId) S().updateProps(tblId, { headerCol: false });
+    await wait(140);
+    add(
+      '首列为表头选项：默认关闭；打开后第一列渲染成 th[scope=row]',
+      headColBefore === 0 && headColAfter > 0,
+      `关闭时 ${headColBefore} 个 → 打开后 ${headColAfter} 个`,
+    );
+
+    const fmt = panel?.querySelector('[data-cell-format-box="1"]') as HTMLElement | null;
+    const sizeBox = panel?.querySelector('[data-table-size="1"]') as HTMLElement | null;
+    const overflow = panel ? panel.scrollWidth - panel.clientWidth : -1;
+    add(
+      '表格属性控件重排：单元格格式成组显示、行/列数量成格、面板无横向溢出',
+      !!fmt && !!sizeBox && overflow <= 1,
+      `${fmt ? '格式盒√' : '格式盒×'} ${sizeBox ? '行列数量√' : '行列数量×'}；面板溢出 ${overflow}px`,
+    );
+  }
+
+  /* ── 左侧分类的**名称与排序**（用户 2026-09-23：通用、布局、Word、Excel、PPT）── */
+  {
+    // 文档模式下正好是这五类（Web 控件/Web 容器只在 Web 模式出现）
+    S().setMode('document');
+    await wait(220);
+    const catEls = [...document.querySelectorAll('[data-category-name]')];
+    const names = catEls.map((n) => n.getAttribute('data-category-name'));
+    const want = ['通用', '布局分页', 'Word 常用', 'Excel 表格', 'PPT 专用'];
+    const shown = catEls.map((n) => (n.textContent ?? '').replace(/\d+$/, '').trim());
+    add(
+      '左侧组件分类按「通用 / 布局 / Word / Excel / PPT」排序，且用短名显示',
+      names.length === want.length && want.every((w, i) => names[i] === w) && shown.join('/') === '通用/布局/Word/Excel/PPT',
+      `顺序=${names.join(' > ') || '空'}；显示名=${shown.join('/') || '空'}`,
+    );
+  }
+
+  /* ── 未注册组件的红框必须能删掉（用户 2026-09-23 反馈 ②）── */
+  {
+    const withGhost = {
+      ...S().doc,
+      mode: 'document' as const,
+      document: { ...S().doc.document, components: [{ id: '__ghost__', type: '__not_registered__', props: {} }] },
+    };
+    S().importJSON(JSON.stringify(withGhost));
+    await wait(240);
+    /* ★画布上有两份：一份是**离屏测量层**（分页用，不带 data-node-id），一份是可见画布。
+       这里要断言的是"可见那份在**可选中的节点**里"，所以挑带 data-node-id 祖先的那个。 */
+    const boxes = [...document.querySelectorAll('[data-node-unregistered]')] as HTMLElement[];
+    const ghost = boxes.find((b) => !!b.closest('[data-node-id]')) ?? null;
+    const wrapped = ghost?.closest('[data-node-id="__ghost__"]');
+    add(
+      '未注册组件的红框在可选中的节点里（带 data-node-id，可点选/删除）',
+      !!ghost && !!wrapped,
+      ghost ? `共 ${boxes.length} 个红框（含离屏测量层）；可见那份外层节点=${wrapped ? '有 data-node-id' : '没有（会被漏掉）'}` : '找不到红框',
+    );
+    const del = ghost?.querySelector('[data-remove-unregistered]') as HTMLElement | null;
+    del?.click();
+    await wait(240);
+    const gone = !([...document.querySelectorAll('[data-node-unregistered]')] as HTMLElement[]).some((b) => !!b.closest('[data-node-id]'));
+    add('未注册组件可以一键删除（红框里的「删除该节点」）', !!del && gone, del ? (gone ? '点后已移除' : '点后仍在') : '找不到删除按钮');
+  }
+
+  /* ── 左右面板可拖拽调宽（用户 2026-09-23 反馈 ⑤）── */
+  {
+    const resizer = document.querySelector('[data-panel-resizer="left"]') as HTMLElement | null;
+    const aside = document.querySelector('[data-panel="left"]') as HTMLElement | null;
+    const w0 = aside?.getBoundingClientRect().width ?? -1;
+    if (resizer && aside) {
+      const r = resizer.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + 40;
+      const base = { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 7 };
+      resizer.dispatchEvent(new PointerEvent('pointerdown', base));
+      resizer.dispatchEvent(new PointerEvent('pointermove', { ...base, clientX: x + 60 }));
+      resizer.dispatchEvent(new PointerEvent('pointerup', { ...base, clientX: x + 60 }));
+      await wait(220);
+    }
+    const w1 = aside?.getBoundingClientRect().width ?? -1;
+    add('左右面板可拖拽调宽（真实 PointerEvent 拖动分隔条）', !!resizer && !!aside && w1 > w0 + 40, `左面板宽度 ${w0} → ${w1}px`);
+    if (resizer) {
+      resizer.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+      await wait(220);
+    }
+    const w2 = aside?.getBoundingClientRect().width ?? -1;
+    add('双击分隔条恢复默认宽度（240px）', Math.abs(w2 - 240) <= 1, `双击后 ${w2}px`);
   }
 
   /* ── 热加载（异步阶段，此时加载一定已完成） ── */
@@ -447,11 +693,12 @@ async function interactionChecks(): Promise<Result[]> {
     );
     const rows = [...(pagePanel?.querySelectorAll('[data-prop-row="1"]') ?? [])] as HTMLElement[];
     const wantDrawers = ['通用属性', '专有属性', '状态'];
-    const wantGroups = ['纸张', '页边距', '版式', '分页', '分节页码', '页眉', '页脚'];
+    // ★「分页」分组已移除（用户 2026-09-23：文档属性里的分页与组件的分页符重复，只保留组件分页符）
+    const wantGroups = ['纸张', '页边距', '版式', '分节页码', '页眉', '页脚'];
     const missing = [...wantDrawers.filter((d) => !drawers.includes(d)), ...wantGroups.filter((g) => !groupNames.includes(g))];
     add(
-      '页面属性面板结构：三抽屉（通用/专有/状态）+ 七个分组 + 全部属性行',
-      !!pagePanel && pagePanel.clientWidth > 100 && missing.length === 0 && rows.length >= 29,
+      '页面属性面板结构：三抽屉（通用/专有/状态）+ 六个分组 + 全部属性行',
+      !!pagePanel && pagePanel.clientWidth > 100 && missing.length === 0 && rows.length >= 28,
       pagePanel
         ? `面板宽 ${pagePanel.clientWidth}px；抽屉 ${drawers.length}（${drawers.join('/')}）；分组 ${groupNames.length}；属性行 ${rows.length}；缺 ${missing.length ? missing.join('/') : '无'}`
         : '未找到页面属性面板（data-props-page）',
@@ -476,7 +723,7 @@ async function interactionChecks(): Promise<Result[]> {
     const tooTall = rows.filter((r) => r.dataset.propWide !== '1' && r.getBoundingClientRect().height > 40).length;
     add(
       '页面属性面板排版：无溢出 / 属性名列 96px / 无折行无超高行',
-      rows.length >= 29 && rowOverflow.length === 0 && wrapped === 0 && badLabelW === 0 && tooTall === 0 && boxOverflow <= 1,
+      rows.length >= 28 && rowOverflow.length === 0 && wrapped === 0 && badLabelW === 0 && tooTall === 0 && boxOverflow <= 1,
       `${rows.length} 行；横向溢出 ${rowOverflow.length}、属性名列非 96px ${badLabelW}、折行 ${wrapped}、超高 ${tooTall}；面板溢出 ${boxOverflow}px`,
     );
 
@@ -485,7 +732,7 @@ async function interactionChecks(): Promise<Result[]> {
     const noTip = rows.filter((r) => !r.querySelector('[data-tip="1"]')).length;
     add(
       '页面属性说明默认隐藏（面板内无说明段落，属性名均可悬停出气泡）',
-      prose === 0 && rows.length >= 29 && noTip === 0,
+      prose === 0 && rows.length >= 28 && noTip === 0,
       `说明段落 ${prose} 个、缺气泡的属性行 ${noTip} 行`,
     );
 

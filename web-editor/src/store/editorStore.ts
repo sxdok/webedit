@@ -29,6 +29,7 @@ import {
   findNode,
   getForest,
   moveNode,
+  normalizeDocTables,
   removeNode,
   insertNode,
   setForest,
@@ -50,9 +51,13 @@ export interface UIState {
   showTree: boolean;
   snap: boolean;
   preview: boolean;
-  /** 面板折叠（240px / 300px） */
+  /** 面板折叠（宽度见 leftWidth / rightWidth） */
   leftCollapsed: boolean;
   rightCollapsed: boolean;
+  /** 左（组件）面板宽度 px —— 可拖拽调整，随 ui 持久化 */
+  leftWidth: number;
+  /** 右（属性）面板宽度 px —— 可拖拽调整，随 ui 持久化 */
+  rightWidth: number;
   /** 诊断面板（帮助 → 诊断信息 / ?diag=1） */
   showDiagnostics: boolean;
   /** 组件注册表版本：运行时（热加载）注册组件后 +1，面板据此重渲染 */
@@ -86,6 +91,8 @@ const initialUI: UIState = {
   preview: false,
   leftCollapsed: false,
   rightCollapsed: false,
+  leftWidth: 240,
+  rightWidth: 300,
   showDiagnostics: false,
   registryVersion: 0,
   theme: 'light',
@@ -168,6 +175,8 @@ export interface EditorStore {
   /* 视图 */
   setZoom(z: number): void;
   toggleUI(key: keyof UIState): void;
+  /** 拖拽调整面板宽度（side=left 组件面板 / right 属性面板） */
+  setPanelWidth(side: 'left' | 'right', width: number): void;
   setTitle(title: string): void;
   /** 组件注册表变化（热加载后调用） */
   bumpRegistry(): void;
@@ -585,6 +594,14 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
         log.debug('store', 'toggleUI', { key });
         set((s) => ({ ui: { ...s.ui, [key]: !s.ui[key] } }));
       },
+      /** 拖拽调整左右面板宽度（夹在 180–560px；越界时不写盘，避免拖出不可用布局） */
+      setPanelWidth: (side, width) => {
+        const w = Math.round(Math.max(180, Math.min(560, width)));
+        const cur = side === 'left' ? get().ui.leftWidth : get().ui.rightWidth;
+        if (Math.round(cur ?? 0) === w) return;
+        log.debug('store', 'setPanelWidth', { side, w });
+        set((s) => ({ ui: { ...s.ui, [side === 'left' ? 'leftWidth' : 'rightWidth']: w } }));
+      },
       setTitle: (title) => commit(set, get, (doc) => ({ ...doc, title }), { mergeKey: 'title', label: 'setTitle' }),
       setDocPageCount: (n) => {
         if (get().ui.docPageCount === n) return;
@@ -627,7 +644,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
             return false;
           }
           const history = pushHistory(get().history, get().doc);
-          set({ doc: parsed, history, selectionReset: undefined } as Partial<EditorStore>);
+          set({ doc: normalizeDocTables(parsed), history, selectionReset: undefined } as Partial<EditorStore>);
           return true;
         } catch (e) {
           console.error('[store] importJSON 解析失败', e);
@@ -686,7 +703,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
           ...current,
           ...p,
           doc: pDoc
-            ? {
+            ? normalizeDocTables({
                 ...current.doc,
                 ...pDoc,
                 document: {
@@ -700,7 +717,7 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
                   canvas: { ...current.doc.web.canvas, ...(pDoc.web?.canvas ?? {}) },
                 },
                 selectedIds: pDoc.selectedIds ?? [],
-              }
+              })
             : current.doc,
           // ★关键：旧数据缺的新字段一律回落到默认值
           ui: { ...initialUI, ...(p.ui ?? {}), showDiagnostics: false },

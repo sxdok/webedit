@@ -17,13 +17,13 @@ import { useEffect, useState } from 'react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { mmToPx } from '../../utils/units';
-import { parseCellStyles, parseTableData, serializeTableData, shiftCellKeys, type CellStyle } from '../../registry/components/common/tableKit';
+import { parseA1, parseCellStyles, parseTableData, serializeTableData, shiftCellKeys, type CellStyle } from '../../registry/components/common/tableKit';
 import type { ControlProps } from './index';
 
 const MAX_ROWS = 200;
 const MAX_COLS = 40;
-const numInput = 'h-6 w-12 shrink-0 rounded border border-line bg-white px-1 text-center text-xs';
-const btn = 'h-6 shrink-0 rounded border border-line px-1.5 text-2xs hover:border-primary hover:text-primary disabled:opacity-40';
+const numInput = 'h-6 min-w-0 flex-1 rounded border border-line bg-white px-1 text-center text-xs';
+const btn = 'flex h-6 shrink-0 items-center rounded border border-line px-1.5 text-2xs hover:border-primary hover:text-primary disabled:opacity-40';
 
 /** 选中区域（行列都从 0 起，闭区间） */
 interface Range {
@@ -121,8 +121,11 @@ export function TableSizeControl({ nodeId }: ControlProps) {
     const styles = parseCellStyles(node?.props.cellStyles);
     const kept: Record<string, CellStyle> = {};
     for (const [k, v] of Object.entries(styles)) {
-      const [r, c] = k.split(',').map((x) => Number(x));
-      if (r < nRows && c < nCols) kept[k] = v;
+      // ★cellStyles 的键是 **Excel A1 记法**（"B2" / "B2:C3"），不是旧的 "行,列"：
+      //   早先用 `k.split(',')` 取行列，Number('B2') = NaN → 改行数/列数会把**所有单元格格式清掉**。
+      const p = parseA1(k);
+      if (!p) continue;
+      if (p.r1 < nRows && p.c1 < nCols) kept[k] = v;
     }
     write(next, kept, nCols !== dim.cols ? Array.from({ length: nCols }, () => 100 / nCols) : undefined);
   };
@@ -228,73 +231,83 @@ export function TableSizeControl({ nodeId }: ControlProps) {
   };
 
   return (
-    <div className="space-y-1" data-table-size="1">
-      <div className="flex items-center gap-1">
-        <span className="w-8 shrink-0 text-2xs text-gray-400">行数</span>
-        <input
-          type="number"
-          data-table-rows="1"
-          min={1}
-          max={MAX_ROWS}
-          className={numInput}
-          value={rowInput}
-          onChange={(e) => setRowInput(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onKey}
-          title="把整张表改成这么多行（含表头）；回车或失焦生效"
-        />
-        <span className="ml-2 w-8 shrink-0 text-2xs text-gray-400">列数</span>
-        <input
-          type="number"
-          data-table-cols="1"
-          min={1}
-          max={MAX_COLS}
-          className={numInput}
-          value={colInput}
-          onChange={(e) => setColInput(e.target.value)}
-          onBlur={commit}
-          onKeyDown={onKey}
-          title="把整张表改成这么多列；回车或失焦生效"
-        />
+    <div className="space-y-1.5" data-table-size="1">
+      {/* 行 / 列数量：两列等宽网格（行数、列数各占一半），输入框自适应面板宽度 */}
+      <div className="grid grid-cols-2 gap-x-2">
+        <label className="flex min-w-0 items-center gap-1">
+          <span className="w-8 shrink-0 text-right text-2xs text-gray-400">行数</span>
+          <input
+            type="number"
+            data-table-rows="1"
+            min={1}
+            max={MAX_ROWS}
+            className={numInput}
+            value={rowInput}
+            onChange={(e) => setRowInput(e.target.value)}
+            onBlur={commit}
+            onKeyDown={onKey}
+            title="把整张表改成这么多行（含表头）；回车或失焦生效"
+          />
+        </label>
+        <label className="flex min-w-0 items-center gap-1">
+          <span className="w-8 shrink-0 text-right text-2xs text-gray-400">列数</span>
+          <input
+            type="number"
+            data-table-cols="1"
+            min={1}
+            max={MAX_COLS}
+            className={numInput}
+            value={colInput}
+            onChange={(e) => setColInput(e.target.value)}
+            onBlur={commit}
+            onKeyDown={onKey}
+            title="把整张表改成这么多列；回车或失焦生效"
+          />
+        </label>
       </div>
 
       <div className="text-2xs text-gray-500">
         {range ? (
           <>
-            选中 {rowsSelected} 行 × {colsSelected} 列（第 {range.r0 + 1}–{range.r1 + 1} 行、
+            选中 <b className="font-mono text-primary">{rowsSelected}</b> 行 ×{' '}
+            <b className="font-mono text-primary">{colsSelected}</b> 列（第 {range.r0 + 1}–{range.r1 + 1} 行、
             第 {range.c0 + 1}–{range.c1 + 1} 列）
           </>
         ) : (
-          <span className="text-gray-400">未选单元格</span>
+          <span className="text-gray-400">未选单元格 —— 先在画布上点一个单元格</span>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-1">
-        <button type="button" data-table-ins-row="1" className={btn} disabled={!range} onClick={insertRowsAt} title="在选中行上方插入">
+      {/* 插入 / 删除：2×2 网格，四颗按钮等宽对齐 */}
+      <div className="grid grid-cols-2 gap-1">
+        <button type="button" data-table-ins-row="1" className={`${btn} justify-center`} disabled={!range} onClick={insertRowsAt} title="在选中行上方插入">
           插入行
         </button>
         {/* 删除会丢内容 → 两次点击确认（第一次只"待确认"，标签变红提示再点一次） */}
         <button
           type="button"
           data-table-del-row="1"
-          className={pending === 'row' ? `${btn} border-red-400 text-red-500` : btn}
+          className={pending === 'row' ? `${btn} justify-center border-red-400 text-red-500` : `${btn} justify-center`}
           disabled={!range || dim.rows - rowsSelected < 1}
           onClick={() => arm('row', deleteRowsAt)}
         >
           {pending === 'row' ? '再点一次删除行' : '删除行'}
         </button>
-        <button type="button" data-table-ins-col="1" className={btn} disabled={!range} onClick={insertColsAt} title="在选中列左侧插入">
+        <button type="button" data-table-ins-col="1" className={`${btn} justify-center`} disabled={!range} onClick={insertColsAt} title="在选中列左侧插入">
           插入列
         </button>
         <button
           type="button"
           data-table-del-col="1"
-          className={pending === 'col' ? `${btn} border-red-400 text-red-500` : btn}
+          className={pending === 'col' ? `${btn} justify-center border-red-400 text-red-500` : `${btn} justify-center`}
           disabled={!range || dim.cols - colsSelected < 1}
           onClick={() => arm('col', deleteColsAt)}
         >
           {pending === 'col' ? '再点一次删除列' : '删除列'}
         </button>
+      </div>
+
+      <div className="flex items-center gap-1">
         <button
           type="button"
           data-table-clear-content="1"

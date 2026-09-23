@@ -46,7 +46,8 @@ export function ResizeHandles({
         <div
           key={p.dir}
           data-handle={p.dir}
-          className="absolute z-40 bg-white"
+          /* 手柄自己吃事件（外层选中框是 pointer-events-none，只有手柄可交互） */
+          className="pointer-events-auto absolute z-40 bg-white"
           style={{
             left: p.x - SIZE / 2,
             top: p.y - SIZE / 2,
@@ -63,7 +64,7 @@ export function ResizeHandles({
       <div
         data-handle="rotate"
         title="旋转（按住 Shift 吸附 15°）"
-        className="absolute z-40 rounded-full bg-white"
+        className="pointer-events-auto absolute z-40 rounded-full bg-white"
         style={{
           left: w / 2 - 5,
           top: -24,

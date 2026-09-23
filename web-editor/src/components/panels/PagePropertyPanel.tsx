@@ -2,7 +2,7 @@
  * 职责：未选中组件时的「页面属性」（文档模式）。与组件属性面板**同一套规格**（提示词 §2–§7）：
  *
  *   ▼ 通用属性抽屉：纸张 / 页边距 / 版式
- *   ▼ 专有属性抽屉：分页 / 分节页码 / 页眉 / 页脚
+ *   ▼ 专有属性抽屉：分节页码 / 页眉 / 页脚
  *   ▼ 状态抽屉（只读）：当前页数 / 页码预览 / 页眉 / 页脚 / 纸张
  *
  * 与组件面板共用同一批零件：`PropertyDrawer`（抽屉）、`PropertyGroup`（26px 可折叠分组）、
@@ -14,7 +14,7 @@
  * 只读写 store 的 document.page，不涉及具体组件。
  */
 import type { ReactNode } from 'react';
-import { FileText, Plus } from 'lucide-react';
+import { FileText } from 'lucide-react';
 import {
   PAGE_SIZES,
   pageBand,
@@ -31,7 +31,6 @@ import { PropertyControl } from '../property-controls';
 import { Tooltip } from '../ui/Tooltip';
 import { PropertyDrawer } from './PropertyDrawer';
 import { PropertyGroup } from './PropertyGroup';
-import { PropertyRow } from './PropertyRow';
 import { PAGE_DEFAULT_OPEN, PAGE_GROUP_HINTS } from './groupStrategy';
 
 /* ══════════════ 属性定义 ══════════════
@@ -125,14 +124,6 @@ const LINE_HEIGHT: PropSchemaItem = {
   min: 0.8,
   max: 4,
   step: 0.1,
-};
-
-const INSERT_BREAK: PropSchemaItem = {
-  key: 'page.break',
-  label: '插入分页符（在当前内容末尾新增一页，相当于 Word 的 Ctrl+Enter）',
-  control: 'text',
-  group: '分页',
-  defaultValue: '—',
 };
 
 const HIDE_FIRST_PAGE: PropSchemaItem = {
@@ -294,8 +285,7 @@ export function PagePropertyPanel() {
   const setOrientation = useEditorStore((s) => s.setOrientation);
   const setMargin = useEditorStore((s) => s.setMargin);
   const setPageProp = useEditorStore((s) => s.setPageProp);
-  const addComponent = useEditorStore((s) => s.addComponent);
-  /* ★折叠状态放进 store.ui（随持久化保存 → 刷新后保持），规格阶段五「折叠状态持久化」。
+    /* ★折叠状态放进 store.ui（随持久化保存 → 刷新后保持），规格阶段五「折叠状态持久化」。
      抽屉键加 `page:` 前缀，避免与组件属性面板的同名抽屉互串。 */
   const closedSt = useEditorStore((s) => s.ui.propClosed) ?? { groups: {}, drawers: {} };
   const setPropClosed = useEditorStore((s) => s.setPropClosed);
@@ -366,7 +356,7 @@ export function PagePropertyPanel() {
           content={{
             name: '页面（文档）',
             keyText: 'document.page',
-            detail: ['未选中任何组件时，右侧显示的是文档页面自己的属性（纸张、页边距、分页、页眉页脚）。'],
+            detail: ['未选中任何组件时，右侧显示的是文档页面自己的属性（纸张、页边距、页码、页眉页脚）。'],
           }}
         >
           <span className="cursor-help rounded bg-gray-100 px-1.5 py-0.5 font-mono text-2xs text-gray-500">
@@ -427,24 +417,11 @@ export function PagePropertyPanel() {
         name="专有属性"
         open={drawer['专有属性'] !== false}
         onToggle={() => setDrawer((s) => ({ ...s, 专有属性: s['专有属性'] !== false ? false : true }))}
-        badge="20 项"
-        hint="只属于文档结构的部分：分页、三段式页码、页眉与页脚。"
+        badge="19 项"
+        hint="只属于文档结构的部分：三段式页码、页眉与页脚（分页由画布上的「分页符」组件承担）。"
       >
-        {group(
-          '分页',
-          1,
-          <PropertyRow item={INSERT_BREAK} value={pageCount}>
-            <button
-              type="button"
-              data-insert-pagebreak="1"
-              className="ml-auto flex h-7 items-center gap-1 rounded-md border border-line bg-white px-2 text-2xs text-gray-600 hover:border-primary hover:text-primary"
-              onClick={() => addComponent('pageBreak')}
-            >
-              <Plus className="h-3 w-3" />
-              插入分页符
-            </button>
-          </PropertyRow>,
-        )}
+        {/* ★分页只由「分页符」组件承担（用户 2026-09-23：文档属性里的「分页」与组件的分页符重复，
+            保留组件里的分页符）——所以这里不再放"插入分页符"入口，左侧组件面板里拖/点即可。 */}
         {group(
           '分节页码',
           3,
