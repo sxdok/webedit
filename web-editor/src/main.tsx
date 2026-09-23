@@ -17,6 +17,7 @@ import './registry/components'; // ★注册全部组件（必须早于 App 渲�
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { runSelfCheck } from './store/selfCheck';
 import { useEditorStore } from './store/editorStore';
+import { getForest } from './store/treeUtils';
 import { installGlobalDiagnostics, log, type LogLevel } from './utils/logger';
 import { loadRuntimeComponents } from './registry/live';
 
@@ -60,7 +61,8 @@ createRoot(el).render(
 );
 
 // 外部组件目录（public/组件/）：热加载，改完点「重载外部组件」即可，无需重新构建
-void loadRuntimeComponents().then((r) => {
+// ★示例文档要"包含全部组件"，所以 ?demo=1 会等这个 promise（外部组件也算在内）
+const liveReady = loadRuntimeComponents().then((r) => {
   log.info('boot', '外部组件目录就绪', { source: r.source, total: r.total, ok: r.ok, failed: r.failed });
   if (r.total || r.failed.length) useEditorStore.getState().bumpRegistry();
 });
@@ -106,17 +108,15 @@ if (params.get('spec')) {
   }, 800); // 等外部组件加载完，清单里才会带上它们
 }
 
-// ?demo=1 → 灌入示例文档；随后（无论是否 demo）应用 ?mode=
+// ?demo=1 → 灌入示例文档（两种模式各一页、含全部组件）；随后（无论是否 demo）应用 ?mode=
 // ?select=<type|index> → 启动后选中一个节点（截图/核对属性面板排版用，例如 ?select=table）
 const applySelectParam = () => {
   const want = params.get('select');
   if (!want) return;
   const s = useEditorStore.getState();
-  const doc = s.doc[s.doc.mode];
-  const list = Array.isArray((doc as { components?: unknown }).components)
-    ? ((doc as { components: { id: string; type: string }[] }).components ?? [])
-    : [];
-  const hit = list.find((n) => n.type === want) ?? list[Number(want)];
+  const forest = getForest(s.doc);
+  // 两种模式都能选：文档模式看 document.components，Web 模式看 web.root.children
+  const hit = forest.find((n) => n.type === want) ?? forest[Number(want)];
   if (hit) s.selectComponent([hit.id]);
 };
 const applyModeParam = () => {
@@ -145,14 +145,21 @@ const applyBridgeParam = () => {
 };
 
 if (params.get('demo')) {
-  void import('./store/demo')
-    .then((m) => {
+  void Promise.all([import('./store/demo'), liveReady])
+    .then(([m]) => {
+      // 示例 = 两页（文档模式页 + Web 模式页）；都从注册表实时取，含外部热加载组件
       m.seedDemo();
-      applyModeParam();
+      // ?mode=web|document → 直接切到对应那**页**（示例页各自就是那个模式）
+      const want = params.get('mode');
+      if (want === 'web' || want === 'document') {
+        const S = useEditorStore.getState();
+        const page = S.pages.find((p) => p.mode === want);
+        if (page) S.setActivePage(page.id);
+      }
       setTimeout(() => {
         applySelectParam();
         setTimeout(applyCellParam, 80);
-      }, 120);
+      }, 160);
     })
     .catch((e: unknown) => log.error('boot', '示例文档加载失败', { error: String(e) }));
 } else {

@@ -155,6 +155,8 @@ export interface EditorStore {
 
   /* 分页（每页一个模式 + 一份内容） */
   addPage(doc: EditorDocument): string;
+  /** 整体替换分页（示例文档 / 打开工作区用）：`activeId` 不存在时取第一页 */
+  setPages(pages: EditorPage[], activeId?: string): void;
   setActivePage(id: string): void;
   closePage(id: string): void;
   /** 画布平移（PS 式手抓；不夹边界） */
@@ -317,8 +319,21 @@ export const useEditorStore = create<EditorStore>()(
         return id;
       },
 
-      setActivePage: (id) => {
-        const s = get();
+      /** 整体替换分页（示例文档 / 打开工作区用） */
+      setPages: (pages, activeId) => {
+        if (!pages.length) return;
+        const active = pages.find((p) => p.id === activeId) ?? pages[0];
+        log.info('store', 'setPages', { count: pages.length, active: active.id, title: active.title, mode: active.mode });
+        set((s) => ({
+          pages,
+          activePageId: active.id,
+          doc: active.doc,
+          history: emptyHistory(),
+          ui: { ...s.ui, tableCells: null, pan: { x: 0, y: 0 } },
+        }));
+      },
+
+      setActivePage: (id) => {        const s = get();
         if (s.activePageId === id) return;
         const target = s.pages.find((p) => p.id === id);
         if (!target) return;

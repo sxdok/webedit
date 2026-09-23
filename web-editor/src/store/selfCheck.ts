@@ -21,6 +21,7 @@ const RULER_H = 18;
 import { log, planPost } from '../utils/logger';
 import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
+import { buildDemoPages } from './demo';
 import { parseTableHtml, serializeTableHtml } from '../registry/components/common/tableHtml';
 import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest } from './treeUtils';
@@ -2832,6 +2833,49 @@ async function interactionChecks(): Promise<Result[]> {
       if (back) S().setActivePage(back.id);
       await wait(240);
     }
+  }
+
+  /* ── 示例文档（?demo=1）：两种模式**各一页**，且每页覆盖该模式下的全部组件 ── */
+  {
+    const pages = buildDemoPages();
+    const docPage = pages.find((p) => p.mode === 'document');
+    const webPage = pages.find((p) => p.mode === 'web');
+    const collect = (roots: { type: string; children?: { type: string; children?: unknown[] }[] }[]): Set<string> => {
+      const out = new Set<string>();
+      const walk = (list: typeof roots): void => {
+        list.forEach((n) => {
+          out.add(n.type);
+          if (n.children?.length) walk(n.children as typeof roots);
+        });
+      };
+      walk(roots);
+      return out;
+    };
+    const docTypes = docPage ? collect(docPage.doc.document.components) : new Set<string>();
+    const webTypes = webPage ? collect(webPage.doc.web.root.children ?? []) : new Set<string>();
+    const wantFor = (m: 'document' | 'web'): string[] =>
+      getAllComponents()
+        .filter((d) => !d.type.startsWith('__') && d.supportedModes.includes(m))
+        .map((d) => d.type);
+    const wantDoc = wantFor('document');
+    const wantWeb = wantFor('web');
+    const missDoc = wantDoc.filter((t) => !docTypes.has(t));
+    const missWeb = wantWeb.filter((t) => !webTypes.has(t));
+    add(
+      '示例文档：文档模式页覆盖该模式全部组件',
+      !!docPage && wantDoc.length >= 20 && missDoc.length === 0,
+      `文档模式组件 ${wantDoc.length} 个，缺 ${missDoc.length}${missDoc.length ? `（${missDoc.join(',')}）` : ''}；页内节点类型 ${docTypes.size} 种`,
+    );
+    add(
+      '示例文档：Web 模式页覆盖该模式全部组件（网格摆开、画布随之放大）',
+      !!webPage && wantWeb.length >= 20 && missWeb.length === 0 && (webPage?.doc.web.canvas.height ?? 0) > 900,
+      `Web 模式组件 ${wantWeb.length} 个，缺 ${missWeb.length}${missWeb.length ? `（${missWeb.join(',')}）` : ''}；画布 ${webPage?.doc.web.canvas.width}×${webPage?.doc.web.canvas.height}`,
+    );
+    add(
+      '示例文档一共两页（文档模式页 + Web 模式页，可直接用分页标签对照）',
+      pages.length === 2 && !!docPage && !!webPage && docPage.id !== webPage.id,
+      pages.map((p) => `${p.title}（${p.mode}）`).join(' + ') || '无',
+    );
   }
 
   return out;
