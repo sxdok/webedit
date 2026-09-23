@@ -14,10 +14,18 @@ import { log } from '../log.js';
 
 export interface BridgeStatus {
   url: string;
-  /** 是否开着连接 */
+  /** 是否开着连接（= **中转可达**） */
   connected: boolean;
-  /** hello 完成且版本一致 */
+  /** hello 完成且版本一致（= **且编辑器已接入**） */
   ready: boolean;
+  /**
+   * 中转可达、但**编辑器没接入**（hello 已经问明白了）。
+   * ★与 `connected` 分开报：`connected=true, ready=false` 说明"中转在、编辑器没开"，
+   *   而不是"连不上中转"—— 排障时这两种情况的处理完全不同。
+   */
+  hubNoEditor: boolean;
+  /** 本侧是否开着自动重连（`start()` 过；阶段八起 MCP 启动即连） */
+  running: boolean;
   version: string | null;
   reconnects: number;
   lastError: string | null;
@@ -61,6 +69,8 @@ export class LiveBridge {
       url: this.url,
       connected: !!this.ws && this.ws.readyState === 1,
       ready: this.isReady(),
+      hubNoEditor: this.hubNoEditor,
+      running: this.run,
       version: this.readyVersion,
       reconnects: this.reconnects,
       lastError: this.lastError,

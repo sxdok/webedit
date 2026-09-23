@@ -1,21 +1,55 @@
 # editor-mcp —— 可视化编辑器 MCP 服务器
 
-把可视化编辑器（文档 / Web / PPT 三模式、44 个内置组件 + 外部插件、18 种属性控件、目录自动发现、外部组件热加载）
-的能力，按《可视化编辑器 MCP 服务器》提示词封装成 MCP 服务器，供 Claude / Cursor / Cline 等客户端用自然语言驱动。
+把可视化编辑器（文档 / Web **两模式**、**44 个内置组件 + 3 个外部插件**、**19 种属性控件**、目录自动发现、外部组件热加载、
+画布分页、两份全组件示例）的能力，按《可视化编辑器 MCP 服务器》提示词封装成 MCP 服务器，
+供 Claude / Cursor / Cline 等客户端用自然语言驱动。
 
 ## 当前进度（按规格 §12 阶段划分）
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| 一 | 工程骨架 + stdio 启动 + 3 个 Tool（`doc.create` / `component.list` / `plugin.list`） | ✅ 已完成（`tsc -b` 0 错） |
-| 二 | `bridge/liveBridge.ts`（WebSocket）+ `fallback.ts` 自动降级 | ⏳ 待做 |
-| 三 | 文档 / 模式 / 页面 / 画布 / 节点 / 属性六域 Tools | ⏳ 待做 |
-| 四 | 组件注册表域 + 表格域（15 个）+ 历史 / 选择 / 导出域 | ⏳ 待做 |
-| 五 | 插件域全量（20 个）+ `plugin.dryRun` 沙箱 + 模板/类型/日志/manifest | ⏳ 待做（本阶段只落了 `plugin.list`） |
-| 六 | Resources（含 Templates 与 Subscriptions）+ Prompts（11 个） | ⏳ 待做 |
-| 七 | 安全模块 + Streamable HTTP transport | ⏳ 待做（`--http` 现在会明确报"未实现"，不假装可用） |
-| 八 | 编辑器侧 Bridge Server + 菜单开关 + 状态显示 | ⏳ 待做 |
-| 九 | 端到端测试脚本 + README | 部分（本文件） |
+| 一 | 工程骨架 + stdio 启动 + 3 个 Tool（`doc.create` / `component.list` / `plugin.list`） | ✅ 已完成 |
+| 二 | `bridge/liveBridge.ts`（WebSocket）+ `fallback.ts` 自动降级 | ✅ 已完成（**就绪判定以"编辑器接入数"为准**；`BRIDGE_OFFLINE` 与 `LIVE_FALLBACK` 都会降级） |
+| 三 | 文档 / 模式 / 页面 / 画布 / 节点 / 属性六域 Tools | ✅ 已完成 |
+| 四 | 组件注册表域 + 表格域（15 个）+ 历史 / 选择 / 导出域 | ✅ 已完成（另加 `component.catalog`：把编辑器注册表快照落成 `component-catalog.json` 供离线用） |
+| 五 | 插件域全量（20 个）+ `plugin.dryRun` 沙箱 + 模板/类型/日志/manifest | ✅ 已完成 |
+| 六 | Resources（含 Templates 与 Subscriptions）+ Prompts（11 个） | ✅ 已完成（15 静态 + 7 模板 = 22 个 Resource；11 个 Prompt） |
+| 七 | 安全模块 + Streamable HTTP transport | ✅ 已完成（速率限制、写开关、`--http --port 37651` 有状态会话） |
+| 八 | 编辑器侧 Bridge Server + 菜单开关 + 状态显示 | ✅ **已完成、Live 端到端已跑绿**（`--live --require-live` 20/20）。中转 hub 在 37650，编辑器侧 `web-editor/src/mcp/*` 接菜单与 `?bridge=1`；MCP 启动即接入中转，`editor://bridge/status` 区分"中转可达"与"编辑器已接入"。本轮修掉的问题见下面「阶段八修了什么」 |
+| 九 | 端到端测试脚本 + README | ✅ 脚本已就位：`scripts/e2e-scenarios.mjs`（20 个场景，无头全跑、`--live` 拉起无头 Edge 跑 Live 场景）；本文档即 README |
+
+能力总计：**Tools 104 → 105 个**（新增 `doc.attach`）、Resources 22、Prompts 11。
+7 个 smoke 脚本（`smoke` / `bridge-smoke` / `tools-smoke` / `table-smoke` / `plugin-smoke` / `rpc-smoke` / `http-smoke`）全部通过。
+端到端：`node scripts/e2e-scenarios.mjs --live --require-live` → **20/20 全部通过**（`Live 就绪=true`，判定耗时约 1 秒）。
+
+## 阶段八修了什么（2026-09-23，Live 端到端从"跑不绿"到全绿）
+
+按"症状 → 真因 → 修法"记下来，避免以后再踩：
+
+| # | 症状 | 真因 | 修法 |
+|---|---|---|---|
+| 1 | 编辑器明明接上了，`editor://bridge/status.ready` 一直 false，等 30s 超时后才"突然"变 live | MCP 侧的 LiveBridge **只在第一次 live 调用时才惰性连接**；没人连中转，就没有任何人把"编辑器已接入"告诉它（hub 的 `bridge.editor` 广播它没订阅到） | `index.ts` 起完 hub **立刻** `liveBridge.start()`；`editor://bridge/status` 先 `ensureReady()` 再报状态（不再假阴） |
+| 2 | 状态里分不清"连不上中转"和"中转在、编辑器没开" | `status()` 只有 `connected`/`ready` | 增加 `hubNoEditor` / `running` 字段 + `situation` 一句话说明；`ready=false` 时能一眼看出是哪一种 |
+| 3 | 请求**编辑器里没打开的**文档时，返回的是"编辑器当前文档"的内容（静默给错数据） | 编辑器侧 `doc.get` 等忽略 `docId`，直接拿当前 doc 顶上 | `liveMethods.routeLive` 顶部加**文档域守卫**：`docId` 不是编辑器当前文档 → 抛 `LIVE_FALLBACK`，交回无头通道（找不到就如实 `DOC_NOT_FOUND`） |
+| 4 | 于是"用 MCP 改我正在编辑的文档"没有入口（MCP 会话的当前文档常是无头建的） | 缺一个显式把两者对上的动作 | 新增 Tool **`doc.attach`**（+ 编辑器侧 live 方法）：只读地把 MCP 会话的"当前文档"切到编辑器打开的那份，之后省略 `docId` 的调用就作用在它上面 |
+| 5 | `export.json {path}` 在编辑器开着时**不落盘**（文件节点数 = -1） | Live 侧是浏览器，写不了工作区任意路径，只回 JSON 文本 | MCP 侧在 Live 返回 `json` 且请求带 `path` 时**补写盘**，让 `{path}` 的语义与通道无关 |
+| 6 | `component.list` 在编辑器开着时也只返回 3 个外部组件 | 它没走 Live（直接读组件目录 + 插件目录），而 `component.get/schema/categories` 走了 | `component.list` 改为**先试 Live**（编辑器是注册表唯一真源，47 个组件），无头再退回目录 + 插件 |
+| 7 | 跑完 e2e 留下一堆无头 Edge，下一次跑"1 秒就绪"其实是**上次的残页**连上了新中转 | 收尾只用 `edge.kill()`，渲染进程活着 | 收尾改用 `taskkill /PID <pid> /T /F`（杀整棵进程树），并核对"跑完无残留" |
+
+> 附：本机实测——**新起一个无头编辑器页面约 1 秒内就会接入桥接**。当初"接入 >30s"的判断是错的，
+> 真因就是第 1 条（惰性连接）；e2e 的等待上限已从 30s 收到 20s，真出问题会更快失败。
+
+## 规格 vs 实现：已知不一致（如实记录，避免"照着规格写却对不上"）
+
+| # | 规格写法 | 实现 | 处理 |
+|---|---|---|---|
+| 1 | 编辑器侧"新增一个 WebSocket **服务**" | **浏览器页面不能监听端口** → 37650 上是本进程起的**中转 hub**，编辑器与 MCP 都作为客户端接入 | 已按此实现并在 `bridge/host.ts` 注释说明 |
+| 2 | `reactJsxRuntime` 用 React **自动运行时**签名 | 编辑器只暴露 `React`；`reactJsxRuntime` 给的是**经典签名**（`createElement`） | 规格示例本身就是经典签名写法；`plugin.validate` 会提示不要用自动运行时签名 |
+| 3 | `doc.create/open/close/delete/duplicate` 走 Live | 编辑器**有意不做**（避免毁掉用户未保存的文档）→ 返回 `LIVE_FALLBACK`，MCP 侧**静默降级到无头**并标 `degraded: true` | 已实现；`history.snapshot/restore/clear`、`mode.set('ppt')` 同理 |
+| 4 | MCP Prompt 参数是"任意类型" | SDK 在**协议层**要求 string | 11 个 Prompt 的参数全部 `z.string()` / `z.enum` |
+| 5 | 三模式（含 `ppt`） | 编辑器是**两模式**（文档 / Web）；PPT 是**组件分类**不是模式 | `mode.list` 如实返回三条并注明；`mode.set('ppt')` 走 `LIVE_FALLBACK` |
+| 6 | `@editor/core` 共享 reducer | 未抽包 → MCP 侧是**平行实现**（`engine/session.ts` + `engine/tableKit.ts`），靠"同一套测试用例"钉住一致性 | 已在 README 说明；表格转义/A1 语义与编辑器 `tableKit` 一致 |
+
 
 ## 运行
 
@@ -67,19 +101,24 @@ editor-mcp/
 │  ├─ errors.ts         规格 §9 的 17 个错误码 + 统一返回体 + runTool 外壳
 │  ├─ log.ts            日志走 stderr（stdout 是 JSON-RPC 通道）+ audit.log + --debug
 │  ├─ bridge/
+│  │  ├─ host.ts        中转 hub（37650）：两侧都当客户端接进来
+│  │  ├─ liveBridge.ts  MCP 侧的桥接客户端（MCP 启动即接入；`bridge.editor` 推送驱动 Live/无头切换）
+│  │  ├─ fallback.ts    双通道降级 + 状态摘要（`bridgeSummary` / `bridgeSummaryLive`）
 │  │  └─ headless.ts    无头引擎：与编辑器「导出 JSON」同格式的文档读写（原子写）
 │  └─ tools/
-│     ├─ index.ts       汇总注册（阶段一 3 个 Tool）
-│     ├─ document.ts    doc.create
-│     ├─ component.ts   component.list
-│     └─ plugin.ts      plugin.list（+ 共用的 scanPlugins）
+│     ├─ index.ts       汇总注册（105 个 Tool）
+│     ├─ document.ts    doc.*（含 doc.attach：接上编辑器当前文档）
+│     ├─ component.ts   component.list（Live 优先，无头退回目录 + 插件）
+│     └─ plugin.ts      plugin.*（+ 共用的 scanPlugins）
 └─ workspace/           默认文档目录（git 忽略）
 ```
 
-## 阶段一的两条说明（避免误解）
+## 两条说明（避免误解）
 
-1. **`component.list` 不编造内置清单**。内置组件（44 个）的真源是编辑器里的注册表：开桥接后由它提供（阶段八），
-   或把 `component-catalog.json` 放进工作区。两者都没有时，它只返回插件目录里的外部组件，并在 `note` 里说明缺什么。
-   规格验收第 4 条（返回 48 个组件）要等阶段三/四接通注册表后再满足。
-2. **`doc.create` 走无头**（Live Bridge 是阶段二），所以返回 `degraded: true`；
+1. **`component.list` 不编造内置清单**。内置组件的真源是编辑器里的注册表：**桥接一开就由它提供**
+   （`via=live`，实测 47 个 = 44 内置 + 3 外部）；没有编辑器时退回工作区里的 `component-catalog.json`，
+   两者都没有才只返回插件目录里的外部组件，并在 `note` 里说明缺什么。
+2. **`doc.create` 走无头**（编辑器有意不替用户新建/打开文档，见「已知不一致」第 3 条），所以返回 `degraded: true`；
    生成的文件与编辑器「导出 JSON」同格式，可以直接用编辑器打开。
+   **想改用户正在编辑的那份文档，先 `doc.attach`**（把 MCP 会话的当前文档切到编辑器打开的那份），
+   之后的 `node.*` / `property.*` / `page.*` / `history.*` 等省略 `docId` 的调用就会落到编辑器页面里（`via=live`）。

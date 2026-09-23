@@ -76,8 +76,26 @@ export function bridgeSummary() {
   return {
     ...s,
     mode: s.ready ? 'live' : 'headless',
+    /** 一句话说清现在是哪种情况（排障用；`connected` 与 `ready` 的区别见 BridgeStatus 注释） */
+    situation: s.ready
+      ? 'live：编辑器已接入，调用走编辑器实例'
+      : s.hubNoEditor
+        ? 'headless：中转可达、但编辑器未接入（编辑器没开或菜单里没开桥接）'
+        : s.connected
+          ? 'handshake：中转已连、还没问出编辑器状态'
+          : 'headless：连不上中转（editor-mcp 的 hub 没起或被占端口）',
     hint: s.ready
       ? undefined
       : '编辑器未开启 MCP 桥接（菜单「帮助 → 开启 MCP 桥接」），当前所有操作走无头模式并标记 degraded=true',
   };
+}
+
+/**
+ * 资源用：**先确保本侧真的去连过中转**再报状态。
+ * ★不这么做会出现"假阴性"：编辑器明明接上了，但因为本侧还没连，
+ *   没有任何人把"编辑器已接入"告诉它，`ready` 一直是 false（阶段八端到端就卡在这）。
+ */
+export async function bridgeSummaryLive(timeoutMs = 500) {
+  await liveBridge.ensureReady(timeoutMs);
+  return bridgeSummary();
 }

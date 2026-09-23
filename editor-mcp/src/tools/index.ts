@@ -18,6 +18,8 @@ import { ErrorCodes, fail, isWriteTool, type ToolResult } from '../errors.js';
 import {
   docClose,
   docCloseSchema,
+  docAttach,
+  docAttachSchema,
   docCreate,
   docCreateSchema,
   docDelete,
@@ -297,6 +299,15 @@ export function registerAllTools(server: McpServer): string[] {
   reg(server, 'doc.delete', '删除文档', '删除文档文件；破坏性操作，必须 confirm: true，否则返回 CONFIRM_REQUIRED。', docDeleteSchema, docDelete, t);
   reg(server, 'doc.duplicate', '复制文档', '把文档整份复制成新 docId（缺省加 -copy 后缀）。', docDuplicateSchema, docDuplicate, t);
   reg(server, 'doc.summary', '文档摘要', '节点数、字数、估算页数、字节数。', docSummarySchema, docSummaryTool, t);
+  reg(
+    server,
+    'doc.attach',
+    '接上编辑器当前文档',
+    '把 MCP 会话的"当前文档"切到**编辑器里正在编辑的那一份**（之后省略 docId 的调用就作用在它上面）。只读动作，不改编辑器内容；编辑器未接入时如实报 BRIDGE_OFFLINE。',
+    docAttachSchema,
+    docAttach,
+    t,
+  );
 
   /* ── 模式域 §5.2 ── */
   reg(server, 'mode.list', '列出模式', '编辑器支持的模式与含义。', modeListSchema, modeList, t);

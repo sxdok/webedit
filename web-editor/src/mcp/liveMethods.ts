@@ -95,11 +95,42 @@ function padRect(rows: string[][], cols: number): string[][] {
 export async function routeLive(method: string, params: Params): Promise<unknown> {
   const p = params ?? {};
 
+  /**
+   * ★文档域守卫（阶段八修正）：编辑器里只有**当前打开的这一份**文档。
+   *   如果 MCP 请求的 `docId` 不是它，绝不能拿"当前文档"顶上 —— 那会把**另一个文档的内容**
+   *   当成结果返回（静默给错数据，比报错糟得多）。这种情况一律交回无头通道：
+   *   磁盘上的其它文档由无头读，找不到就如实报 `DOC_NOT_FOUND`。
+   */
+  const wantDoc = typeof p.docId === 'string' && p.docId !== '' ? p.docId : null;
+  if (wantDoc && wantDoc !== now().doc.id) {
+    throw new Error(
+      `LIVE_FALLBACK: 文档 ${wantDoc} 不在编辑器里（当前打开的是 ${now().doc.id}），该请求交给无头通道`,
+    );
+  }
+
   // 判断一个节点是否隐藏（文档树里的 hidden 标记）
   const hiddenOf = (n: ComponentNode): boolean => n.hidden === true;
 
   switch (method) {
     /* ── 文档 ── */
+    /**
+     * doc.attach：把 MCP 会话的"当前文档"对到**编辑器里正在编辑的这一份**上。
+     * 只读（不回写任何内容），是"用 MCP 改用户正在编辑的文档"的入口 ——
+     * 没有它，MCP 会话的当前文档（常常是无头建的）和编辑器打开的文档永远对不上，
+     * 所有 docId 相关的调用都会（正确地）降级到无头。
+     */
+    case 'doc.attach': {
+      const d = now().doc;
+      return {
+        docId: d.id,
+        title: d.title,
+        mode: d.mode,
+        counts: {
+          documentNodes: flatten(d.document.components).length,
+          webNodes: flatten(d.web.root.children ?? []).length,
+        },
+      };
+    }
     case 'doc.get': {
       const d = now().doc;
       if (p.includeNodes === true) return { docId: d.id, document: d };

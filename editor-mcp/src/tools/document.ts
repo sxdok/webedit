@@ -6,9 +6,10 @@
 import { z } from 'zod';
 import { ok, ErrorCodes, fail, type ToolResult } from '../errors.js';
 import { config, safeName } from '../config.js';
+import { log } from '../log.js';
 import { makeDocument, readDocument, writeDocument } from '../bridge/headless.js';
 import { commitDoc, docSummary, getCurrentDoc, listDocuments, setCurrentDoc } from '../engine/session.js';
-import { viaBridge } from './helper.js';
+import { viaBridge, liveOnly } from './helper.js';
 
 const docIdParam = z.string().optional().describe('文档 id（文件名去掉 .editor.json）；缺省用"当前文档"');
 
@@ -83,6 +84,32 @@ export async function docOpen(args: { docId: string }) {
 }
 
 export const docCloseSchema = { docId: docIdParam };
+
+export const docAttachSchema = {};
+
+/**
+ * doc.attach（阶段八）：把 MCP 会话的**当前文档**切到"编辑器里正在编辑的那一份"。
+ *
+ * 为什么需要它：编辑器**只有**它当前打开的那一份文档（`doc.get` 之类的 docId 若不是它，
+ * Live 会如实拒绝并降级到无头，免得把别的文档内容当成结果返回）。而 MCP 会话的"当前文档"
+ * 通常是 `doc.create` 在无头通道建的文档 —— 两者不是一回事。想用 MCP 改**用户正在编辑的文档**，
+ * 就得先显式"接上"它；这个动作只读（只改 MCP 会话状态，不碰编辑器里的任何内容）。
+ *
+ * 编辑器未接入 → 如实报 `BRIDGE_OFFLINE`（不做无头降级：无头没有"编辑器当前文档"这个概念）。
+ */
+export async function docAttach() {
+  const res = await liveOnly<{ docId: string; title?: string; mode?: string; counts?: Record<string, number> }>(
+    'doc.attach',
+    {},
+  );
+  if (res.ok && res.data?.docId) {
+    setCurrentDoc(res.data.docId);
+    log.info(`MCP 会话已接到编辑器当前文档：${res.data.docId}`);
+    // 与其它 Tool 的返回形状保持一致：liveOnly 成功 = 走的就是 Live 通道
+    return { ...res, data: { ...res.data, via: 'live' as const, degraded: false } };
+  }
+  return res;
+}
 
 /** doc.close：Live 时关闭编辑器里的文档；无头时只是把"当前文档"清掉 */
 export async function docClose(args: { docId?: string }) {

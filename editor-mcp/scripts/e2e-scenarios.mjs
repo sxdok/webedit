@@ -318,9 +318,10 @@ async function main(liveReady) {
       const one = await client.call('component.get', { type: 'table' });
       const schema = await client.call('component.schema', { type: 'table' });
       check(
-        '场景14 组件注册表（44+ 组件、7 类齐全、能取到定义与属性 schema）',
-        total >= 44 && cats.length >= 7 && one.body?.data?.type === 'table' && (schema.body?.data?.count ?? 0) >= 5,
-        `组件=${total} 分类=${cats.length} table schema=${schema.body?.data?.count} 来源=${(list.body?.data?.sources ?? []).join('/')}`,
+        '场景14 组件注册表（Live 时以内置组件为准：44+ 组件、分类齐全、能取到定义与属性 schema）',
+        // 分类数按"当前模式里有内容的分类"算（文档模式 5 类；跨两模式共 7 类）
+        total >= 44 && cats.length >= 5 && one.body?.data?.type === 'table' && (schema.body?.data?.count ?? 0) >= 5,
+        `组件=${total} 分类=${cats.length} table schema=${schema.body?.data?.count} 来源=${(list.body?.data?.sources ?? []).join('/')} via=${list.body?.data?.via}`,
       );
     } else {
       // 离线且没有目录：必须"如实说缺什么"，不能编造内置组件清单
@@ -404,14 +405,23 @@ async function main(liveReady) {
     );
   }
 
-  /* 19. 双通道降级：编辑器没接入时必须标 degraded 而不是失败 */
+  /* 19. 双通道语义（阶段八修正后）：
+         · 请求**编辑器里没打开的那份文档**（DOC 是无头建的）→ 必须走无头并标 degraded，
+           绝不能拿"编辑器当前文档"顶上（那会返回另一个文档的内容）；
+         · 不指定 docId（= 编辑器当前文档）→ 编辑器接入时走 live、不标 degraded。 */
   {
-    const ready = (await resource('editor://bridge/status')).ready === true;
-    const sum = await client.call('doc.summary', { docId: DOC });
+    const st = await resource('editor://bridge/status');
+    const ready = st.ready === true;
+    const foreign = await client.call('doc.summary', { docId: DOC });
+    const mine = await client.call('doc.summary', {});
+    const foreignOk = foreign.body?.ok === true && foreign.body?.data?.via === 'headless' && foreign.body?.degraded === true;
+    const mineOk = ready
+      ? mine.body?.ok === true && mine.body?.data?.via === 'live' && mine.body?.degraded === false
+      : mine.body?.ok === true && mine.body?.data?.via === 'headless';
     check(
-      '场景19 双通道（编辑器未接入时如实走无头并标 degraded；接入时走 live）',
-      sum.body?.ok === true && sum.body?.data?.via === (ready ? 'live' : 'headless') && sum.body?.degraded === !ready,
-      `ready=${ready} via=${sum.body?.data?.via} degraded=${sum.body?.degraded}`,
+      '场景19 双通道（别人家的 docId 走无头并标 degraded；编辑器当前文档走 live；状态与实际一致）',
+      foreignOk && mineOk && typeof st.ready === 'boolean' && st.hubNoEditor === !ready,
+      `ready=${ready} hubNoEditor=${st.hubNoEditor} 异文档 via=${foreign.body?.data?.via}/degraded=${foreign.body?.degraded} 当前文档 via=${mine.body?.data?.via}/degraded=${mine.body?.degraded}`,
     );
   }
 
@@ -420,6 +430,13 @@ async function main(liveReady) {
     if (!liveReady) {
       skip('场景20 Live 端到端（MCP 调用改变编辑器文档）', liveReady === false ? '编辑器未接入桥接（用 --live 拉起无头编辑器）' : '未尝试');
     } else {
+      /**
+       * ★先 doc.attach：MCP 会话的"当前文档"默认是自己建的（无头）文档，
+       *   与编辑器打开的那份不是一回事 —— 不接上，省略 docId 的调用都会（正确地）走无头。
+       *   这一步只读，正好也验证"能明确地指向编辑器当前文档"。
+       */
+      const attach = await client.call('doc.attach', {});
+      const attachedId = attach.body?.data?.docId;
       const before = await client.call('doc.summary', {});
       const n0 = before.body?.data?.nodes ?? -1;
       const add = await client.call('node.add', { type: 'paragraph', props: { text: '来自 MCP 的段落' } });
@@ -433,9 +450,17 @@ async function main(liveReady) {
       const n2 = afterUndo.body?.data?.nodes ?? -3;
       const liveNotes = client.notifications().filter((n) => n.method === 'notifications/resources/updated').length;
       check(
-        '场景20 Live 端到端（编辑器页面上「加节点→读回→改纸张→撤销」全部生效，且 via=live、degraded=false）',
-        add.body?.data?.via === 'live' && add.body?.degraded === false && n1 === n0 + 1 && got.body?.data?.props?.text === '来自 MCP 的段落' && page.body?.data?.via === 'live' && n2 <= n1,
-        `nodes ${n0}→${n1}→撤销后 ${n2}；via=${add.body?.data?.via} degraded=${add.body?.degraded} 撤销 via=${undo.body?.data?.via} 通知=${liveNotes}`,
+        '场景20 Live 端到端（doc.attach 接上编辑器当前文档后：加节点→读回→改纸张→撤销全部落到编辑器页面，via=live、degraded=false）',
+        attach.body?.ok === true &&
+          attach.body?.data?.via === 'live' &&
+          !!attachedId &&
+          add.body?.data?.via === 'live' &&
+          add.body?.degraded === false &&
+          n1 === n0 + 1 &&
+          got.body?.data?.props?.text === '来自 MCP 的段落' &&
+          page.body?.data?.via === 'live' &&
+          n2 <= n1,
+        `attach=${attachedId}（via=${attach.body?.data?.via}）；nodes ${n0}→${n1}→撤销后 ${n2}；via=${add.body?.data?.via} degraded=${add.body?.degraded} 撤销 via=${undo.body?.data?.via} 通知=${liveNotes}`,
       );
       // 还原编辑器页面（把 A3 改回 A4）——不留脏状态给下一次人工检查
       await client.call('page.setSize', { size: 'A4' });
@@ -469,7 +494,9 @@ try {
   }
 
   const t0 = Date.now();
-  liveReady = await waitLive(wantLive ? 30000 : 1500);
+  // 实测：新起一个无头编辑器页面约 1 秒内就会接入桥接（阶段八修掉"MCP 侧惰性连接"后）。
+  // 留 20s 是给冷启动/慢机器的余量；超时说明真出问题了，早点失败比等 30s 好。
+  liveReady = await waitLive(wantLive ? 20000 : 1500);
   process.stdout.write(`Live 就绪=${liveReady}（判定耗时 ${Date.now() - t0}ms）\n`);
 
   await main(liveReady);
@@ -482,13 +509,30 @@ try {
     /* 忽略 */
   }
   if (edge) {
+    /**
+     * ★收尾必须杀**整棵进程树**：`edge.kill()` 只杀浏览器主进程，
+     *   渲染进程会活下来继续跑那个页面 —— 残页会一直重连桥接，
+     *   于是下一次跑 e2e 时"编辑器已接入"可能是**上一次的残留页面**（阶段八真踩过：
+     *   第一次跑剩了 9 个无头 Edge，第二次跑 1 秒就显示就绪，其实是旧页面连上了新中转）。
+     *   Windows 上用 taskkill /T /F；其它平台退回 kill()。
+     */
+    const pid = edge.pid;
     try {
-      edge.kill();
+      if (process.platform === 'win32' && pid) {
+        const { spawnSync } = await import('node:child_process');
+        spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
+      } else {
+        edge.kill('SIGKILL');
+      }
     } catch {
       /* 忽略 */
     }
     await wait(1500);
-    fs.rmSync(edgeProfile, { recursive: true, force: true });
+    try {
+      fs.rmSync(edgeProfile, { recursive: true, force: true });
+    } catch {
+      /* 忽略：文件被占用时下次跑会换新目录 */
+    }
   }
   for (const fn of cleanup) {
     try {

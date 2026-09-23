@@ -57,6 +57,17 @@ async function main(): Promise<void> {
     try {
       const { startBridgeHub } = await import('./bridge/host.js');
       hub = await startBridgeHub();
+      /**
+       * ★中转起来后**立刻**让 MCP 侧也接进去（而不是等第一次 live 调用才惰性连接）。
+       *   为什么必须提前：`editor://bridge/status` 的 `ready` 是从本侧连接状态算出来的 ——
+       *   如果这侧还没连，"编辑器已接入"这件事**没有任何人告诉它**，于是 ready 永远 false，
+       *   直到某次调用触发惰性连接、顺便 hello 问出 `editors` 才转真。
+       *   现象就是"编辑器明明接上了，桥接状态却一直显示未就绪"（阶段八端到端卡在这里：
+       *   等 30s 超时后，后面的调用却都是 via=live）。
+       */
+      const { liveBridge } = await import('./bridge/liveBridge.js');
+      liveBridge.start();
+      log.info(`MCP 侧已接入桥接中转（${config.bridgeUrl}），等待编辑器页面接入`);
     } catch (e) {
       log.warn(`桥接中转未能启动（端口可能被占）：${String((e as Error)?.message ?? e)}`);
     }

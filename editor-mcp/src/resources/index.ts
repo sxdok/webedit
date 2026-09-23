@@ -18,7 +18,7 @@ import { SubscribeRequestSchema, UnsubscribeRequestSchema } from '@modelcontextp
 import { config } from '../config.js';
 import { EditorMcpError } from '../errors.js';
 import { log } from '../log.js';
-import { bridgeSummary } from '../bridge/fallback.js';
+import { bridgeSummaryLive } from '../bridge/fallback.js';
 import { readDocument } from '../bridge/headless.js';
 import { flatten, getCurrentDoc } from '../engine/session.js';
 import { componentGet, componentSchema, exportSpec, historyStack, selectionGet } from '../tools/registry.js';
@@ -285,7 +285,8 @@ export function registerAllResources(server: McpServer): string[] {
     '桥接状态',
     'editor://bridge/status',
     { title: '桥接状态', description: 'Live Bridge 连接状态与降级说明', mimeType: 'application/json' },
-    async (uri) => json(uri.href, bridgeSummary()),
+    // ★走后一个"先确保连接过"的摘要：否则 ready 会因为本侧还没连而**假阴**（阶段八踩过）
+    async (uri) => json(uri.href, await bridgeSummaryLive()),
   );
   uris.push('editor://bridge/status');
 

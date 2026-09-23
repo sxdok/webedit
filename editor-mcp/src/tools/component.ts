@@ -12,7 +12,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { config } from '../config.js';
-import { ok, runTool, type ToolResult } from '../errors.js';
+import { type ToolResult } from '../errors.js';
+import { viaBridge } from './helper.js';
 import { defaultPage, defaultCanvas } from '../bridge/headless.js';
 import { scanPlugins } from './plugin.js';
 
@@ -55,52 +56,67 @@ export async function componentList(args: {
   category?: string;
   keyword?: string;
 }): Promise<ToolResult<{ total: number; components: ComponentMeta[]; sources: string[]; note?: string }>> {
-  return runTool('component.list', args, async () => {
-    const sources: string[] = [];
-    let list: ComponentMeta[] = [];
+  /**
+   * ★先试 Live（编辑器是注册表的**唯一真源**：44 个内置组件只有它知道）。
+   *   以前这里直接读"组件目录文件 + 插件目录"，于是**编辑器明明开着**，
+   *   `component.list` 也只返回 3 个外部组件（阶段八端到端场景14 抓到的）。
+   */
+  const res = await viaBridge<{ total: number; components: ComponentMeta[]; sources: string[]; note?: string }>(
+    'component.list',
+    args as Record<string, unknown>,
+    async () => headlessComponentList(args),
+  );
+  if (!res.ok) return res as unknown as ToolResult<{ total: number; components: ComponentMeta[]; sources: string[]; note?: string }>;
+  // 无头且没有组件目录 → degraded 已经在 data 里带出来了（见 headlessComponentList）
+  return res;
+}
 
-    const catalog = readCatalog();
-    if (catalog) {
-      list = catalog.components;
-      sources.push(`catalog:${path.basename(catalog.file)}`);
-    }
+/** 无头实现：组件目录文件（若存在）+ 插件目录里的外部组件；两者都没有就如实说缺什么 */
+async function headlessComponentList(args: {
+  mode?: 'document' | 'web' | 'ppt';
+  category?: string;
+  keyword?: string;
+}): Promise<{ total: number; components: ComponentMeta[]; sources: string[]; note?: string }> {
+  const sources: string[] = [];
+  let list: ComponentMeta[] = [];
 
-    // 外部组件：插件目录永远可读（能力与插件域一致）
-    const plugins = await scanPlugins();
-    const external: ComponentMeta[] = plugins.entries
-      .filter((p) => p.type)
-      .map((p) => ({
-        type: p.type as string,
-        label: p.label ?? p.name,
-        category: p.category ?? '外部组件',
-        supportedModes: p.supportedModes ?? ['document', 'web'],
-        source: 'external' as const,
-      }));
-    if (external.length) {
-      list = [...list, ...external];
-      sources.push(`plugins:${path.basename(config.pluginDir)}`);
-    }
+  const catalog = readCatalog();
+  if (catalog) {
+    list = catalog.components;
+    sources.push(`catalog:${path.basename(catalog.file)}`);
+  }
 
-    const kw = args.keyword?.trim().toLowerCase();
-    const filtered = list.filter((c) => {
-      if (args.category && c.category !== args.category) return false;
-      if (args.mode && !c.supportedModes.includes(args.mode)) return false;
-      if (kw && !c.type.toLowerCase().includes(kw) && !c.label.toLowerCase().includes(kw)) return false;
-      return true;
-    });
+  // 外部组件：插件目录永远可读（能力与插件域一致）
+  const plugins = await scanPlugins();
+  const external: ComponentMeta[] = plugins.entries
+    .filter((p) => p.type)
+    .map((p) => ({
+      type: p.type as string,
+      label: p.label ?? p.name,
+      category: p.category ?? '外部组件',
+      supportedModes: p.supportedModes ?? ['document', 'web'],
+      source: 'external' as const,
+    }));
+  if (external.length) {
+    list = [...list, ...external];
+    sources.push(`plugins:${path.basename(config.pluginDir)}`);
+  }
 
-    const hasBuiltin = sources.some((s) => s.startsWith('catalog')) ;
-    const note = hasBuiltin
-      ? undefined
-      : '未拿到**内置组件目录**：请①在编辑器里开启 MCP 桥接（阶段二/八接入），或②把 component-catalog.json 放到工作区。' +
-        '在此之前 component.list 只返回插件目录里的外部组件（不编造内置清单）。';
-
-    return ok(
-      { total: filtered.length, components: filtered, sources, ...(note ? { note } : {}) },
-      // ★只拿到外部组件也算"降级"：客户端据此知道自己没看到全部组件
-      { degraded: !hasBuiltin },
-    );
+  const kw = args.keyword?.trim().toLowerCase();
+  const filtered = list.filter((c) => {
+    if (args.category && c.category !== args.category) return false;
+    if (args.mode && !c.supportedModes.includes(args.mode)) return false;
+    if (kw && !c.type.toLowerCase().includes(kw) && !c.label.toLowerCase().includes(kw)) return false;
+    return true;
   });
+
+  const hasBuiltin = sources.some((s) => s.startsWith('catalog'));
+  const note = hasBuiltin
+    ? undefined
+    : '未拿到**内置组件目录**：请①在编辑器里开启 MCP 桥接（阶段二/八接入），或②把 component-catalog.json 放到工作区。' +
+      '在此之前 component.list 只返回插件目录里的外部组件（不编造内置清单）。';
+
+  return { total: filtered.length, components: filtered, sources, ...(note ? { note } : {}) };
 }
 
 /** 供其它域复用的默认值（阶段一只有页面/画布两组，阶段三扩展为完整 defaults） */

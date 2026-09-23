@@ -317,7 +317,7 @@ export const exportJsonSchema = {
 
 export async function exportJson(args: { docId?: string; path?: string }) {
   const a = withDoc(args);
-  return viaBridge('export.json', a, async () => {
+  const r = await viaBridge('export.json', a, async () => {
     const doc = await readDocument(a.docId);
     const text = `${JSON.stringify(doc, null, 2)}\n`;
     if (!a.path) return { docId: a.docId, bytes: text.length, json: text };
@@ -327,6 +327,21 @@ export async function exportJson(args: { docId?: string; path?: string }) {
     await fsMod.writeFile(out, text, 'utf8');
     return { docId: a.docId, bytes: text.length, path: out };
   });
+
+  /**
+   * ★`{path}` 的语义要**与通道无关**：Live 侧是浏览器，写不了工作区里的任意路径，
+   *   它只回 JSON 文本 —— 那就由 MCP 这一侧补写盘。否则同一个 Tool 在"编辑器开着"时
+   *   会静默不落盘（阶段八端到端就是这么发现的：文件节点数 = -1）。
+   */
+  const data = r.data as { docId?: string; bytes?: number; json?: string; path?: string } | null;
+  if (a.path && data && typeof data.json === 'string' && !data.path) {
+    const { assertInside } = await import('../config.js');
+    const fsMod = await import('node:fs/promises');
+    const out = assertInside(config.workspace, a.path);
+    await fsMod.writeFile(out, data.json, 'utf8');
+    return { ...r, data: { ...data, path: out, bytes: data.json.length } };
+  }
+  return r;
 }
 
 export const exportHtmlSchema = { docId: docIdParam, path: z.string().optional(), inlineAssets: z.boolean().default(true) };
