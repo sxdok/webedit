@@ -4111,6 +4111,74 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
+  /* 图片「多图」属性：按行编辑（默认 1 行 / ＋ 加行 / − 减行 / 最多 5 张） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const rowsNode = S().addComponent('image');
+    if (rowsNode) S().updateProps(rowsNode, { images: 'a.png | 图一', columns: 2 });
+    await wait(440);
+    S().selectComponent(rowsNode ? [rowsNode] : []);
+    await wait(320);
+
+    const rowsEl = document.querySelector('[data-image-rows="1"]') as HTMLElement | null;
+    const count = (): number => Number(rowsEl?.getAttribute('data-image-rows-count') ?? '0');
+    const srcInput = (i: number): HTMLInputElement | null =>
+      document.querySelector(`[data-image-row-src="${i}"]`) as HTMLInputElement | null;
+    const setInput = (el: HTMLInputElement | null, v: string): void => {
+      if (!el) return;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    add(
+      '图片「多图」改成按行编辑：默认 1 行（地址 + 图题 + ＋ / −）',
+      !!rowsEl && count() === 1 && !!srcInput(1) && !!document.querySelector('[data-image-row-caption="1"]'),
+      `行数=${count()}；地址框=${!!srcInput(1)}；图题框=${!!document.querySelector('[data-image-row-caption="1"]')}`,
+    );
+
+    // ＋ 加行（点第 1 行的 +）
+    (document.querySelector('[data-image-row-add="1"]') as HTMLElement | null)?.click();
+    await wait(260);
+    setInput(srcInput(2), 'b.png');
+    setInput(document.querySelector('[data-image-row-caption="2"]') as HTMLInputElement | null, '图二');
+    await wait(260);
+    const afterAdd = String(findNode(getForest(S().doc), rowsNode ?? '')?.props.images ?? '');
+    add(
+      '点行尾 ＋ 加一行（第 2 行可单独填地址与图题，写回 props.images）',
+      count() === 2 && afterAdd.split('\n').length === 2 && afterAdd.includes('b.png | 图二'),
+      `行数=${count()}；props.images=「${afterAdd.replace(/\n/g, ' / ')}」`,
+    );
+
+    // 加到 5 张后 ＋ 禁用；再点也不涨
+    for (let i = 0; i < 5; i += 1) {
+      const addBtn = document.querySelector(`[data-image-row-add="${count()}"]`) as HTMLButtonElement | null;
+      addBtn?.click();
+      await wait(160);
+    }
+    const capAdd = document.querySelector('[data-image-row-add="5"]') as HTMLButtonElement | null;
+    add(
+      '最多 5 张：加到 5 行后 ＋ 自动禁用（再点也不涨）',
+      count() === 5 && capAdd?.disabled === true,
+      `行数=${count()}；第 5 行 ＋ 的 disabled=${String(capAdd?.disabled)}`,
+    );
+
+    // − 减行；只剩 1 行时 − 禁用
+    (document.querySelector('[data-image-row-remove="3"]') as HTMLElement | null)?.click();
+    await wait(240);
+    const afterRemove = count();
+    for (let i = 0; i < 5; i += 1) {
+      const rm = document.querySelector(`[data-image-row-remove="${afterRemove - i}"]`) as HTMLButtonElement | null;
+      rm?.click();
+      await wait(140);
+    }
+    const oneRemove = document.querySelector('[data-image-row-remove="1"]') as HTMLButtonElement | null;
+    add(
+      '点行尾 − 减一行；只剩 1 行时 − 禁用（不会删空）',
+      afterRemove === 4 && count() === 1 && oneRemove?.disabled === true,
+      `减一次后 ${afterRemove} 行 → 连减到 ${count()} 行；最后一行 − 的 disabled=${String(oneRemove?.disabled)}`,
+    );
+  }
+
   /* ── 示例文档（?demo=1）：两种模式**各一页**，且每页覆盖该模式下的全部组件 ── */
   {
     const pages = buildDemoPages();

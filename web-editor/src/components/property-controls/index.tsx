@@ -33,6 +33,7 @@ import { TableSizeControl } from './TableSizeControl';
 import { TableHtmlControl } from './TableHtmlControl';
 import { TableSortControl } from './TableSortControl';
 import { TableRowHeightsControl } from './TableRowHeightsControl';
+import { ImageRowsControl } from './ImageRowsControl';
 
 export { splitLabel };
 
@@ -67,6 +68,7 @@ export const IMPLEMENTED_CONTROLS: ReadonlySet<string> = new Set([
   'tableHtml',
   'tableSort',
   'tableRowHeights',
+  'imageRows',
 ]);
 
 /** 需要独占整行宽度的控件（多行文本、工具条、多维输入、表格工具） */
@@ -82,6 +84,7 @@ export const WIDE_CONTROLS: ReadonlySet<string> = new Set([
   'tableHtml',
   'tableSort',
   'tableRowHeights',
+  'imageRows',
 ]);
 
 /** 该控件在面板里是不是"标签在上、控件独占整行"的两行式（清单/文档用它描述排版） */
@@ -152,6 +155,8 @@ export function PropertyControl({ item, value, onChange, nodeId }: ControlProps)
       return field(<TableSortControl {...p} />);
     case 'tableRowHeights':
       return field(<TableRowHeightsControl {...p} />);
+    case 'imageRows':
+      return field(<ImageRowsControl {...p} />);
     default:
       return <NotImplemented control={item.control} />;
   }

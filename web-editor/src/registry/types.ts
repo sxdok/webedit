@@ -259,7 +259,9 @@ export type PropControlType =
   /** 表格按列排序（选列 + 升/降序 + 清除；渲染期排序，不改数据） */
   | 'tableSort'
   /** 表格按行行高（列出被单独调过的行，可逐条清除；拖动行边界写的就是它） */
-  | 'tableRowHeights';
+  | 'tableRowHeights'
+  /** 图片多图：按行编辑（一行一张图：地址 + 图题，＋加行 / −减行，最多 5 张） */
+  | 'imageRows';
 
 export interface SelectOption {
   label: string;

@@ -108,7 +108,7 @@ export function renderImageGallery(
   }
 
   /* ── 多图（网格）── */
-  const cols = Math.min(Math.max(1, Math.round(opts.columns)), 4);
+  const cols = Math.min(Math.max(1, Math.round(opts.columns)), 5);
   return (
     <div data-width-box="1" style={{ width: `${opts.widthPct ?? 100}%`, boxSizing: 'border-box' }}>
       <div
@@ -206,13 +206,12 @@ export const imageComponent: ComponentDefinition = {
     { key: 'src', label: '图片（单图）', control: 'image', group: '内容', defaultValue: '', placeholder: '图片地址或 data:URL' },
     {
       key: 'images',
-      label: '多图（每行一张：地址 或 地址 | 图题；填了就忽略上面的「图片」，2/3/4 张并排都用它）',
-      control: 'textarea',
+      label: '多图（一行一张：地址 + 图题；＋加行 / −减行，最多 5 张）',
+      control: 'imageRows',
       group: '内容',
       defaultValue: '',
-      placeholder: 'a.png | 图一\nb.png | 图二\nc.png',
     },
-    { key: 'columns', label: '列数（多图时生效）', control: 'number', group: '尺寸', defaultValue: 2, min: 1, max: 4 },
+    { key: 'columns', label: '列数（多图时生效，最多 5 列）', control: 'number', group: '尺寸', defaultValue: 2, min: 1, max: 5 },
     { key: 'gap', label: '图间距 px（多图）', control: 'number', group: '尺寸', defaultValue: 10, min: 0, max: 80 },
     { key: 'galleryWidth', label: '整体宽度 %（多图）', control: 'slider', group: '尺寸', defaultValue: 100, min: 20, max: 100, step: 5 },
     { key: 'width', label: '宽度（单图；文档模式按 mm）', control: 'unit', group: '尺寸', defaultValue: 84, unit: 'mm', min: 5, max: 400 },
