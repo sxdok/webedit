@@ -3805,7 +3805,7 @@ async function interactionChecks(): Promise<Result[]> {
     S().toggleUI('prefsOpen');
     await wait(320);
     const prefKeys = [...document.querySelectorAll('[data-pref]')].map((el) => el.getAttribute('data-pref'));
-    const wantPrefs = ['compPreview', 'showTree', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'theme', 'panelWidths'];
+    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'theme', 'panelWidths'];
     const missingPrefs = wantPrefs.filter((k) => !prefKeys.includes(k));
     add(
       '首选项（视图 → 首选项…）：编辑器各项设置集中在一个弹窗里（组件箱/画布/文档/外观/面板）',
@@ -3814,6 +3814,15 @@ async function interactionChecks(): Promise<Result[]> {
         !!document.querySelector('[data-pref-select="theme"]') &&
         !!document.querySelector('[data-pref-restore="1"]'),
       `共 ${prefKeys.length} 项：${prefKeys.join('、')}${missingPrefs.length ? `；缺 ${missingPrefs.join('、')}` : ''}`,
+    );
+    add(
+      '首选项 → 组件箱：有「重载外部组件」入口，且组件箱底部不再有那个重载按钮',
+      !!document.querySelector('[data-pref="reloadLive"] [data-reload-live="1"]') &&
+        !!document.querySelector('[data-comp-live-count]') &&
+        !document.querySelector('[data-comp-live-count]')?.parentElement?.querySelector('button'),
+      `首选项里有重载按钮=${!!document.querySelector('[data-reload-live="1"]')}；组件箱底部按钮数=${
+        document.querySelector('[data-comp-live-count]')?.parentElement?.querySelectorAll('button').length ?? '?'
+      }`,
     );
 
     // 用首选项里的开关打开缩略图（这是它的正式入口；组件箱头部的眼睛图标是快捷方式）
@@ -3948,6 +3957,18 @@ async function interactionChecks(): Promise<Result[]> {
       '菜单：视图 → 首选项…（编辑器设置入口）',
       viewItems[0] === 'prefs',
       `视图菜单项：${viewItems.join(' / ')}`,
+    );
+    add(
+      '菜单：视图里不再重复放「深色模式」（用户 2026-09-24：主题只留在 首选项 → 外观）',
+      !viewItems.includes('theme'),
+      `视图菜单项：${viewItems.join(' / ')}`,
+    );
+    const helpItems = await openMenu('帮助');
+    await closeMenu();
+    add(
+      '菜单：帮助里不再放「重载外部组件」（同上：收进 首选项 → 组件箱）',
+      !helpItems.includes('reloadlive'),
+      `帮助菜单项：${helpItems.join(' / ')}`,
     );
   }
 

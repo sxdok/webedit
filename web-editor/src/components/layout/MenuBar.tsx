@@ -186,8 +186,7 @@ export function MenuBar() {
     { key: 'zfitw', label: '适应宽度', onClick: () => S().setZoom(fitZoom(mode, page, canvas, 'width')) },
     { key: 'zfitp', label: '适应页面', onClick: () => S().setZoom(fitZoom(mode, page, canvas, 'page')) },
     { key: 'v2', separator: true },
-    { key: 'theme', label: '深色模式（Monokai）', checked: ui.theme === 'monokai', onClick: () => S().setTheme(ui.theme === 'monokai' ? 'light' : 'monokai') },
-    { key: 'v3', separator: true },
+    /* ★主题切换只留在「首选项 → 外观 → 界面主题」（用户 2026-09-24：视图菜单里不要重复一个深色模式） */
     { key: 'tree', label: '显示组件树', checked: ui.showTree, onClick: () => S().toggleUI('showTree') },
     { key: 'md', label: 'Markdown 源码（只读）', checked: ui.showMarkdown, onClick: () => S().toggleUI('showMarkdown') },
     { key: 'autonum', label: '图表按章编号（图 X-Y / 表 X-Y）', checked: ui.autoNumber, onClick: () => S().toggleUI('autoNumber') },
@@ -269,16 +268,8 @@ export function MenuBar() {
       },
     },
     { key: 'diag', label: '诊断信息（日志 / 状态 / 环境）', onClick: () => S().toggleUI('showDiagnostics') },
-    {
-      key: 'reloadlive',
-      label: `重载外部组件（当前 ${getLiveTypes().length} 个）`,
-      onClick: () => {
-        void loadRuntimeComponents(true).then((r) => {
-          S().bumpRegistry();
-          window.alert(`外部组件重载：成功 ${r.ok}/${r.total}${r.failed.length ? `，失败：${r.failed.join('、')}` : ''}`);
-        });
-      },
-    },
+    /* ★「重载外部组件」收进首选项（用户 2026-09-24）：帮助菜单与组件箱底部都不再放，
+       入口统一在「首选项 → 组件箱 → 重载外部组件」。 */
     { key: 'logdump', label: '下载日志文件', onClick: () => downloadText(`editor-log-${Date.now()}.txt`, log.dump(), 'text/plain') },
     /* ── 组件包（B14）：把 public/组件/*.js 打包导出 / 导入写回组件目录 ── */
     {

@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, Eye, EyeOff, Search } from 'lucide-react';
 import { getCategoriesByMode } from '../../registry';
 import { categoryLabel, type ComponentDefinition, type RenderContext } from '../../registry/types';
-import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
+import { getLiveTypes } from '../../registry/live';
 import { selectMode, useEditorStore } from '../../store/editorStore';
 import { mmToPx, ptToPx } from '../../utils/units';
 import { Tooltip } from '../ui/Tooltip';
@@ -125,7 +125,6 @@ function Category({
 export function ComponentPanel() {
   const mode = useEditorStore(selectMode);
   const registryVersion = useEditorStore((s) => s.ui.registryVersion);
-  const bumpRegistry = useEditorStore((s) => s.bumpRegistry);
   const preview = useEditorStore((s) => s.ui.compPreview ?? true);
   const setCompPreview = useEditorStore((s) => s.setCompPreview);
   const page = useEditorStore((s) => s.doc.document.page);
@@ -140,7 +139,6 @@ export function ComponentPanel() {
     'Web 控件': true,
     'Web 容器': true,
   });
-  const [reloading, setReloading] = useState(false);
 
   const categories = useMemo(() => {
     const all = getCategoriesByMode(mode);
@@ -220,27 +218,13 @@ export function ComponentPanel() {
         )}
       </div>
 
+      {/* ★底部的「重载外部组件」按钮已按用户要求收进「首选项 → 组件箱」（2026-09-24），
+          这里只留计数与操作提示。 */}
       <div className="flex items-center gap-2 border-t border-line px-3 py-1.5 text-2xs text-gray-400">
         <span className="truncate">共 {total} 个 · 拖拽或双击插入</span>
-        <button
-          type="button"
-          title="重新加载 public/组件/ 下的外部组件（改完文件点这里即可，无需重新构建）"
-          disabled={reloading}
-          onClick={() => {
-            setReloading(true);
-            void loadRuntimeComponents(true)
-              .then((r) => {
-                bumpRegistry();
-                const n = getLiveTypes().length;
-                if (r.failed.length) window.alert(`外部组件：成功 ${r.ok} 个，失败 ${r.failed.length} 个（${r.failed.join('、')}）\n详情见 帮助 → 诊断信息。`);
-                else window.alert(`外部组件已重载：${n} 个（${r.source}）`);
-              })
-              .finally(() => setReloading(false));
-          }}
-          className="ml-auto flex-none whitespace-nowrap rounded border border-line px-2 py-1 hover:border-primary hover:text-primary disabled:opacity-50"
-        >
-          {reloading ? '重载中…' : `重载外部组件 (${getLiveTypes().length})`}
-        </button>
+        <span data-comp-live-count={getLiveTypes().length} className="ml-auto flex-none whitespace-nowrap">
+          外部组件 {getLiveTypes().length} 个
+        </span>
       </div>
     </div>
   );

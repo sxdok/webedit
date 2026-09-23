@@ -6,9 +6,10 @@
  *
  * 每一项都带 `data-pref="<key>"` 与 `data-pref-value`，便于自检逐项核对。
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useEditorStore, type UIState } from '../../store/editorStore';
+import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { Modal } from '../ui/Modal';
 import { SwitchControl } from '../property-controls/SwitchControl';
 import type { PropSchemaItem } from '../../registry/types';
@@ -113,6 +114,9 @@ export function PreferencesDialog() {
   const setTheme = useEditorStore((s) => s.setTheme);
   const setPanelWidth = useEditorStore((s) => s.setPanelWidth);
   const setState = useEditorStore.setState;
+  /** 「重载外部组件」（收进首选项的那个入口）的状态 */
+  const [reloading, setReloading] = useState(false);
+  const [reloadMsg, setReloadMsg] = useState('');
 
   const close = useMemo(() => () => toggleUI('prefsOpen'), [toggleUI]);
   const restore = (): void => {
@@ -132,6 +136,39 @@ export function PreferencesDialog() {
           onChange={setCompPreview}
         />
         <PrefSwitch prefKey="showTree" label="显示组件树" value={ui.showTree === true} onChange={() => toggleUI('showTree')} />
+        {/* ★外部组件重载入口（用户 2026-09-24：从「帮助」菜单与组件箱底部收进首选项，只留这一个入口） */}
+        <div className="flex items-center gap-2 py-1" data-pref="reloadLive" data-pref-value={String(getLiveTypes().length)}>
+          <span className="w-32 shrink-0 text-[12px] text-gray-600">重载外部组件</span>
+          <span className="min-w-0 flex-1 truncate text-2xs text-gray-400" data-pref-hint="1">
+            {`改完 public/组件/*.js 点这里重新加载，不用重新构建；当前 ${getLiveTypes().length} 个`}
+          </span>
+          <button
+            type="button"
+            data-reload-live="1"
+            disabled={reloading}
+            onClick={() => {
+              setReloading(true);
+              void loadRuntimeComponents(true)
+                .then((r) => {
+                  useEditorStore.getState().bumpRegistry();
+                  setReloadMsg(
+                    r.failed.length
+                      ? `成功 ${r.ok} 个，失败 ${r.failed.length} 个：${r.failed.join('、')}（详情见 帮助 → 诊断信息）`
+                      : `已重载 ${getLiveTypes().length} 个（${r.source}）`,
+                  );
+                })
+                .finally(() => setReloading(false));
+            }}
+            className="flex-none whitespace-nowrap rounded border border-line px-2 py-1 text-2xs hover:border-primary hover:text-primary disabled:opacity-50"
+          >
+            {reloading ? '重载中…' : '重载'}
+          </button>
+        </div>
+        {reloadMsg && (
+          <p className="py-0.5 text-2xs text-gray-400" data-reload-msg="1">
+            {reloadMsg}
+          </p>
+        )}
       </Section>
 
       <Section title="画布" hint="只影响编辑时的显示，不影响导出与打印">
