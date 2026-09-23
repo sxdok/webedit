@@ -62,11 +62,20 @@ async function main(): Promise<void> {
   }
 
   if (wantHttp) {
-    // 阶段七实现：这里如实报错，不静默降级——否则客户端会以为连上了 HTTP
     const portArg = argv.indexOf('--port');
     const port = portArg >= 0 ? Number(argv[portArg + 1] ?? 37651) : 37651;
-    log.error(`--http（Streamable HTTP，端口 ${port}）属于阶段七，本版本未实现。请先用 --stdio。`);
-    process.exitCode = 2;
+    const { startHttpServer } = await import('./http.js');
+    const handle = await startHttpServer(port);
+    log.info('已进入 HTTP 模式，Ctrl+C 退出');
+    const stop = () => {
+      // ★收尾必须有硬上限：HTTP 可能还有 keep-alive / SSE 连接挂着，
+      //   等它们自然结束会把进程吊死（真踩过：测试脚本的管道因此一直不关）
+      const hardExit = setTimeout(() => process.exit(0), 800);
+      hardExit.unref();
+      void handle.close().then(() => process.exit(0));
+    };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
     return;
   }
 

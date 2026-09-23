@@ -81,8 +81,28 @@ export function isWriteTool(tool: string): boolean {
   return WRITE_ACTION.test(tool);
 }
 
+/* ── 速率限制（规格 §10：调用 > N 次/分钟 → RATE_LIMITED）──
+   按**进程**做滑动窗口：stdio 下一个进程就是一个客户端；HTTP 下多会话共用一个窗口，
+   比"每客户端一个窗口"更保守（宁可早拦，也不放开）。 */
+const callTimes: number[] = [];
+
+export function rateLimited(now = Date.now()): boolean {
+  const limit = config.rateLimitPerMinute;
+  if (!Number.isFinite(limit) || limit <= 0) return false;
+  const windowStart = now - 60_000;
+  while (callTimes.length && callTimes[0] < windowStart) callTimes.shift();
+  callTimes.push(now);
+  return callTimes.length > limit;
+}
+
+/** 自检/测试用：清空速率窗口 */
+export function resetRateWindow(): void {
+  callTimes.length = 0;
+}
+
 /**
  * 所有 Tool handler 的统一外壳：
+ *   · 速率限制（RATE_LIMITED）；
  *   · 写开关（ALLOW_WRITE=false → WRITE_DISABLED，读操作不受影响）；
  *   · 捕获异常 → 结构化错误（支持 `CODE: message` 形式的消息，把错误码如实带出去）；
  *   · 记审计日志（规格 §10）。
@@ -93,6 +113,11 @@ export async function runTool<T>(
   fn: () => Promise<ToolResult<T>>,
 ): Promise<ToolResult<T>> {
   const started = Date.now();
+  if (rateLimited(started)) {
+    const res = fail(ErrorCodes.RATE_LIMITED, `调用过于频繁（上限 ${config.rateLimitPerMinute} 次/分钟，当前窗口内已超）`, '稍等再试，或调大 EDITOR_MCP_RATE_LIMIT。');
+    log.audit(tool, args, ErrorCodes.RATE_LIMITED, Date.now() - started);
+    return res;
+  }
   if (!config.allowWrite && isWriteTool(tool)) {
     const res = fail(ErrorCodes.WRITE_DISABLED, `EDITOR_MCP_ALLOW_WRITE=false：${tool} 属于写操作，已拒绝`, '把环境变量设为 true（或删掉）再试；读操作不受影响。');
     log.audit(tool, args, ErrorCodes.WRITE_DISABLED, Date.now() - started);
