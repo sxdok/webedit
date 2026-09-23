@@ -4421,6 +4421,62 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
+  /* 要点列表的**子要点**（用户 2026-09-23：bul_xxx 组件的子要点没有实现） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const bulNode = S().addComponent('bullets');
+    if (bulNode) {
+      S().updateProps(bulNode, {
+        items: '一级要点\n  两空格子要点\n\tTab 子要点\n\u3000全角空格子要点\n    四空格二级',
+      });
+    }
+    await wait(520);
+    const bulletLis = [...document.querySelectorAll(`[data-node-id="${bulNode}"] li[data-bullet-level]`)] as HTMLElement[];
+    const liOf = (i: number): { level: number; ml: number; mark: string } => {
+      const li = bulletLis[i];
+      if (!li) return { level: -1, ml: -1, mark: '' };
+      return {
+        level: Number(li.getAttribute('data-bullet-level')),
+        ml: Math.round(Number.parseFloat(getComputedStyle(li).marginLeft) || 0),
+        mark: li.querySelector('[data-bullet-marker]')?.textContent ?? '',
+      };
+    };
+    const b0 = liOf(0);
+    const b1 = liOf(1);
+    const bTab = liOf(2);
+    const bFull = liOf(3);
+    const b2 = liOf(4);
+    add(
+      '要点列表的**子要点**真分级：行首 2 空格 / Tab / 全角空格都算一级、4 空格算二级（原来被 lines() 的 trim 吃掉，永远 0 级）',
+      bulletLis.length === 5 &&
+        b0.level === 0 &&
+        b0.ml === 0 &&
+        b1.level === 1 &&
+        b1.ml > 5 &&
+        bTab.level === 1 &&
+        bTab.ml === b1.ml &&
+        bFull.level === 1 &&
+        bFull.ml === b1.ml &&
+        b2.level === 2 &&
+        b2.ml > b1.ml &&
+        b1.mark !== b0.mark,
+      `共 ${bulletLis.length} 条：${[b0, b1, bTab, bFull, b2].map((x) => `L${x.level}/缩进${x.ml}px/符号${x.mark}`).join('；')}`,
+    );
+
+    // 编号列表：按级编号 1. → 1.1. → 1.2. → 2.
+    if (bulNode) S().updateProps(bulNode, { items: '第一条\n  子条一\n  子条二\n第二条', ordered: true });
+    await wait(460);
+    const numMarks = [...document.querySelectorAll(`[data-node-id="${bulNode}"] [data-bullet-marker]`)].map(
+      (el) => el.textContent ?? '',
+    );
+    add(
+      '要点列表用编号时按级编号（1. → 1.1. → 1.2. → 2.，子级不会把父级编号推进）',
+      numMarks.join(' | ') === '1. | 1.1. | 1.2. | 2.',
+      `编号=${numMarks.join(' | ')}`,
+    );
+  }
+
   /* 文档 ↔ Web 来回切模式：画布尺寸不能被上一种模式的实测值污染（用户 2026-09-23 反馈） */
   {
     S().setMode('document');

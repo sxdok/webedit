@@ -178,12 +178,35 @@ export function boxStyle(props: ComponentProps): React.CSSProperties {
   };
 }
 
-/** "每行一项" → 数组（支持可选的 | 分列） */
+/** "每行一项" → 数组（支持可选的 | 分列）。★注意：**每行都会被 trim**，
+ *  所以它**不能**用来做"按行首缩进分级"的组件 —— 那种场景用下面的 `indentedLines()`。 */
 export function lines(v: unknown): string[] {
   return String(v ?? '')
     .split('\n')
     .map((s) => s.trim())
     .filter((s) => s !== '');
+}
+
+/**
+ * "每行一项 + **行首缩进表示层级**" → `{ text, level }[]`（要点列表这类组件用）。
+ *
+ * ★为什么不能用上面的 `lines()`：它每行都 `trim()`，**行首空格会被吃掉** ——
+ *   `bullets.tsx` 里"按行首空格数算级别"于是恒等于 0 级，子要点从来没生效过
+ *   （用户 2026-09-23 反馈：「bul_xxx 组件的子要点没有实现」）。
+ *
+ * 一个级别 = **2 个半角空格 / 1 个 Tab / 1 个全角空格**（中文输入法按空格出来的就是全角 U+3000，
+ * 用户很可能就是用它缩进的）；空白行忽略；最深 `maxLevel` 级。
+ */
+export function indentedLines(v: unknown, maxLevel = 3): { text: string; level: number }[] {
+  return String(v ?? '')
+    .split(/\r?\n/)
+    .map((line) => {
+      const indent = line.match(/^[ \t\u3000]*/)?.[0] ?? '';
+      let half = 0; // 折算成"半角空格"数
+      for (const ch of indent) half += ch === '\t' || ch === '\u3000' ? 2 : 1;
+      return { text: line.trim(), level: Math.min(maxLevel, Math.floor(half / 2)) };
+    })
+    .filter((it) => it.text !== '');
 }
 
 export function rows(v: unknown): string[][] {
