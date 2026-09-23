@@ -69,6 +69,12 @@ export interface UIState {
   tableCells: { nodeId: string; cells: string[] } | null;
   /** 锁定的组件 id（编辑器态：不进文档、不导出；锁定时画布不可拖拽） */
   lockedIds: string[];
+  /**
+   * 属性面板的**折叠状态**（编辑器态，随 `ui` 一起持久化 → 刷新后保持）。
+   * 键带面板前缀，避免两类面板的分组同名互串：`node:内容`（组件面板）/ `page:纸张`（页面面板）；
+   * 值为 `true` 表示**已折叠**。
+   */
+  propClosed: { groups: Record<string, boolean>; drawers: Record<string, boolean> };
 }
 
 const initialUI: UIState = {
@@ -86,6 +92,7 @@ const initialUI: UIState = {
   docPageCount: 1,
   tableCells: null,
   lockedIds: [],
+  propClosed: { groups: {}, drawers: {} },
 };
 
 /* ══════════════ 初始文档 ══════════════ */
@@ -122,6 +129,8 @@ export interface EditorStore {
   /* 表格单元格选择（编辑器态，见 UIState.tableCells） */
   selectTableCells(nodeId: string, cells: string[]): void;
   clearTableCells(): void;
+  /** 合并写属性面板折叠状态（编辑器态；随 ui 持久化，刷新后保持） */
+  setPropClosed(patch: { groups?: Record<string, boolean>; drawers?: Record<string, boolean> }): void;
 
   /* 组件操作（自动路由到当前模式的数据） */
   addComponent(type: string, parentId?: string | null, index?: number): string | null;
@@ -375,6 +384,22 @@ export const useEditorStore = create<EditorStore>()(
       },
 
       clearTableCells: () => set((s) => ({ ui: { ...s.ui, tableCells: null } })),
+
+      setPropClosed: (patch) =>
+        set((s) => {
+          const cur = s.ui.propClosed ?? { groups: {}, drawers: {} };
+          // ★按**增量合并**（只写变化的键）：面板一次点击只报自己那一项，
+          //   同一 tick 里的多次点击（如自检遍历点开全部分组）才不会互相覆盖。
+          return {
+            ui: {
+              ...s.ui,
+              propClosed: {
+                groups: { ...cur.groups, ...(patch.groups ?? {}) },
+                drawers: { ...cur.drawers, ...(patch.drawers ?? {}) },
+              },
+            },
+          };
+        }),
 
       toggleSelect: (id) => {
         log.debug('store', 'toggleSelect', { id });

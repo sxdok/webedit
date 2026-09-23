@@ -2034,6 +2034,43 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(120);
   }
 
+  /* ── 属性面板折叠状态持久化（规格阶段五）──
+     以前折叠状态是面板内的 useState，刷新就丢；现在写进 store.ui.propClosed（随 ui 持久化）。 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const tFold = S().addComponent('table');
+    if (tFold) {
+      S().selectComponent([tFold]);
+      await wait(260);
+      // 右键？不：直接点分组标题切换折叠
+      const before = JSON.stringify(S().ui.propClosed ?? {});
+      const head = [...document.querySelectorAll('[data-props-panel] [data-prop-group="1"]')].find(
+        (g) => g.getAttribute('data-group-open') === '1',
+      );
+      const headName = head?.getAttribute('data-group-name') ?? '';
+      (head?.querySelector('button') as HTMLButtonElement | null)?.click();
+      await wait(200);
+      const after = S().ui.propClosed ?? { groups: {}, drawers: {} };
+      const stored = after.groups[headName] === true;
+      const groupEl = [...document.querySelectorAll('[data-props-panel] [data-prop-group="1"]')].find(
+        (g) => g.getAttribute('data-group-name') === headName,
+      );
+      add(
+        '属性面板折叠状态写进 store.ui（随持久化保存，刷新后仍保持）',
+        !!head && stored && groupEl?.getAttribute('data-group-open') === '0' && before !== JSON.stringify(after),
+        head
+          ? `点「${headName}」后 ui.propClosed.groups.${headName}=${String(after.groups[headName])}；面板 data-group-open=${groupEl?.getAttribute('data-group-open')}`
+          : '没找到已展开的分组（面板未渲染？）',
+      );
+      // 还原成展开（增量语义：显式把那一个键置回展开），避免影响后续断言
+      if (headName) S().setPropClosed({ groups: { [headName]: false } });
+      await wait(120);
+    } else {
+      add('属性面板折叠状态写进 store.ui（随持久化保存，刷新后仍保持）', false, 'addComponent(table) 失败');
+    }
+  }
+
   /* ── 清空内容（保结构）：两次点击确认后所有格变空、行列数与格式保留 ── */
   {
     S().setMode('document');

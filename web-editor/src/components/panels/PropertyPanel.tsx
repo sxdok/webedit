@@ -103,8 +103,36 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
   const tableCells = useEditorStore((s) => s.ui.tableCells);
   const [copied, setCopied] = useState(false);
   const [query, setQuery] = useState('');
-  const [toggled, setToggled] = useState<Record<string, boolean>>({});
-  const [drawer, setDrawer] = useState<Record<string, boolean>>({ 通用属性: true, 专有属性: true, 状态: true });
+  /* ★折叠状态放进 store.ui（随持久化保存 → 刷新后保持），规格阶段五「折叠状态持久化」。
+     键加 `node:` 前缀，避免与页面属性面板的同名分组（如「尺寸」）互串。 */
+  const closed = useEditorStore((s) => s.ui.propClosed) ?? { groups: {}, drawers: {} };
+  const setPropClosed = useEditorStore((s) => s.setPropClosed);
+  const toggled = useMemo(
+    () => Object.fromEntries(Object.entries(closed.groups).map(([k, v]) => [k, !v])),
+    [closed.groups],
+  );
+  const setToggled = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+    const next = fn(toggled);
+    const groups: Record<string, boolean> = {};
+    for (const [k, open] of Object.entries(next)) if (open !== toggled[k]) groups[k] = !open; // 只报变化的键
+    setPropClosed({ groups });
+  };
+  const drawer = useMemo(
+    () => ({
+      通用属性: closed.drawers['node:通用属性'] !== true,
+      专有属性: closed.drawers['node:专有属性'] !== true,
+      状态: closed.drawers['node:状态'] !== true,
+    }),
+    [closed.drawers],
+  );
+  const setDrawer = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+    const next = fn(drawer);
+    const entries: Record<string, boolean> = {};
+    (['通用属性', '专有属性', '状态'] as const).forEach((k) => {
+      if (next[k] !== drawer[k]) entries[`node:${k}`] = next[k] === false; // 只报变化的键
+    });
+    setPropClosed({ drawers: entries });
+  };
   // 选中了单元格时，「单元格」组**临时默认展开**（派生值，不写 state，取消选中后自动收起）
   const cellGroupOpen = !!tableCells && tableCells.nodeId === node?.id;
 

@@ -13,7 +13,7 @@
  *
  * 只读写 store 的 document.page，不涉及具体组件。
  */
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { FileText, Plus } from 'lucide-react';
 import {
   PAGE_SIZES,
@@ -295,8 +295,30 @@ export function PagePropertyPanel() {
   const setMargin = useEditorStore((s) => s.setMargin);
   const setPageProp = useEditorStore((s) => s.setPageProp);
   const addComponent = useEditorStore((s) => s.addComponent);
-  const [toggled, setToggled] = useState<Record<string, boolean>>({});
-  const [drawer, setDrawer] = useState<Record<string, boolean>>({ 通用属性: true, 专有属性: true, 状态: true });
+  /* ★折叠状态放进 store.ui（随持久化保存 → 刷新后保持），规格阶段五「折叠状态持久化」。
+     抽屉键加 `page:` 前缀，避免与组件属性面板的同名抽屉互串。 */
+  const closedSt = useEditorStore((s) => s.ui.propClosed) ?? { groups: {}, drawers: {} };
+  const setPropClosed = useEditorStore((s) => s.setPropClosed);
+  const toggled = Object.fromEntries(Object.entries(closedSt.groups).map(([k, v]) => [k, !v]));
+  const setToggled = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+    const next = fn(toggled);
+    const groups: Record<string, boolean> = {};
+    for (const [k, open] of Object.entries(next)) if (open !== toggled[k]) groups[k] = !open; // 只报变化的键
+    setPropClosed({ groups });
+  };
+  const drawer = {
+    通用属性: closedSt.drawers['page:通用属性'] !== true,
+    专有属性: closedSt.drawers['page:专有属性'] !== true,
+    状态: closedSt.drawers['page:状态'] !== true,
+  };
+  const setDrawer = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) => {
+    const next = fn(drawer);
+    const entries: Record<string, boolean> = {};
+    (['通用属性', '专有属性', '状态'] as const).forEach((k) => {
+      if (next[k] !== drawer[k]) entries[`page:${k}`] = next[k] === false; // 只报变化的键
+    });
+    setPropClosed({ drawers: entries });
+  };
 
   const numbering = pageNumbering(page);
   // numbering 是嵌套对象，setPageProp 是浅合并 → 整块替换
