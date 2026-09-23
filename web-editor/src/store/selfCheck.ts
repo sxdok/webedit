@@ -14,7 +14,7 @@ import { CATEGORY_ORDER, pageLabel, type ComponentDefinition } from '../registry
 import { createInitialDocument, useEditorStore } from './editorStore';
 import { HISTORY_LIMIT } from './history';
 import { mmToPx } from '../utils/units';
-import { log } from '../utils/logger';
+import { log, planPost } from '../utils/logger';
 import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 import { saveToRunDir } from '../utils/download';
@@ -741,6 +741,150 @@ async function interactionChecks(): Promise<Result[]> {
     papersWithMargin > papersAfterPb,
     `加 100mm 下边距后 ${papersAfterPb} → ${papersWithMargin} 页`,
   );
+
+  /* ── 分页填充效率（贪心不变式）：**不许留"明明放得下"的空白** ──
+     对每页算"已用高度"，再看下一页首块高度：若它 ≤ 本页剩余，就说明这块本可以填上来。
+     分页符另起一页是用户显式换页，跳过。
+     背景：用户反馈"很多页面有大面积空白，Edge 里能把后一页的内容往前填"。 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    for (let i = 0; i < 5; i++) {
+      const p = S().addComponent('paragraph');
+      if (p) S().updateProps(p, { html: `分页填充自检 ${i + 1}：` + '用于占位的示例文字。'.repeat(20) });
+    }
+    const tFill = S().addComponent('table');
+    if (tFill) {
+      S().updateProps(tFill, {
+        data: Array.from({ length: 20 }, (_, i) => `行 ${i + 1} | 值 ${i + 1} | 第 ${i + 1} 行说明`).join('\n'),
+      });
+    }
+    const tailFill = S().addComponent('paragraph');
+    if (tailFill) S().updateProps(tailFill, { html: '收尾段落。' });
+    await wait(800);
+
+    const fillPapers = [...document.querySelectorAll('[data-paper]')] as HTMLElement[];
+    const fillFlows = fillPapers.map((p) => p.querySelector('.page-flow') as HTMLElement | null);
+    const contentH = Math.round(fillFlows[0]?.getBoundingClientRect().height ?? 0);
+    /** 一页里内容已用到的高度（含 margin，和分页算法的口径一致） */
+    const usedOf = (flow: HTMLElement | null): number => {
+      if (!flow) return 0;
+      let max = 0;
+      [...flow.children].forEach((c) => {
+        const el = c as HTMLElement;
+        if (!el.offsetHeight) return;
+        const cs = getComputedStyle(el);
+        const mb = Number.parseFloat(cs.marginBottom) || 0;
+        max = Math.max(max, el.offsetTop + el.offsetHeight + mb);
+      });
+      return Math.round(max);
+    };
+    const blockH = (el: HTMLElement): number => {
+      const cs = getComputedStyle(el);
+      return Math.round(
+        el.offsetHeight + (Number.parseFloat(cs.marginTop) || 0) + (Number.parseFloat(cs.marginBottom) || 0),
+      );
+    };
+    const useds = fillFlows.map(usedOf);
+    const blanks = useds.map((u) => Math.max(0, contentH - u));
+    const waste: string[] = [];
+    for (let i = 0; i + 1 < fillFlows.length; i += 1) {
+      const first = fillFlows[i + 1]?.firstElementChild as HTMLElement | null;
+      if (!first) continue;
+      if (first.getAttribute('data-node-type') === 'pageBreak') continue; // 显式换页
+      const room = contentH - useds[i];
+      const h = blockH(first);
+      if (h <= room + 1) waste.push(`第${i + 1}页剩 ${room}px 却放不下 ${h}px 的块`);
+    }
+    const summary = `${fillPapers.length} 页 / 版心 ${contentH}px ｜ ${useds
+      .map((u, i) => `第${i + 1}页 用 ${u} 剩 ${blanks[i]}`)
+      .join('；')}`;
+    add(
+      '分页填充：除末页外每页剩余空间都放不下下一页首块（贪心填满，不留可填的空白）',
+      fillPapers.length >= 2 && waste.length === 0,
+      waste.length ? `${summary} ｜ 可填未填：${waste.join(' / ')}` : summary,
+    );
+  }
+
+  /* ── 表格跨页续排（Word/HTML 的表格跨页行为）──
+     放不下的表**按行拆到下一页**、续表重复表头；以前整块推到下一页 → 上一页留一大片空白。 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    for (let i = 0; i < 3; i++) {
+      const p = S().addComponent('paragraph');
+      if (p) S().updateProps(p, { html: `表格续排自检 ${i + 1}：` + '占位文字。'.repeat(60) });
+    }
+    const ROWS = 24;
+    const tSplit = S().addComponent('table');
+    if (tSplit) {
+      S().updateProps(tSplit, {
+        headerRow: true,
+        data: ['序号 | 名称 | 说明', ...Array.from({ length: ROWS }, (_, i) => `${i + 1} | 项目 ${i + 1} | 说明文字 ${i + 1}`)].join('\n'),
+      });
+    }
+    await wait(800);
+
+    const segTables = [...document.querySelectorAll('[data-node-type="table"]')] as HTMLElement[];
+    const conts = segTables.filter((el) => el.hasAttribute('data-node-split'));
+    const withThead = segTables.filter((el) => el.querySelector('thead'));
+    // 行数守恒：所有段的 tbody 行加起来 == 原始数据行数（不丢行、不重复）
+    const bodyRows = segTables.reduce((n, el) => n + el.querySelectorAll('tbody tr').length, 0);
+    add(
+      '表格跨页续排：放不下的表按行拆到下一页（续表重复表头、正文行数守恒）',
+      segTables.length >= 2 &&
+        conts.length >= 1 &&
+        withThead.length === segTables.length &&
+        bodyRows === ROWS,
+      `${segTables.length} 段（其中续表 ${conts.length}）｜正文行 ${bodyRows}/${ROWS}｜每段都有表头 ${withThead.length}/${segTables.length}`,
+    );
+  }
+
+  /* ── 表格列宽策略（"单元格内容按 HTML 写法"）：没填列宽按内容自适应、填了列宽按比例严格分列；
+        长内容/长串一律在**格内换行**，不把列撑破、不顶出版心 ── */
+  {
+    const paperTable = () => document.querySelector('[data-paper] [data-node-type="table"] table') as HTMLTableElement | null;
+    const flowOf = () => document.querySelector('[data-paper] .page-flow') as HTMLElement | null;
+
+    S().setMode('document');
+    S().clearAll();
+    const tAuto = S().addComponent('table');
+    if (tAuto) {
+      S().updateProps(tAuto, {
+        headerRow: true,
+        colWidths: '',
+        data: '项目 | 说明\n短 | 这一格是很长很长很长很长很长很长很长很长很长的说明文字',
+      });
+    }
+    await wait(320);
+    const tbAuto = paperTable();
+    const autoLayout = tbAuto ? getComputedStyle(tbAuto).tableLayout : 'n/a';
+    const cells = [...(tbAuto?.querySelectorAll('td,th') ?? [])] as HTMLElement[];
+    const cellOverflow = cells.filter((c) => c.scrollWidth > c.clientWidth + 1).length;
+    const tableW = Math.round(tbAuto?.getBoundingClientRect().width ?? 0);
+    const flowW = Math.round(flowOf()?.getBoundingClientRect().width ?? 0);
+
+    S().clearAll();
+    const tFixed = S().addComponent('table');
+    if (tFixed) S().updateProps(tFixed, { headerRow: true, colWidths: '20,80', data: '窄列 | 宽列\nA | B' });
+    await wait(320);
+    const tbFixed = paperTable();
+    const fixedLayout = tbFixed ? getComputedStyle(tbFixed).tableLayout : 'n/a';
+    const headCells = [...(tbFixed?.querySelector('tr')?.children ?? [])] as HTMLElement[];
+    const w0 = headCells[0]?.getBoundingClientRect().width ?? 0;
+    const w1 = headCells[1]?.getBoundingClientRect().width ?? 0;
+    const ratio = w1 > 0 ? w0 / w1 : 0;
+    add(
+      '表格列宽：未填列宽按内容自适应、填了列宽按比例严格分列（长内容在格内换行、不顶出版心）',
+      autoLayout === 'auto' &&
+        fixedLayout === 'fixed' &&
+        cellOverflow === 0 &&
+        tableW > 0 &&
+        tableW <= flowW + 1 &&
+        Math.abs(ratio - 0.25) < 0.06,
+      `未填列宽 layout=${autoLayout}（表宽 ${tableW} / 版心 ${flowW}，溢出格 ${cellOverflow}）；填 20,80 layout=${fixedLayout}（列宽比 ${ratio.toFixed(2)}，期望 0.25）`,
+    );
+  }
 
   // 点 A4 纸空白处（非组件）→ 取消选中 → 属性面板回到页面属性
   const firstId = S().doc.document.components[0]?.id;
@@ -1540,6 +1684,16 @@ async function interactionChecks(): Promise<Result[]> {
         '诊断报告可写入运行目录（logs/diagnostic-*.log）',
         info.enabled ? !!rep?.ok && (rep.bytes ?? 0) > 0 : !httpLocal,
         info.enabled ? `已写入 ${rep?.file}（${rep?.bytes} 字节）` : `未启用（页面来自 ${location.protocol}${location.host}）`,
+      );
+      /* ★大报告要多块落盘：诊断/自检报告动辄上百 KB，而带 `keepalive` 的 fetch 请求体
+         有 64KiB 硬上限 —— 一旦超了 fetch 直接抛错，被当成"落盘失败"→ remoteEnabled=false，
+         之后**连 logs/check-*.log 都写不出去**（现象：日志里报告突然断掉，只剩 PDF）。
+         这里钉住"切块 + 小块才带 keepalive"的规则。 */
+      const plan = planPost(`${report}\n${'超长报告填充行。'.repeat(20000)}`);
+      add(
+        '大报告分块落盘：单块不超过服务端上限，且超 keepalive 上限的块不再带 keepalive',
+        plan.chunks >= 3 && plan.maxBytes > 0 && plan.maxBytes <= 160 * 1024 && plan.keepalive < plan.chunks,
+        `${plan.chunks} 块，最大块 ${plan.maxBytes} 字节（服务端上限 524288），带 keepalive 的块 ${plan.keepalive}/${plan.chunks}`,
       );
     }
   } else {

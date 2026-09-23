@@ -122,25 +122,109 @@ function formatEntry(e: LogEntry): string {
   return `${ts} ${e.level.toUpperCase().padEnd(5)} [${e.scope}] ${e.msg}${data ? '  ' + data : ''}`;
 }
 
+/**
+ * ★keepalive 请求体的硬上限：Fetch 规范规定带 `keepalive` 的请求体不能超过 **64KiB**，
+ *   超过时 `fetch()` 会**直接抛 TypeError**（不是网络错，也不是 HTTP 错）。
+ *   踩过的坑：诊断报告/自检报告动辄上百 KB，带上 keepalive 后每次都抛错 →
+ *   被下面的 catch 当成"落盘失败"→ `remoteEnabled = false` →
+ *   **之后连自检报告都写不进 logs/check-*.log**（现象是日志里报告突然断了）。
+ */
+const KEEPALIVE_MAX_BYTES = 60 * 1024;
+/** 单次 POST 的目标体量（启动器 MAX_BODY = 512KiB，留足余量；报告按行切块多次写） */
+const POST_CHUNK_BYTES = 120 * 1024;
+/** 启动器单次最多收 2000 行，切块时不要超过它 */
+const POST_CHUNK_LINES = 2000;
+
+function utf8Size(s: string): number {
+  try {
+    return new TextEncoder().encode(s).length;
+  } catch {
+    return s.length * 2; // 极端环境兜底（UTF-16 上界）
+  }
+}
+
+/** 取 ≤budget 字节的最大前缀（二分；UTF-8 中文 3 字节/字符，不能按字符数硬切） */
+function sliceByBytes(s: string, budget: number): { head: string; rest: string } {
+  let lo = 0;
+  let hi = s.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (utf8Size(s.slice(0, mid)) <= budget) lo = mid;
+    else hi = mid - 1;
+  }
+  const n = Math.max(1, Math.min(lo, s.length));
+  return { head: s.slice(0, n), rest: s.slice(n) };
+}
+
+/** 把行按体积/条数切成若干块（报告可能几百 KB，一次 POST 会被服务端 413 或 keepalive 限制挡住） */
+function chunkLines(lines: string[]): string[][] {
+  const chunks: string[][] = [];
+  let cur: string[] = [];
+  let size = 0;
+  const flush = () => {
+    if (cur.length) {
+      chunks.push(cur);
+      cur = [];
+      size = 0;
+    }
+  };
+  for (const ln of lines) {
+    let rest = ln;
+    // ★单行本身就超过块上限（例如把整段报告写成一行）→ 先按字节硬切，
+    //   否则这一块会顶到服务端 512KiB 上限 → 413 → 落盘链整条断掉。
+    while (utf8Size(rest) > POST_CHUNK_BYTES) {
+      const cut = sliceByBytes(rest, POST_CHUNK_BYTES / 2);
+      flush();
+      chunks.push([cut.head]);
+      rest = cut.rest;
+    }
+    const s = utf8Size(rest) + 2;
+    if (cur.length && (size + s > POST_CHUNK_BYTES || cur.length >= POST_CHUNK_LINES)) flush();
+    cur.push(rest);
+    size += s;
+  }
+  flush();
+  return chunks;
+}
+
+/** 自检用：算出某段文本会被切成几块、最大一块多少字节（**不发请求**，纯计算） */
+export function planPost(text: string): { chunks: number; maxBytes: number; keepalive: number } {
+  const cs = chunkLines(text.split('\n'));
+  let maxBytes = 0;
+  let keepalive = 0;
+  for (const c of cs) {
+    const n = utf8Size(JSON.stringify({ kind: 'diagnostic', lines: c }));
+    if (n > maxBytes) maxBytes = n;
+    if (n <= KEEPALIVE_MAX_BYTES) keepalive += 1;
+  }
+  return { chunks: cs.length, maxBytes, keepalive };
+}
+
 async function postLog(kind: string, lines: string[]): Promise<RemoteResult | null> {
   if (!remoteEnabled || !lines.length) return null;
-  try {
-    const res = await fetch(REMOTE_POST_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, lines }),
-      keepalive: true,
-    });
-    const json = (await res.json()) as RemoteResult & { error?: string };
-    if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
-    remoteFile = json.file;
-    return json;
-  } catch (e) {
-    remoteFailed = true;
-    remoteEnabled = false; // 不再反复重试，避免每次日志都打网络
-    console.warn('[logger] 日志落盘失败，已退回浏览器本地存储', e);
-    return null;
+  let last: RemoteResult | null = null;
+  for (const chunk of chunkLines(lines)) {
+    const body = JSON.stringify({ kind, lines: chunk });
+    try {
+      const res = await fetch(REMOTE_POST_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        // 只有小块才开 keepalive（页面卸载时尽量把日志送出去）；大报告走普通请求
+        keepalive: utf8Size(body) <= KEEPALIVE_MAX_BYTES,
+      });
+      const json = (await res.json()) as RemoteResult & { error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      remoteFile = json.file;
+      last = json;
+    } catch (e) {
+      remoteFailed = true;
+      remoteEnabled = false; // 不再反复重试，避免每次日志都打网络
+      console.warn('[logger] 日志落盘失败，已退回浏览器本地存储', e);
+      return last;
+    }
   }
+  return last;
 }
 
 function scheduleFlush(): void {

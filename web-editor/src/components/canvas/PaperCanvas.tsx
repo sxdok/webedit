@@ -16,6 +16,7 @@ import {
   type RenderContext,
 } from '../../registry/types';
 import { mmToPx } from '../../utils/units';
+import { getComponent } from '../../registry';
 import { useEditorStore } from '../../store/editorStore';
 import { NodeView } from './NodeView';
 import { InsertIndicator } from './InsertIndicator';
@@ -24,6 +25,33 @@ import { useTableCellSelect } from './useTableCellSelect';
 import type { CanvasInteractionApi } from './useCanvasInteraction';
 
 const RELAYOUT_MS = 120;
+
+/**
+ * 一页里的一个**段**：某个顶层节点的一整块，或（表格类）它的某一段数据行。
+ * `from/to` 是**数据行**下标（口径与「数据」文本域一致，含表头行）；不写 = 整块。
+ */
+interface Segment {
+  index: number;
+  from?: number;
+  to?: number;
+}
+
+/** 块高度：offsetHeight 不含 margin（"上/下边距"必须计入，否则分页高度偏小 → 内容压到页脚上） */
+function blockHeight(el: HTMLElement): number {
+  const cs = getComputedStyle(el);
+  return el.offsetHeight + (Number.parseFloat(cs.marginTop) || 0) + (Number.parseFloat(cs.marginBottom) || 0);
+}
+/**
+ * 离屏测量容器里的**顶层**节点。
+ * ★容器的子节点也会带 `data-measure-item`（NodeView 把 measure 透传下去了），
+ *   如果一起收进来：① 下标与 `visible` 错位（分页符判断会看错节点）；
+ *   ② 父子高度重复计入 → 分页凭空多出空白。必须只取顶层。
+ */
+function topMeasureItems(host: HTMLElement): HTMLElement[] {
+  return [...host.querySelectorAll<HTMLElement>('[data-measure-item="1"]')].filter(
+    (el) => !el.parentElement?.closest('[data-measure-item="1"]'),
+  );
+}
 
 export function PaperCanvas({
   nodes,
@@ -76,34 +104,110 @@ export function PaperCanvas({
 
   /* ── 离屏测量 → 切页 ── */
   const measureRef = useRef<HTMLDivElement>(null);
-  const [slices, setSlices] = useState<number[][]>([[0]]);
+  const [slices, setSlices] = useState<Segment[][]>([[{ index: 0 }]]);
   const signature = useMemo(() => visible.map((n) => n.id).join('|') + `#${Math.round(contentHeight)}#${Math.round(contentWidth)}`, [visible, contentHeight, contentWidth]);
   const lastSig = useRef('');
 
   const recompute = () => {
     const host = measureRef.current;
     if (!host) return;
-    const items = [...host.querySelectorAll<HTMLElement>('[data-measure-item="1"]')];
-    const pages: number[][] = [[]];
+    const items = topMeasureItems(host);
+    const pages: Segment[][] = [[]];
+    const flush = () => {
+      pages.push([]);
+      used = 0;
+    };
     let used = 0;
+
+    /** 表格续排的测量信息：各 tr 高度 + 表外开销（表题/边框/margin）+ 表头行高 */
+    const tableInfo = (el: HTMLElement) => {
+      const trs = [...el.querySelectorAll('tr')] as HTMLElement[];
+      if (trs.length < 2) return null;
+      const rows = trs.map((tr) => tr.offsetHeight);
+      const headCount = el.querySelectorAll('thead tr').length;
+      const total = blockHeight(el);
+      const sum = rows.reduce((n, x) => n + x, 0);
+      return { trs, rows, headCount, overhead: Math.max(0, total - sum) };
+    };
+
+    /** 段 [from,to) 的高度：续排段要额外算上**重复的表头** */
+    const segHeight = (info: ReturnType<typeof tableInfo>, from: number, to: number): number => {
+      if (!info) return 0;
+      const cont = from > 0 && info.headCount > 0 ? info.rows[0] ?? 0 : 0;
+      let h = info.overhead + cont;
+      for (let k = from; k < to; k += 1) h += info.rows[k] ?? 0;
+      return h;
+    };
+
+    /**
+     * 合并单元格安全的切点：若某个格子的 rowSpan 跨过 to，就把 to 退到该格所在行之前
+     * （否则续排段会缺锚点格，列会错位）。用**渲染好的 DOM** 判断，不依赖表格内部实现。
+     */
+    const safeCut = (info: NonNullable<ReturnType<typeof tableInfo>>, from: number, to: number): number => {
+      let limit = to;
+      for (let r = from; r < to; r += 1) {
+        const cells = [...(info.trs[r]?.children ?? [])] as HTMLTableCellElement[];
+        for (const c of cells) {
+          const span = c.rowSpan || 1;
+          if (span > 1 && r + span > to) limit = Math.min(limit, r);
+        }
+      }
+      return limit;
+    };
+
     items.forEach((el, i) => {
+      const node = visible[i];
       // ★分页符：从这里另起一页（自身标记放在新页顶部，不占高度）
-      if (visible[i]?.type === 'pageBreak') {
+      if (node?.type === 'pageBreak') {
         if (pages[pages.length - 1].length) pages.push([]);
         used = 0;
-        pages[pages.length - 1].push(i);
+        pages[pages.length - 1].push({ index: i });
         return;
       }
-      // ★offsetHeight 不含 margin：刚加的"上/下边距"必须计入，否则分页高度偏小 → 内容压到页脚上
-      const cs = getComputedStyle(el);
-      const mt = Number.parseFloat(cs.marginTop) || 0;
-      const mb = Number.parseFloat(cs.marginBottom) || 0;
-      const height = el.offsetHeight + mt + mb;
-      if (used > 0 && used + height > contentHeight) {
-        pages.push([]);
-        used = 0;
+      const height = blockHeight(el);
+      // 放得下（或本页还是空的）→ 整块放上去
+      if (!(used > 0 && used + height > contentHeight)) {
+        pages[pages.length - 1].push({ index: i });
+        used += height;
+        return;
       }
-      pages[pages.length - 1].push(i);
+      /**
+       * ★放不下：能按行续排的表（getComponent().splittable === 'rows'）就**拆开填满本页**，
+       *   剩下的行排到下一页（续表重复表头）—— Word/HTML 的表格跨页行为。
+       *   这就是"大面积空白"的正解：以前整块推到下一页，本页剩下的空间全空着。
+       */
+      const info = getComponent(node?.type ?? '')?.splittable === 'rows' ? tableInfo(el) : null;
+      if (info) {
+        let from = 0;
+        while (from < info.rows.length) {
+          const room = contentHeight - used;
+          const isCont = from > 0 && info.headCount > 0;
+          const base = info.overhead + (isCont ? info.rows[0] ?? 0 : 0);
+          let to = from;
+          let acc = base;
+          while (to < info.rows.length && acc + (info.rows[to] ?? 0) <= room + 0.5) {
+            acc += info.rows[to] ?? 0;
+            to += 1;
+          }
+          to = safeCut(info, from, to);
+          // 本页一行都放不下 → 另起一页（新页上空，除非单行比整页还高）
+          if (to <= from) {
+            if (used > 0) {
+              flush();
+              continue;
+            }
+            to = Math.min(info.rows.length, from + 1);
+          }
+          pages[pages.length - 1].push({ index: i, from, to });
+          used += segHeight(info, from, to);
+          from = to;
+          // 还有剩下的行 → 排到下一页
+          if (from < info.rows.length) flush();
+        }
+        return;
+      }
+      flush();
+      pages[pages.length - 1].push({ index: i });
       used += height;
     });
     // 结果不变就不更新，避免 ResizeObserver 触发循环
@@ -142,7 +246,7 @@ export function PaperCanvas({
     };
     const ro = new ResizeObserver(schedule);
     ro.observe(host);
-    [...host.querySelectorAll<HTMLElement>('[data-measure-item="1"]')].forEach((el) => ro.observe(el));
+    topMeasureItems(host).forEach((el) => ro.observe(el));
     const imgs = [...host.querySelectorAll('img')];
     imgs.forEach((im) => im.addEventListener('load', schedule));
     return () => {
@@ -167,7 +271,7 @@ export function PaperCanvas({
       return;
     }
     const blocks = [...host.querySelectorAll<HTMLElement>('[data-node-id]')].filter(
-      (b) => !b.parentElement?.closest('[data-node-id]'),
+      (b) => !b.parentElement?.closest('[data-node-id]') && !b.hasAttribute('data-node-split'),
     );
     const hostTop = host.getBoundingClientRect().top;
     if (!blocks.length) {
@@ -182,7 +286,7 @@ export function PaperCanvas({
     setIndicatorTop(top / zoom);
   }, [it.dropIndex, canvasRef, zoom, nodes]);
 
-  const renderFlow = (indices: number[], pageIndex: number) => (
+  const renderFlow = (segments: Segment[], pageIndex: number) => (
     <div
       className="page-flow absolute"
       style={{
@@ -207,23 +311,28 @@ export function PaperCanvas({
         );
       }}
     >
-      {indices.length === 0 && pageIndex === 0 && visible.length === 0 && (
+      {segments.length === 0 && pageIndex === 0 && visible.length === 0 && (
         <p className="pt-16 text-center text-2xs text-gray-300">
           从左侧组件面板拖拽或双击组件，插入到这张纸上
         </p>
       )}
-      {indices.map((i) => {
-        const n = visible[i];
+      {segments.map((seg) => {
+        const n = visible[seg.index];
         if (!n) return null;
+        const cont = seg.from != null && seg.from > 0;
+        // 表格续排段：只渲染 [from,to) 这段数据行（续表由表格自己重复表头）
+        const segCtx: RenderContext =
+          seg.from != null && seg.to != null ? { ...ctx, tableRowRange: { from: seg.from, to: seg.to } } : ctx;
         return (
           <NodeView
-            key={n.id}
+            key={`${n.id}#${seg.from ?? 0}-${seg.to ?? 0}`}
             node={n}
-            ctx={ctx}
+            ctx={segCtx}
             mode="document"
             selectedIds={selectedIds}
             hoveredId={hoveredId}
             showChrome={showChrome}
+            continuation={cont}
             onSelect={onSelect}
             onHover={onHover}
             onNodePointerDown={(e) => it.onNodePointerDown(e, n.id)}

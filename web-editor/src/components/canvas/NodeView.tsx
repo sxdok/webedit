@@ -36,6 +36,8 @@ export interface NodeViewProps {
   onNodePointerDown?: (e: ReactPointerEvent) => void;
   /** 离屏测量模式：无交互、无数据属性 */
   measure?: boolean;
+  /** 本块是"跨页续表"（表格第 2..n 段）：标记 data-node-split，拖动排序要忽略 */
+  continuation?: boolean;
 }
 
 /** 真正调用 def.render 的地方——必须是独立组件，否则 render 抛错时错误边界抓不到 */
@@ -102,6 +104,7 @@ function NodeViewInner({
   onHover,
   onNodePointerDown,
   measure,
+  continuation,
 }: NodeViewProps) {
   const def = getComponent(node.type);
   if (!def) {
@@ -166,6 +169,9 @@ function NodeViewInner({
     : {
         'data-node-id': node.id,
         'data-node-type': node.type,
+        // ★表格跨页续排的"续表"：同一节点在第 2..n 页上的部分，带上标记，
+        //   拖动排序/落点计算要忽略它，否则一个表格会被当成两块
+        ...(continuation ? { 'data-node-split': '1' } : {}),
       };
 
   return (

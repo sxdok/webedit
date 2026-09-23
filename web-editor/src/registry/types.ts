@@ -287,6 +287,12 @@ export interface RenderContext {
   isSelected: boolean;
   mmToPx: (mm: number) => number;
   ptToPx: (pt: number) => number;
+  /**
+   * ★跨页续排：只渲染 [from, to) 这段**数据行**（行号口径与「数据」文本域一致，含表头行）。
+   * 由文档分页器在"这个块放不下当前页、但支持按行续排"时设置（见 canvas/PaperCanvas）。
+   * 非表格组件忽略它；不传就是整块渲染。
+   */
+  tableRowRange?: { from: number; to: number };
 }
 
 export interface ComponentDefinition {
@@ -298,6 +304,12 @@ export interface ComponentDefinition {
   description?: string;
   /** 是否是容器（可嵌套子组件） */
   isContainer?: boolean;
+  /**
+   * 跨页续排方式（文档模式分页用）：
+   *   'rows' = 这个块放不下当前页时，**按行拆到下一页**（Word/HTML 的表格跨页行为，续表重复表头）。
+   *   不写 = 整块不可拆（放不下就整块推到下一页）。
+   */
+  splittable?: 'rows';
   defaultProps: ComponentProps;
   /** Web 模式默认位置尺寸 */
   defaultFrame?: Partial<Frame>;

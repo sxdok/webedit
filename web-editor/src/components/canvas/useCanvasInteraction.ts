@@ -98,8 +98,12 @@ export function useCanvasInteraction(opts: CanvasInteractionOptions): CanvasInte
   const indexAtY = useCallback((clientY: number): number => {
     const el = canvasRef.current;
     if (!el) return 0;
+    // ★跨页续表（data-node-split）不算独立块，否则一个表格会被当两块、落点序号会算错
     const blocks = [...el.querySelectorAll<HTMLElement>('[data-node-id]')].filter(
-      (b) => !b.closest('[data-measure]') && !b.parentElement?.closest('[data-node-id]'),
+      (b) =>
+        !b.closest('[data-measure]') &&
+        !b.parentElement?.closest('[data-node-id]') &&
+        !b.hasAttribute('data-node-split'),
     );
     let index = 0;
     blocks.forEach((b, i) => {

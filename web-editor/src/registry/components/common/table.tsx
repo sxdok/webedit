@@ -19,6 +19,7 @@ export const tableComponent: ComponentDefinition = {
   category: 'Excel 表格',
   supportedModes: ['document', 'web'],
   icon: TableIcon,
+  splittable: 'rows',
   description: '真实 table 元素：全框线 / 三线表 / 横线表，可设表头、斑马纹、对齐',
   defaultFrame: { x: 40, y: 240, w: 560, h: 160 },
   propSchema: tableSchema(DEFAULT_DATA, 'normal'),

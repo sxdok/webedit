@@ -237,7 +237,17 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   const pad = asNumber(props.cellPadding, 6);
   const fontSize = asNumber(props.fontSize, 10.5);
   const align = asString(props.cellAlign, 'left') as React.CSSProperties['textAlign'];
-  const [head, ...body] = rows;
+  const head = rows[0];
+  /* ★跨页续排（ctx.tableRowRange）：只渲染 [from, to) 这段数据行；
+     from > 0 的续排段**重复表头**、**不重复表题**（与 Word 表格跨页一致）。 */
+  const range = ctx.tableRowRange;
+  const from = range ? Math.max(0, Math.min(range.from, rows.length)) : 0;
+  const to = range ? Math.max(from, Math.min(range.to, rows.length)) : rows.length;
+  const showHead = !!head && headerRow && (from === 0 || !!range);
+  const showCaption = !range || from === 0;
+  // 正文行：含表头时第 0 行是表头，正文从第 1 行开始
+  const bodyFrom = headerRow ? Math.max(from, 1) : from;
+  const bodyRows = rows.slice(bodyFrom, to).map((r, i) => ({ r, rowIndex: bodyFrom + i }));
   // 列宽 / 行高（对齐 A4 编辑器的表格属性）+ 单元格级格式（Excel 式覆盖）
   const colWidths = parseColWidths(props.colWidths);
   const rowH = parseRowHeight(props.rowHeight);
@@ -255,6 +265,9 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
     padding: pad,
     textAlign: align,
     verticalAlign: 'middle',
+    // ★像 HTML/Word 的单元格那样：内容**在格内换行填满**，长词/长串也换行，
+    //   而不是把列撑宽（用户反馈"内容填充观感不符合直觉"）
+    overflowWrap: 'break-word',
     height: rowH ?? undefined,
   };
   if (variant === 'normal') {
@@ -266,6 +279,13 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
   const tableStyle: React.CSSProperties = {
     width: `${asNumber(props.width, 100)}%`,
     borderCollapse: 'collapse',
+    /**
+     * ★列宽策略（对齐"HTML/Word 表格"的直觉）：
+     *   · **填了「列宽」** → `table-layout: fixed`：严格按给定比例分列，内容在格内换行填满；
+     *   · **没填列宽** → `auto`：由内容自适应（像 HTML/Word 默认），长文本列自然更宽，
+     *     再配合 `overflow-wrap: break-word` 保证长串换行、不会把表格顶出版心。
+     */
+    tableLayout: colWidths.length ? 'fixed' : 'auto',
     fontSize: ctx.mode === 'document' ? ctx.ptToPx(fontSize) : fontSize,
     lineHeight: 1.4,
   };
@@ -330,8 +350,9 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
 
   return (
     <table style={tableStyle}>
-      {/* 表题：由**表格自己**承载（与图片的图题同一做法），不再需要单独的"题注"组件 */}
-      {caption && (
+      {/* 表题：由**表格自己**承载（与图片的图题同一做法），不再需要单独的"题注"组件。
+          跨页续排时只在**首段**显示，续排段不重复表题。 */}
+      {caption && showCaption && (
         <caption
           data-table-caption="1"
           style={{
@@ -351,7 +372,7 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
           <col key={i} style={colWidths[i] ? { width: colWidths[i] } : undefined} />
         ))}
       </colgroup>
-      {headerRow && head && (
+      {showHead && head && (
         <thead>
           <tr>
             {head.map((c, i) => {
@@ -376,11 +397,12 @@ export function renderTable(props: ComponentProps, ctx: RenderContext, forceVari
         </thead>
       )}
       <tbody>
-        {(headerRow ? body : rows).map((r, ri) => {
+        {bodyRows.map(({ r, rowIndex }) => {
           // 行号口径：含表头时第 0 行 = 表头，所以数据行从 1 开始 —— 与"数据"文本域的行一一对应
-          const rowIndex = headerRow ? ri + 1 : ri;
+          // 续排段的斑马纹按**全局行号**取，接上上一页的条纹，不会错位
+          const bodyIdx = rowIndex - (headerRow ? 1 : 0);
           return (
-            <tr key={ri} style={{ background: stripe && ri % 2 ? '#fafcfe' : undefined }}>
+            <tr key={rowIndex} style={{ background: stripe && bodyIdx % 2 ? '#fafcfe' : undefined }}>
               {r.map((c, ci) => {
                 const k = `${rowIndex},${ci}`;
                 if (covered.has(k)) return null; // 被合并覆盖 → 不渲染
