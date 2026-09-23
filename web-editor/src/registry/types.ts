@@ -316,7 +316,12 @@ export interface ComponentDefinition {
   /** Web 模式默认位置尺寸 */
   defaultFrame?: Partial<Frame>;
   propSchema: PropSchemaItem[];
-  render: (props: ComponentProps, ctx: RenderContext) => ReactNode;
+  /**
+   * 渲染成**真实最终外观**。`children` 是容器组件（`isContainer: true`）的子节点，
+   * 由画布递归渲染后作为**第三个参数**传入（规格 §3.1 / §8.1）；非容器为 undefined。
+   * 容器要把 `{children}` 放到自己的 DOM 位置上。
+   */
+  render: (props: ComponentProps, ctx: RenderContext, children?: ReactNode) => ReactNode;
 }
 
 /** 左侧面板的分组顺序（未列出的分组排在最后，按字母序） */

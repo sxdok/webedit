@@ -52,16 +52,14 @@ function NodeBody({
   rctx: RenderContext;
   childNodes: ReactNode;
 }) {
-  const inner = def.render(props, rctx);
+  // ★规格 §3.1/§8.1：容器组件的子节点作为**第三个参数**交给 render，由组件自己决定放在哪。
+  const inner = def.render(props, rctx, def.isContainer ? childNodes : undefined);
   if (def.isContainer && isValidElement(inner)) {
-    return cloneElement(inner as ReactElement<{ children?: ReactNode }>, {}, childNodes);
+    const el = inner as ReactElement<{ children?: ReactNode }>;
+    // 兼容兜底：容器没自己放 children（老写法 / 外部组件）时，仍旧挂到根元素上，避免子组件"消失"
+    if (el.props.children == null) return cloneElement(el, {}, childNodes);
   }
-  return (
-    <>
-      {inner}
-      {childNodes}
-    </>
-  );
+  return <>{inner}</>;
 }
 
 class NodeErrorBoundary extends Component<{ type: string; children: ReactNode }, { error: Error | null }> {

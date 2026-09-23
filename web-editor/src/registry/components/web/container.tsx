@@ -124,5 +124,6 @@ export const containerComponent: ComponentDefinition = {
     { key: 'shadow', label: '阴影', control: 'switch', group: '外观', defaultValue: false },
     { key: 'children', label: '子组件', control: 'children', group: '高级', defaultValue: null },
   ],
-  render: (props) => <div style={containerStyle(props)} />,
+  // 子组件由画布作为**第三个参数**传入（规格 §3.1/§8.1），容器负责放到自己的 DOM 位置上
+  render: (props, _ctx, children) => <div style={containerStyle(props)}>{children}</div>,
 };

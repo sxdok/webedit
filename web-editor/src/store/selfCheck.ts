@@ -2020,6 +2020,27 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(120);
   }
 
+  /* ── 容器组件的 children 走**第三个参数**（规格 §3.1 / §8.1）──
+     以前靠 cloneElement 挂到根元素上，容器自己"忽略 children"（「分栏」就是这样）时子组件会整个消失。 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const colId = S().addComponent('columns');
+    const childId = colId ? S().addComponent('paragraph', colId) : null;
+    if (childId) S().updateProps(childId, { html: '分栏里的子组件' });
+    await wait(460);
+    const col0 = document.querySelector(`[data-node-id="${colId}"] [data-col="0"]`) as HTMLElement | null;
+    const inCol0 = !!col0?.querySelector('[data-node-id]');
+    const childText = (col0?.textContent ?? '').trim();
+    add(
+      '容器组件用 render 第三参承接子组件（拖进「分栏」的子组件不再消失）',
+      !!childId && inCol0 && childText.includes('分栏里的子组件'),
+      childId
+        ? `分栏第 1 栏里含子节点=${inCol0}；文本=「${childText.slice(0, 20)}」`
+        : 'addComponent(columns / paragraph) 失败',
+    );
+  }
+
   /* ── 外部组件契约：type 必须以 live 开头（规格 §7.2 / 验收 5）──
      没有这道闸，一个外部 .js 就能把内置组件顶掉（register 里本来就"允许覆盖同名"）。 */
   {

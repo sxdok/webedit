@@ -53,7 +53,7 @@ export const columnsComponent: ComponentDefinition = {
   defaultFrame: { x: 40, y: 140, w: 620, h: 160 },
   defaultProps: defaultsOf(schema),
   propSchema: schema,
-  render: (props, ctx) => {
+  render: (props, ctx, children) => {
     const count = asNumber(props.count, 2) === 3 ? 3 : 2;
     const ratio = asEnum(props.ratio, ['1:1', '1:2', '2:1'] as const, '1:1');
     const fr = (i: number) => {
@@ -89,6 +89,9 @@ export const columnsComponent: ComponentDefinition = {
                 {t}
               </p>
             ))}
+            {/* 子组件（第三个参数传入）默认放在**第 1 栏**里 —— 以前这里直接忽略了 children，
+                拖进「分栏」的子组件会整个消失（规格 §3.1/§8.1 要求容器承接 children）。 */}
+            {i === 0 && children}
           </div>
         ))}
       </div>
