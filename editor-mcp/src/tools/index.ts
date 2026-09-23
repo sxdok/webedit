@@ -115,6 +115,82 @@ import {
 } from './node.js';
 import { componentList, componentListSchema } from './component.js';
 import { pluginList, pluginListSchema } from './plugin.js';
+import {
+  componentCategories,
+  componentCategoriesSchema,
+  componentDefaultsSchema,
+  componentDefaultsTool,
+  componentGet,
+  componentGetSchema,
+  componentSchema,
+  componentSchemaSchema,
+  componentSearch,
+  componentSearchSchema,
+  exportHtml,
+  exportHtmlSchema,
+  exportJson,
+  exportJsonSchema,
+  exportPdf,
+  exportPdfSchema,
+  exportReact,
+  exportReactSchema,
+  exportSpec,
+  exportSpecSchema,
+  historyClear,
+  historyClearSchema,
+  historyRedo,
+  historyRedoSchema,
+  historyRestore,
+  historyRestoreSchema,
+  historySnapshot,
+  historySnapshotSchema,
+  historyStack,
+  historyStackSchema,
+  historyUndo,
+  historyUndoSchema,
+  selectionClear,
+  selectionClearSchema,
+  selectionFocus,
+  selectionFocusSchema,
+  selectionGet,
+  selectionGetSchema,
+  selectionSet,
+  selectionSetSchema,
+} from './registry.js';
+import {
+  tableAutoFit,
+  tableAutoFitSchema,
+  tableClearCellStyle,
+  tableClearCellStyleSchema,
+  tableDeleteCol,
+  tableDeleteColSchema,
+  tableDeleteRow,
+  tableDeleteRowSchema,
+  tableGetCellSelection,
+  tableGetCellSelectionSchema,
+  tableGetData,
+  tableGetDataSchema,
+  tableInsertCol,
+  tableInsertColSchema,
+  tableInsertRow,
+  tableInsertRowSchema,
+  tableMergeCells,
+  tableMergeCellsSchema,
+  tableSetCell,
+  tableSetCellSchema,
+  tableSetCellSelection,
+  tableSetCellSelectionSchema,
+  tableSetCellStyle,
+  tableSetCellStyleSchema,
+  tableSetColWidths,
+  tableSetColWidthsSchema,
+  tableSetData,
+  tableSetDataSchema,
+  tableSetVariant,
+  tableSetVariantSchema,
+  tableSplitCells,
+  tableSplitCellsSchema,
+} from './table.js';
 
 /** 把统一返回体转成 MCP 的 content（文本 JSON + isError 标记） */
 export function toContent(res: ToolResult<unknown>) {
@@ -212,8 +288,54 @@ export function registerAllTools(server: McpServer): string[] {
   reg(server, 'property.batchSet', '批量写属性', '一次写多个属性。', propertyBatchSetSchema, propertyBatchSet, t);
   reg(server, 'property.hint', '属性说明', '取属性说明（label/控件类型/分组/提示/默认值）。', propertyHintSchema, propertyHint, t);
 
-  /* ── 组件注册表域 §5.6 / 插件域 §5.12（阶段一已建，阶段四/五扩展） ── */
+  /* ── 组件注册表域 §5.6 ── */
   reg(server, 'component.list', '列出组件', '列出可用组件（内置 + 外部插件）；未连编辑器且无 catalog 时只返回外部组件并说明原因。', componentListSchema, componentList, t);
+  reg(server, 'component.get', '取组件定义', '取某组件的元数据（label/分类/模式/说明）+ 默认属性 + schema 项数。', componentGetSchema, componentGet, t);
+  reg(server, 'component.schema', '取属性 schema', '取某组件的完整属性 schema（key/label/控件/分组/默认值/范围）。', componentSchemaSchema, componentSchema, t);
+  reg(server, 'component.categories', '列出分类', '按分类列出组件数量，可按模式过滤。', componentCategoriesSchema, componentCategories, t);
+  reg(server, 'component.defaults', '取默认属性', '取某组件的默认 props。', componentDefaultsSchema, componentDefaultsTool, t);
+  reg(server, 'component.search', '搜索组件', '按 type/label/分类/说明模糊搜索。', componentSearchSchema, componentSearch, t);
+
+  /* ── 表格域 §5.8（15 个）── */
+  reg(server, 'table.getData', '读表格数据', '返回二维数组（或 asText 的 "a | b" 文本）+ 行列数 + 表头 + 已格式化格数 + 列宽 + 线条风格。', tableGetDataSchema, tableGetData, t);
+  reg(server, 'table.setData', '写表格数据', '整表替换（数组或文本；`\\|` 格内竖线、`\\n` 格内换行），超出新尺寸的格式会被裁剪。', tableSetDataSchema, tableSetData, t);
+  reg(server, 'table.setCell', '写单元格', '按行列号写单个格子（行号含表头行）。', tableSetCellSchema, tableSetCell, t);
+  reg(server, 'table.insertRow', '插入行', '在 at 处插入若干空行，并同步平移单元格格式。', tableInsertRowSchema, tableInsertRow, t);
+  reg(server, 'table.deleteRow', '删除行', '删除 at 起的若干行（至少留一行），同步平移格式。', tableDeleteRowSchema, tableDeleteRow, t);
+  reg(server, 'table.insertCol', '插入列', '插入若干空列，并同步平移格式与列宽（合计仍为 100%）。', tableInsertColSchema, tableInsertCol, t);
+  reg(server, 'table.deleteCol', '删除列', '删除若干列，同步平移格式与列宽。', tableDeleteColSchema, tableDeleteCol, t);
+  reg(server, 'table.mergeCells', '合并单元格', '把 A1 范围合并（写范围键，被覆盖的格子不渲染）。', tableMergeCellsSchema, tableMergeCells, t);
+  reg(server, 'table.splitCells', '拆分单元格', '去掉范围内的合并与格式键。', tableSplitCellsSchema, tableSplitCells, t);
+  reg(server, 'table.setCellStyle', '设置单元格格式', '按 A1 范围写格式（底色/字色/字号/加粗/对齐/垂直/内边距/边框）。', tableSetCellStyleSchema, tableSetCellStyle, t);
+  reg(server, 'table.clearCellStyle', '清除单元格格式', '清掉范围内的格式（合并区一并去掉）。', tableClearCellStyleSchema, tableClearCellStyle, t);
+  reg(server, 'table.setVariant', '设置线条风格', 'normal 全框线 / threeLine 三线表 / hLines 横线表。', tableSetVariantSchema, tableSetVariant, t);
+  reg(server, 'table.setColWidths', '设置列宽', '逗号分隔，纯数字按 %（"20,50,30"），也可写 "35mm"；空串=自动。', tableSetColWidthsSchema, tableSetColWidths, t);
+  reg(server, 'table.autoFit', '列宽自适应', '按内容自适应列宽（无头按内容长度估算；编辑器在线时按真实渲染宽度）。', tableAutoFitSchema, tableAutoFit, t);
+  reg(server, 'table.getCellSelection', '读单元格选区', '当前选中的单元格区域。', tableGetCellSelectionSchema, tableGetCellSelection, t);
+  reg(server, 'table.setCellSelection', '设置单元格选区', '设置当前单元格选区（A1 范围）。', tableSetCellSelectionSchema, tableSetCellSelection, t);
+
+  /* ── 历史域 §5.9 ── */
+  reg(server, 'history.undo', '撤销', '撤销若干步（无头用快照栈；编辑器在线时走它的历史栈）。', historyUndoSchema, historyUndo, t);
+  reg(server, 'history.redo', '重做', '重做若干步。', historyRedoSchema, historyRedo, t);
+  reg(server, 'history.snapshot', '打快照', '手动压一个快照（可带标签）。', historySnapshotSchema, historySnapshot, t);
+  reg(server, 'history.restore', '恢复快照', '回到指定序号的快照。', historyRestoreSchema, historyRestore, t);
+  reg(server, 'history.clear', '清空历史', '清空快照栈；必须 confirm: true。', historyClearSchema, historyClear, t);
+  reg(server, 'history.stack', '历史信息', '快照数量与当前位置。', historyStackSchema, historyStack, t);
+
+  /* ── 选择域 §5.10 ── */
+  reg(server, 'selection.get', '读选中', '当前选中的节点 id。', selectionGetSchema, selectionGet, t);
+  reg(server, 'selection.set', '设置选中', '设置选中的节点（无头只记录在服务端）。', selectionSetSchema, selectionSet, t);
+  reg(server, 'selection.clear', '清除选中', '清空选中。', selectionClearSchema, selectionClear, t);
+  reg(server, 'selection.focus', '滚动到视图', '把某个节点滚动到可视区（需要编辑器在线）。', selectionFocusSchema, selectionFocus, t);
+
+  /* ── 导出域 §5.11 ── */
+  reg(server, 'export.json', '导出 JSON', '取/写文档 JSON（与编辑器导出同格式）；给 path 就写到工作区。', exportJsonSchema, exportJson, t);
+  reg(server, 'export.html', '导出 HTML', '导出可独立打开的 HTML（需要编辑器在线：渲染与 @page 都由它做）。', exportHtmlSchema, exportHtml, t);
+  reg(server, 'export.react', '导出 React', '导出 React + Tailwind 代码（需要编辑器在线）。', exportReactSchema, exportReact, t);
+  reg(server, 'export.pdf', '导出 PDF', '调用编辑器打印导出 PDF（需要编辑器在线）。', exportPdfSchema, exportPdf, t);
+  reg(server, 'export.spec', '导出说明清单', '导出《组件与属性说明清单》Markdown；编辑器在线时与它的菜单导出一致，否则用组件目录生成精简版并标注差异。', exportSpecSchema, exportSpec, t);
+
+  /* ── 插件域 §5.12（阶段一已建 plugin.list，阶段五补全） ── */
   reg(server, 'plugin.list', '列出外部插件', '扫描插件目录：是否在热加载清单里、是否调用 EditorKit.register、type 是否 live 前缀、备份数与问题列表。', pluginListSchema, pluginList, t);
 
   log.info(`已注册 ${t.length} 个 Tool：${t.join(', ')}`);

@@ -160,6 +160,14 @@ export function clearHistory(docId: string): void {
   cursor.delete(docId);
 }
 
+/** 取某一份快照（history.restore 用）：只设置游标，不落盘（由调用方写文件） */
+export function restoreSnapshot(docId: string, index: number): EditorDocument | null {
+  const stack = snapshots.get(docId) ?? [];
+  if (index < 0 || index >= stack.length) return null;
+  cursor.set(docId, index);
+  return JSON.parse(JSON.stringify(stack[index])) as EditorDocument;
+}
+
 /* ══════════════ selection（无头：服务端记住即可） ══════════════ */
 
 export function setSelection(docId: string | null, ids: string[]): void {
