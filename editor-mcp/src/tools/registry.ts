@@ -347,11 +347,52 @@ export async function exportJson(args: { docId?: string; path?: string }) {
 export const exportHtmlSchema = { docId: docIdParam, path: z.string().optional(), inlineAssets: z.boolean().default(true) };
 export const exportReactSchema = { docId: docIdParam, path: z.string().optional(), componentName: z.string().default('ExportedDocument') };
 export const exportPdfSchema = { docId: docIdParam, path: z.string().optional() };
+export const exportDocxSchema = { docId: docIdParam, path: z.string().optional() };
 export const exportSpecSchema = { path: z.string().optional() };
 
-/** 导出 HTML / React / PDF：只有编辑器里实现（浏览器渲染 + 打印），无头老实报 BRIDGE_OFFLINE */
+/**
+ * 把 Live 回来的产物**落盘**：Live 侧是浏览器，写不了工作区里的任意路径。
+ * `{path}` 的语义必须**与通道无关**（同一个 Tool 在"编辑器开着/关着"时行为一致），
+ * 所以落盘由 MCP 这一侧补做 —— 与 `export.json` 同一口径。
+ */
+async function writeWorkspaceFile(rel: string, content: string | Uint8Array): Promise<string> {
+  const { assertInside } = await import('../config.js');
+  const fsMod = await import('node:fs/promises');
+  const out = assertInside(config.workspace, rel);
+  await fsMod.writeFile(out, content);
+  return out;
+}
+
+/** 导出 HTML / React / PDF / Word：都只有编辑器里实现（浏览器渲染 / OOXML 打包 / 打印） */
 export async function exportHtml(args: { docId?: string; path?: string; inlineAssets?: boolean }) {
-  return liveOnly('export.html', { ...args, docId: args.docId ?? getCurrentDoc() ?? undefined });
+  const r = await liveOnly<{ docId?: string; bytes?: number; html?: string; path?: string }>('export.html', {
+    ...args,
+    docId: args.docId ?? getCurrentDoc() ?? undefined,
+  });
+  if (r.ok && args.path && typeof r.data?.html === 'string') {
+    const out = await writeWorkspaceFile(args.path, r.data.html);
+    return { ...r, data: { ...r.data, path: out, bytes: r.data.html.length } };
+  }
+  return r;
+}
+
+/**
+ * ★`export.docx`（2026-09-24 新增）：真 Word .docx（OOXML）就是**本产品自己的能力**
+ *   （编辑器 `utils/export/docx.ts`），以前只有它的「文件 → 导出 Word（.docx）」弹窗入口 ——
+ *   于是"要一份 .docx"只能退回旧的 Python 产线。这条把它挂上 MCP：Live 返回 base64，这里落盘。
+ */
+export async function exportDocx(args: { docId?: string; path?: string }) {
+  const r = await liveOnly<{ docId?: string; bytes?: number; blocks?: number; warnings?: string[]; base64?: string; filename?: string }>(
+    'export.docx',
+    { ...args, docId: args.docId ?? getCurrentDoc() ?? undefined },
+  );
+  const data = r.data;
+  if (r.ok && data && typeof data.base64 === 'string') {
+    const rel = args.path ?? data.filename ?? 'document.docx';
+    const out = await writeWorkspaceFile(rel, Buffer.from(data.base64, 'base64'));
+    return { ...r, data: { ...data, base64: undefined, path: out } };
+  }
+  return r;
 }
 
 export async function exportReact(args: { docId?: string; path?: string; componentName?: string }) {

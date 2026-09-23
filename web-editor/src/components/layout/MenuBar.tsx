@@ -30,18 +30,10 @@ import {
   PACKAGE_FORMAT,
   type PluginPackage,
 } from '../../utils/pluginPackage';
-import { bridgeStatus, isBridgeEnabled, setBridgeEnabled } from '../../mcp/bridgeClient';
+import { bridgeSummary, isBridgeEnabled, setBridgeEnabled, useBridgeSummary, waitBridgeSettled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
 import { Modal, SHORTCUTS } from '../ui/Modal';
-
-/** MCP 桥接状态文案（未开启 / 连接中 / 已连接 · 已重连 N 次 / 上次错误） */
-function bridgeStatusLabel(): string {
-  const s = bridgeStatus();
-  if (s.state === 'connected') return `已连接（${s.liveComponents} 个外部组件）`;
-  if (s.state === 'connecting') return '连接中…';
-  return s.lastError ? `未开启（上次：${s.lastError.slice(0, 24)}）` : '未开启';
-}
 
 const MARGIN_PRESETS: { label: string; value: number }[] = [
   { label: '常规 上下25.4 / 左右31.7mm', value: 0 },
@@ -63,6 +55,8 @@ export function MenuBar() {
   const title = useEditorStore((s) => s.doc.title);
   const page = useEditorStore((s) => s.doc.document.page);
   const canvas = useEditorStore((s) => s.doc.web.canvas);
+  /** MCP 桥接状态：**订阅**着（状态一变菜单就跟着变），并区分"没开启"与"开了但没连上" */
+  const bridge = useBridgeSummary();
 
   const S = () => useEditorStore.getState();
 
@@ -237,25 +231,37 @@ export function MenuBar() {
 
   const helpMenu: MenuEntry[] = [
     { key: 'sc', label: '快捷键说明', onClick: () => setHelpOpen(true) },
-    // ★MCP 桥接（规格 §11）：默认不开；开了之后 Claude/Cursor 这类客户端就能驱动这个编辑器
+    // ★MCP 桥接（规格 §11）：默认不开；开了之后 MCP 客户端就能驱动这个编辑器
     {
       key: 'mcpbridge',
-      label: `MCP 桥接：${bridgeStatusLabel()}`,
-      checked: isBridgeEnabled(),
+      label: `MCP 桥接：${bridge.label}`,
+      checked: bridge.on,
       onClick: () => {
         const on = !isBridgeEnabled();
         setBridgeEnabled(on);
-        if (on) {
-          window.setTimeout(() => {
-            window.alert(
-              `MCP 桥接已开启（${bridgeStatus().url}）\n\n` +
-                `状态：${bridgeStatusLabel()}\n` +
-                '若显示"连接失败"，请先在命令行启动 MCP 服务器：\n' +
-                '  cd editor-mcp; node dist/index.js --stdio\n' +
-                '（MCP 服务器会同时开一个桥接中转，本页面接进去）',
-            );
-          }, 800);
-        }
+        if (!on) return;
+        /**
+         * ★别再"抢着说成功"（用户 2026-09-24：弹窗说已开启，菜单里还是未开启）：
+         *   等状态**落定**再报 —— 连上报已连接，没连上就把真实原因和排查办法说清楚。
+         */
+        void waitBridgeSettled(2500).then((settled) => {
+          const s = bridgeSummary();
+          if (settled === 'connected') {
+            window.alert(`MCP 桥接已连接：${s.detail || s.label}`);
+            return;
+          }
+          window.alert(
+            `MCP 桥接还没连上（菜单里会实时显示状态）\n\n` +
+              `当前：${s.label}\n` +
+              `${s.detail ? `详情：${s.detail}\n` : ''}\n` +
+              '排查顺序：\n' +
+              '  1) 命令行启动 MCP 服务器（它会在 37650 起桥接中转 hub）：\n' +
+              '     cd E:\\可视化编辑器\\editor-mcp; node dist\\index.js --stdio\n' +
+              '  2) 若 37650 被别的实例占用，换端口：地址栏加\n' +
+              '     ?bridge=1&bridgeUrl=ws://127.0.0.1:37652/bridge（并给 MCP 加 EDITOR_MCP_BRIDGE_URL 指到同一端口）\n' +
+              '  3) 「帮助 → 诊断信息」里有桥接日志与最近错误。',
+          );
+        });
       },
     },
     { key: 'diag', label: '诊断信息（日志 / 状态 / 环境）', onClick: () => S().toggleUI('showDiagnostics') },

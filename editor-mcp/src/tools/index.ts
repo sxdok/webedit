@@ -175,6 +175,8 @@ import {
   componentCatalogSchema,
   exportHtml,
   exportHtmlSchema,
+  exportDocx,
+  exportDocxSchema,
   exportJson,
   exportJsonSchema,
   exportPdf,
@@ -428,9 +430,10 @@ export function registerAllTools(server: McpServer): string[] {
 
   /* ── 导出域 §5.11 ── */
   reg(server, 'export.json', '导出 JSON', '取/写文档 JSON（与编辑器导出同格式）；给 path 就写到工作区。', exportJsonSchema, exportJson, t);
-  reg(server, 'export.html', '导出 HTML', '导出可独立打开的 HTML（需要编辑器在线：渲染与 @page 都由它做）。', exportHtmlSchema, exportHtml, t);
+  reg(server, 'export.html', '导出 HTML', '导出可独立打开的 HTML（需要编辑器在线：渲染与 @page 都由它做）；给 path 就落盘到工作区。', exportHtmlSchema, exportHtml, t);
+  reg(server, 'export.docx', '导出 Word', '导出**真正的 Word .docx**（OOXML，编辑器自带导出能力；需要编辑器在线）。给 path 就落盘，缺省用文档标题命名。', exportDocxSchema, exportDocx, t);
   reg(server, 'export.react', '导出 React', '导出 React + Tailwind 代码（需要编辑器在线）。', exportReactSchema, exportReact, t);
-  reg(server, 'export.pdf', '导出 PDF', '调用编辑器打印导出 PDF（需要编辑器在线）。', exportPdfSchema, exportPdf, t);
+  reg(server, 'export.pdf', '导出 PDF', 'PDF 由编辑器的打印入口产出（「文件 → 打印 / 另存为 PDF」）：MCP 拿不到 PDF 字节，本工具只负责把这一步提示清楚（需要编辑器在线）。', exportPdfSchema, exportPdf, t);
   reg(server, 'export.spec', '导出说明清单', '导出《组件与属性说明清单》Markdown；编辑器在线时与它的菜单导出一致，否则用组件目录生成精简版并标注差异。', exportSpecSchema, exportSpec, t);
 
   /* ── 插件域 §5.12（20 个，重点域）── */

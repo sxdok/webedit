@@ -31,11 +31,20 @@ import {
   type CellStyle,
 } from '../registry/components/common/tableKit';
 import { buildExportHtml } from '../utils/export/docExport';
+import { buildDocx } from '../utils/export/docx';
 import { buildReactComponent } from '../utils/export/reactExport';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 
 type Params = Record<string, unknown>;
 type Store = ReturnType<typeof useEditorStore.getState>;
+
+/** Uint8Array → base64（分块做，别让 fromCharCode 的实参表把栈打爆） */
+function toBase64(bytes: Uint8Array): string {
+  let out = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) out += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  return btoa(out);
+}
 
 const now = (): Store => useEditorStore.getState();
 const num = (p: Params, k: string): number | undefined => (typeof p[k] === 'number' ? (p[k] as number) : undefined);
@@ -744,6 +753,25 @@ export async function routeLive(method: string, params: Params): Promise<unknown
     case 'export.react': {
       const d = now().doc;
       return { docId: d.id, code: buildReactComponent(d, getForest(d)) };
+    }
+    /**
+     * ★Word .docx 的导出**也是本产品自己的能力**（`utils/export/docx.ts`：手写 OOXML + 最小 ZIP writer），
+     *   以前只有「文件 → 导出 Word（.docx）」这个弹窗入口、MCP 拿不到 —— 于是"要 .docx"只能退回旧的
+     *   Python 产线（用户 2026-09-24 指出这不对：本产品支持导出 html 与 docx，不该退回原生产线）。
+     *   这里把它挂到 Live 桥上：返回 base64（JSON 安全）+ 字节数 + 块数，MCP 侧再按 `path` 落盘。
+     */
+    case 'export.docx': {
+      const d = now().doc;
+      const r = buildDocx(d, getForest(d));
+      return {
+        docId: d.id,
+        bytes: r.bytes.length,
+        blocks: r.blocks,
+        warnings: r.warnings,
+        base64: toBase64(r.bytes),
+        mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: `${String(d.title || 'document').replace(/[\\/:*?"<>|]/g, '_')}.docx`,
+      };
     }
     case 'export.spec': {
       const md = buildComponentSpecSheet();

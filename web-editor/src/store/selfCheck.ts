@@ -30,6 +30,8 @@ import { buildDocx, docxParts, isZip } from '../utils/export/docx';
 import { continueSeries, fillSeries } from '../registry/components/common/tableFill';
 import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
+import { routeLive } from '../mcp/liveMethods';
+import { bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -3978,6 +3980,33 @@ async function interactionChecks(): Promise<Result[]> {
       `帮助菜单项：${helpItems.join(' / ')}`,
     );
 
+    /* MCP 桥接的状态文案（用户 2026-09-24：点开关弹窗说"已开启"，菜单里却还是「未开启」）
+       —— 原来 `state === 'off'` 同时表示"没开启"和"开了但没连上"，且菜单没人订阅状态 → 说了假话 + 不刷新。 */
+    const helpLabelsBefore = await openMenuLabels('帮助');
+    await closeMenu();
+    const bridgeBefore = bridgeSummary();
+    setBridgeEnabled(true);
+    await wait(500);
+    const helpLabelsOn = await openMenuLabels('帮助');
+    await closeMenu();
+    const bridgeOn = bridgeSummary();
+    setBridgeEnabled(false);
+    await wait(400);
+    const helpLabelsOff = await openMenuLabels('帮助');
+    await closeMenu();
+    const bridgeOff = bridgeSummary();
+    const bridgeLine = (labels: string[]): string => labels.find((t) => t.includes('MCP 桥接')) ?? '(菜单里没有这一项)';
+    add(
+      'MCP 桥接状态文案：开启后菜单**不再写「未开启」**（"没开启"与"开了但没连上"分开），关掉后回到「未开启」',
+      bridgeBefore.on === false &&
+        bridgeLine(helpLabelsBefore).includes('未开启') &&
+        bridgeOn.on === true &&
+        !bridgeLine(helpLabelsOn).includes('未开启') &&
+        bridgeOff.on === false &&
+        bridgeLine(helpLabelsOff).includes('未开启'),
+      `关：${bridgeLine(helpLabelsBefore)} → 开：${bridgeLine(helpLabelsOn)}（state=${bridgeOn.state}、detail=${bridgeOn.detail.slice(0, 30)}）→ 再关：${bridgeLine(helpLabelsOff)}`,
+    );
+
     /* 文案收敛（用户 2026-09-24） */
     const viewLabels = await openMenuLabels('视图');
     await closeMenu();
@@ -4469,6 +4498,43 @@ async function interactionChecks(): Promise<Result[]> {
       'B15 .docx 字节可落盘（base64 写到运行目录 docs/，供 python-docx 外部复验）',
       !!saved?.ok && (saved?.bytes ?? 0) > 2000,
       saved?.ok ? `写入 ${saved.file}（${saved.bytes} 字节 base64）` : `落盘失败/无接口：${saved?.error ?? '（未托管）'}`,
+    );
+
+    /* ★导出也走本产品的 MCP 通道（用户 2026-09-24：本产品支持导出 html 与 docx，不该退回旧产线）
+       —— 这里直接调**编辑器 Live 桥的同一条路由** `routeLive`，等于把 MCP 那条 `export.docx` / `export.html`
+       真正跑一遍（浏览器内可测，不需要 MCP 进程或编辑器接入）。 */
+    const liveDocx = (await routeLive('export.docx', {})) as {
+      bytes?: number;
+      base64?: string;
+      blocks?: number;
+      mime?: string;
+      filename?: string;
+    };
+    const liveDocxBytes =
+      typeof liveDocx.base64 === 'string'
+        ? Uint8Array.from(atob(liveDocx.base64), (c) => c.charCodeAt(0))
+        : new Uint8Array();
+    add(
+      'MCP 导出通道：`export.docx` 经 Live 桥返回 base64 字节（真 OOXML，本产品自带导出）',
+      liveDocxBytes.length > 2000 &&
+        isZip(liveDocxBytes) &&
+        liveDocx.bytes === liveDocxBytes.length &&
+        String(liveDocx.mime ?? '').includes('wordprocessingml') &&
+        String(liveDocx.filename ?? '').endsWith('.docx') &&
+        Number(liveDocx.blocks ?? 0) > 0,
+      `${liveDocxBytes.length} 字节（声明 ${String(liveDocx.bytes)}）· ${Number(liveDocx.blocks)} 块 · ${String(
+        liveDocx.filename,
+      )}`,
+    );
+    const liveHtml = (await routeLive('export.html', {})) as { bytes?: number; html?: string };
+    const liveHtmlText = String(liveHtml.html ?? '');
+    add(
+      'MCP 导出通道：`export.html` 经 Live 桥返回可独立打开的 HTML（带 @page 与 data-node-type）',
+      liveHtmlText.length > 500 &&
+        liveHtmlText.includes('data-node-type') &&
+        liveHtmlText.includes('@page') &&
+        Number(liveHtml.bytes) === liveHtmlText.length,
+      `${liveHtmlText.length} 字节；含 data-node-type=${liveHtmlText.includes('data-node-type')}、@page=${liveHtmlText.includes('@page')}`,
     );
   }
 

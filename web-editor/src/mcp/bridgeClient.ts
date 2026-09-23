@@ -12,6 +12,7 @@
  *   回 `{ id, ok, result }` 或 `{ id, ok:false, error:{ code, message } }`。
  * · store 变化时主动推 `document.changed` / `selection.changed`（供 MCP 侧订阅）。
  */
+import { useSyncExternalStore } from 'react';
 import { useEditorStore } from '../store/editorStore';
 import { getLiveTypes } from '../registry/live';
 import { routeLive } from './liveMethods';
@@ -37,6 +38,84 @@ export function bridgeStatus(): { state: BridgeState; url: string; reconnects: n
 export function onBridgeState(cb: (s: BridgeState) => void): () => void {
   listeners.add(cb);
   return () => listeners.delete(cb);
+}
+
+/* ══════════════ 给 React 看的桥接状态（用户 2026-09-24 报的"菜单里还是未开启"）══════════════
+   两个真问题：
+     ① `state === 'off'` 同时表示"没开启"和"开了但没连上" → 菜单只能写"未开启"，说了假话；
+     ② 菜单文案是**渲染那一刻**的快照，而桥接状态是模块级变量 —— 没有任何订阅，
+        点完开关（弹窗说已开启）之后 React 不会重渲染，菜单就一直是旧的。
+   下面给出：`useBridgeSummary()`（订阅 + 说真话的一句话）与 `waitBridgeSettled()`（别抢着弹"成功"）。 */
+
+const subscribeBridge = (cb: () => void): (() => void) => onBridgeState(cb);
+const getBridgeState = (): BridgeState => state;
+
+/** 订阅桥接状态：状态一变（connecting/connected/off）就触发重渲染 */
+export function useBridgeState(): BridgeState {
+  return useSyncExternalStore(subscribeBridge, getBridgeState, getBridgeState);
+}
+
+export interface BridgeSummary {
+  /** 开关是否被打开（`shouldRun`）—— 与"是否连上"是两件事 */
+  on: boolean;
+  state: BridgeState;
+  /** 一句话状态（菜单直接用） */
+  label: string;
+  /** 补充信息（URL / 上次错误 / 重连次数） */
+  detail: string;
+}
+
+/** 桥接状态的一句话摘要：**把"已开启但没连上"与"没开启"分开说** */
+export function bridgeSummary(): BridgeSummary {
+  const s = bridgeStatus();
+  if (!shouldRun) return { on: false, state: s.state, label: '未开启', detail: s.lastError ? `上次：${s.lastError}` : '' };
+  if (s.state === 'connected') {
+    return {
+      on: true,
+      state: s.state,
+      label: `已连接（${s.liveComponents} 个外部组件）`,
+      detail: s.reconnects > 0 ? `已重连 ${s.reconnects} 次 · ${s.url}` : s.url,
+    };
+  }
+  if (s.state === 'connecting') return { on: true, state: s.state, label: '连接中…', detail: s.url };
+  return {
+    on: true,
+    state: s.state,
+    // 开了、但此刻不在连接中（连接失败后正在等下一次重试）
+    label: s.reconnects > 1 ? `连接中…（第 ${s.reconnects} 次重试）` : '连接中…（还没连上）',
+    detail: s.lastError ?? s.url,
+  };
+}
+
+/** 订阅版摘要（菜单/状态栏用）：状态一变自动跟着变 */
+export function useBridgeSummary(): BridgeSummary {
+  useBridgeState();
+  return bridgeSummary();
+}
+
+/**
+ * 等桥接状态**落定**再回报：连上 → 'connected'；超时/仍没连上 → 当前状态。
+ * 用途：点开关后不要立刻弹"已开启"（那只是在说"我开始连了"），要等真连上或确认失败。
+ */
+export function waitBridgeSettled(timeoutMs = 2500): Promise<BridgeState> {
+  return new Promise((resolve) => {
+    if (!shouldRun || state === 'connected') {
+      resolve(state);
+      return;
+    }
+    let settled = false;
+    const finish = (s: BridgeState): void => {
+      if (settled) return;
+      settled = true;
+      off();
+      window.clearTimeout(timer);
+      resolve(s);
+    };
+    const off = onBridgeState((s) => {
+      if (s === 'connected') finish(s);
+    });
+    const timer = window.setTimeout(() => finish(state), timeoutMs);
+  });
 }
 
 function setState(next: BridgeState): void {
