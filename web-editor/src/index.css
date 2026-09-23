@@ -17,6 +17,32 @@ body {
   background: #f7f8fa;
 }
 
+/* ══════════════ 语义色令牌（★新增界面代码一律用这些，别写死颜色）══════════════
+   为什么需要它：暗色是靠"把 Tailwind 工具类一条条重映射"实现的（见下面 monokai 段），
+   而 `text-[#374151]` 这种**任意值类**不在重映射清单里 —— 暗色下就成了深灰配深底（真踩过：
+   属性面板的属性名/分组标题）。这里给出一层跟主题走的语义色，写 `ui-ink-2` 就自动两边都对。
+   · 只用于**编辑器外壳**（面板/对话框/工具栏/浮层）；
+   · **画布内容**（纸张、Web 设备画布、组件渲染）不跟主题：它是要打印的成品，颜色来自文档配置。 */
+:root {
+  --ui-bg: #f7f8fa;      /* 最外层底色 */
+  --ui-surface: #ffffff; /* 面板 / 卡片 / 对话框 */
+  --ui-raised: #f2f4f7;  /* 次级底板：分组头、hover、输入框边上的小底 */
+  --ui-line: #e5e7eb;    /* 分割线 / 描边 */
+  --ui-ink: #1f2329;     /* 主文字 */
+  --ui-ink-2: #374151;   /* 次级文字（属性名、表格内容） */
+  --ui-ink-3: #6b7280;   /* 弱化文字（分组标题、提示、占位） */
+  --ui-accent: #1677ff;
+  --ui-accent-soft: rgba(22, 119, 255, 0.08);
+}
+.ui-bg { background-color: var(--ui-bg); }
+.ui-surface { background-color: var(--ui-surface); }
+.ui-raised { background-color: var(--ui-raised); }
+.ui-line { border-color: var(--ui-line); }
+.ui-ink { color: var(--ui-ink); }
+.ui-ink-2 { color: var(--ui-ink-2); }
+.ui-ink-3 { color: var(--ui-ink-3); }
+.ui-accent { color: var(--ui-accent); }
+
 /* 面板内部滚动条细化 */
 .thin-scroll::-webkit-scrollbar {
   width: 8px;
@@ -77,10 +103,21 @@ body {
      5) 每张纸之间强制分页，避免多页文档挤在一张纸上。 */
 
 /* ══════════════ 深色主题（参考 Monokai）══════════════
-   做法：先定义语义变量，再把编辑器外壳用到的 Tailwind 工具类做一层重映射。
+   做法：先定义语义变量（--ui-*，见文件开头），再把编辑器外壳用到的 Tailwind 工具类做一层重映射。
    纸张/画布自身的颜色来自文档配置（page.background / canvas.background），不在这里改 —— 深色主题只改"编辑器外壳"。
-   新增界面代码优先用 .ui-surface/.ui-ink 等语义类；工具类重映射只覆盖当前用到的那些。 */
+   ★新增界面代码优先用 `.ui-surface/.ui-ink/.ui-ink-2/.ui-ink-3/.ui-line` 这些语义类（它们两边都对）；
+   工具类重映射只是给**存量代码**兜底，覆盖不全（尤其是带 `/xx` 透明度和 `text-[#xxx]` 任意值这两类，
+   前者必须逐个列出类名、后者根本不在清单里）。 */
 html[data-theme='monokai'] {
+  --ui-bg: #1e1f1c;
+  --ui-surface: #272822;
+  --ui-raised: #34352c;
+  --ui-line: #3e3d32;
+  --ui-ink: #f8f8f2;
+  --ui-ink-2: #e6e6dd;
+  --ui-ink-3: #a9a99c;
+  --ui-accent: #66d9ef;
+  --ui-accent-soft: rgba(102, 217, 239, 0.14);
   --mk-bg: #1e1f1c;
   --mk-surface: #272822;
   --mk-raised: #34352c;
@@ -90,7 +127,9 @@ html[data-theme='monokai'] {
   --mk-dim: #75715e;
   --mk-accent: #66d9ef;
   --mk-accent-soft: rgba(102, 217, 239, 0.14);
-  --mk-danger: #f92672;
+  /* ★危险色用 Monokai 那支**更亮**的红（#ff6188）：原来是 #f92672，12px 文字压在 #272822 上
+     对比度只有 1.94（自检的暗色审计会报"低对比文字"），换亮一档后 2.8，仍然一眼是"危险"。 */
+  --mk-danger: #ff6188;
   --mk-warn: #fd971f;
   --mk-ok: #a6e22e;
   --ui: #272822;
@@ -167,12 +206,42 @@ html[data-theme='monokai'] .bg-emerald-50 { background-color: rgba(166, 226, 46,
 html[data-theme='monokai'] .text-emerald-600 { color: var(--mk-ok); }
 html[data-theme='monokai'] .bg-amber-50 { background-color: rgba(253, 151, 31, 0.14); }
 html[data-theme='monokai'] .text-amber-600 { color: var(--mk-warn); }
-html[data-theme='monokai'] .bg-red-50 { background-color: rgba(249, 38, 114, 0.14); }
+html[data-theme='monokai'] .bg-red-50 { background-color: rgba(255, 97, 136, 0.16); }
 html[data-theme='monokai'] .text-red-600,
 html[data-theme='monokai'] .text-red-500 { color: var(--mk-danger); }
-html[data-theme='monokai'] .hover\:bg-red-50:hover { background-color: rgba(249, 38, 114, 0.2); }
-html[data-theme='monokai'] .border-red-200 { border-color: rgba(249, 38, 114, 0.4); }
+html[data-theme='monokai'] .hover\:bg-red-50:hover { background-color: rgba(255, 97, 136, 0.22); }
+html[data-theme='monokai'] .border-red-200 { border-color: rgba(255, 97, 136, 0.4); }
 html[data-theme='monokai'] .border-dashed.border-line { border-color: var(--mk-line); }
+
+/* ────── 2026-09-24 暗色审计补齐（`npm run audit:dark` 扫出来的漏项）──────
+   规则：Tailwind 的 `hover:` / `focus:` / `disabled:` / `group-hover:` / `/xx` 变体**都是独立类名**，
+   基础类被重映射了不等于变体也被覆盖 —— 下面这些就是漏网的（漏一个就多一块浅色/错色）。 */
+/* 调色板半透明变体 */
+html[data-theme='monokai'] .bg-amber-50\/40 { background-color: rgba(253, 151, 31, 0.12); }
+html[data-theme='monokai'] .bg-emerald-50\/40 { background-color: rgba(166, 226, 46, 0.1); }
+html[data-theme='monokai'] .text-amber-700 { color: var(--mk-warn); }
+html[data-theme='monokai'] .text-emerald-500 { color: var(--mk-ok); }
+html[data-theme='monokai'] .border-emerald-400\/60 { border-color: rgba(166, 226, 46, 0.55); }
+/* hover / disabled 变体 */
+html[data-theme='monokai'] .hover\:bg-gray-50:hover,
+html[data-theme='monokai'] .disabled\:bg-gray-50:disabled { background-color: var(--mk-raised); }
+html[data-theme='monokai'] .hover\:text-gray-700:hover { color: #fff; }
+html[data-theme='monokai'] .disabled\:text-gray-400:disabled { color: var(--mk-dim); }
+html[data-theme='monokai'] .hover\:bg-red-100:hover { background-color: rgba(255, 97, 136, 0.22); }
+html[data-theme='monokai'] .hover\:text-red-500:hover,
+html[data-theme='monokai'] .hover\:text-red-600:hover { color: var(--mk-danger); }
+html[data-theme='monokai'] .hover\:border-red-300:hover,
+html[data-theme='monokai'] .hover\:border-red-400:hover { border-color: var(--mk-danger); }
+html[data-theme='monokai'] .border-red-300,
+html[data-theme='monokai'] .border-red-400 { border-color: rgba(255, 97, 136, 0.55); }
+/* 主色（primary 基色是写死的 #1677ff）：焦点环、选中环、分隔描边在暗色下统一成 accent 青 */
+html[data-theme='monokai'] .focus\:border-primary:focus { border-color: var(--mk-accent); }
+html[data-theme='monokai'] .ring-primary { --tw-ring-color: var(--mk-accent); }
+html[data-theme='monokai'] .focus\:ring-primary\/20:focus { --tw-ring-color: rgba(102, 217, 239, 0.25); }
+html[data-theme='monokai'] .group:hover .group-hover\:bg-primary\/60 { background-color: rgba(102, 217, 239, 0.6); }
+html[data-theme='monokai'] .border-primary\/20 { border-color: rgba(102, 217, 239, 0.2); }
+html[data-theme='monokai'] .border-primary\/30 { border-color: rgba(102, 217, 239, 0.3); }
+html[data-theme='monokai'] .border-primary\/60 { border-color: rgba(102, 217, 239, 0.6); }
 /* 表单控件（属性面板的输入框/下拉/文本域统一跟随主题） */
 html[data-theme='monokai'] input,
 html[data-theme='monokai'] select,

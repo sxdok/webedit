@@ -36,7 +36,7 @@ function PropertyGroupInner({ name, count, open, hint, divider, onToggle, childr
       <button
         type="button"
         onClick={onToggle}
-        className="prop-group-head flex w-full items-center gap-1 rounded px-2 text-left text-[12px] font-semibold text-[#6b7280]"
+        className="prop-group-head ui-ink-3 flex w-full items-center gap-1 rounded px-2 text-left text-[12px] font-semibold"
       >
         {open ? <ChevronDown className="h-2 w-2 shrink-0" /> : <ChevronRight className="h-2 w-2 shrink-0" />}
         <Tooltip content={hint ? { name, detail: [hint] } : { name }} side="right">

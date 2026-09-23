@@ -87,7 +87,7 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
       <div className={`${cls} mb-1.5`} data-prop-row="1" data-prop-wide="1" data-prop-key={item.key}>
         <div className="mb-0.5 flex items-baseline gap-1 text-[12px]" data-prop-label="1">
           <Tooltip content={tip}>
-            <span className="cursor-help truncate text-[12px] text-[#374151]">{short}</span>
+            <span className="ui-ink-2 cursor-help truncate text-[12px]">{short}</span>
           </Tooltip>
         </div>
         <Tooltip content={controlTip} wrapClassName="block w-full">
@@ -101,7 +101,7 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
     <div className={`${cls} flex h-7 items-center gap-2`} data-prop-row="1" data-prop-key={item.key}>
       <Tooltip content={tip}>
         <span
-          className="w-24 shrink-0 cursor-help truncate text-[12px] text-[#374151]"
+          className="ui-ink-2 w-24 shrink-0 cursor-help truncate text-[12px]"
           data-prop-label="1"
           style={{ width: 96 }}
         >

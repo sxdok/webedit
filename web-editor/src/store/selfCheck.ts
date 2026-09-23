@@ -1559,6 +1559,254 @@ async function interactionChecks(): Promise<Result[]> {
     `深色 ${darkBg} / 浅色 ${lightBg}`,
   );
 
+  /**
+   * ══ 暗色模式**自动审计**（用户 2026-09-24：「检查所有组件有没有正确适配暗色模式」）══
+   *
+   * 为什么要有它：暗色不是"每个组件写一套暗色样式"，而是 `index.css` 里把外壳用到的 Tailwind
+   * 工具类**一条条重映射** —— 漏一个类（尤其 `hover:`/`disabled:`/`/xx` 透明度和 `text-[#xxx]` 任意值）
+   * 就留下一块浅色底板或看不见的字。人眼很难扫全 40+ 个组件的面板，所以这里**遍历全部组件**自动查。
+   *
+   * 判据（只看编辑器外壳；`#canvas-viewport` 里的纸张/画布是"要打印的成品"，颜色来自文档配置，不跟主题）：
+   *   · 浅色底板：元素"视觉底色"（把半透明层叠出来的真实颜色）发白且接近灰；
+   *   · 低对比文字：自带文字的元素，字色与视觉底色对比度 < 2.0。
+   */
+  {
+    const parseRgb = (s: string): { r: number; g: number; b: number; a: number } | null => {
+      const m = s.match(/rgba?\(([^)]+)\)/);
+      if (!m) return null;
+      const p = m[1].split(',').map((x) => Number.parseFloat(x));
+      return { r: p[0], g: p[1], b: p[2], a: p[3] == null ? 1 : p[3] };
+    };
+    const lum = (c: { r: number; g: number; b: number }): number => (0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b) / 255;
+    /** 元素"看起来"的底色：把自己和祖先的半透明背景依次叠起来 */
+    const shownBg = (el: Element): { r: number; g: number; b: number } => {
+      const layers: { r: number; g: number; b: number; a: number }[] = [];
+      let e: Element | null = el;
+      while (e) {
+        const c = parseRgb(getComputedStyle(e).backgroundColor);
+        if (c && c.a > 0.01) layers.push(c);
+        if (c && c.a >= 0.999) break;
+        e = e.parentElement;
+      }
+      let base = { r: 255, g: 255, b: 255 };
+      for (let i = layers.length - 1; i >= 0; i -= 1) {
+        const f = layers[i];
+        base = {
+          r: f.r * f.a + base.r * (1 - f.a),
+          g: f.g * f.a + base.g * (1 - f.a),
+          b: f.b * f.a + base.b * (1 - f.a),
+        };
+      }
+      return base;
+    };
+    const darkAudit = (): string[] => {
+      const bad: string[] = [];
+      for (const el of document.querySelectorAll('body *')) {
+        if (el.closest('#canvas-viewport') || el.closest('#__check_report')) continue;
+        // 组件缩略图（`data-comp-thumb`）= 组件在"小纸"上的实时预览，属于**内容侧**，
+        // 白底/浅字是它的正确外观（跟画布同理，不跟主题）
+        if (el.closest('[data-comp-thumb]')) continue;
+        // 取色器色板（`data-color-swatch`）：那一格的背景**就是它代表的颜色**，白色板当然得是白的
+        if (el.closest('[data-color-swatch]') || el.matches('[data-color-swatch]')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width < 6 || r.height < 6) continue;
+        const st = getComputedStyle(el);
+        if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) < 0.05) continue;
+        const bg = shownBg(el);
+        const sat = Math.max(bg.r, bg.g, bg.b) - Math.min(bg.r, bg.g, bg.b);
+        // 元素签名：**不要用 `<tag>` 尖括号** —— 报告是 innerHTML 渲染的，尖括号会被当标签吃掉；
+        // 顺带给出最近的 data-* 祖先和最外层 HTML 片段，好定位到底是哪一块。
+        const anc = el.closest(
+          '[data-props-panel],[data-comp-grid],[data-comp-item],[data-page-tabs],[data-new-doc-examples],[data-canvas-body],[data-status-bar],[data-menu-bar],[data-pref],[data-prefs-dialog]',
+        );
+        const ancTag = anc
+          ? '@' +
+            [...anc.attributes]
+              .map((a) => a.name)
+              .filter((n) => n.startsWith('data-'))
+              .slice(0, 2)
+              .join(',')
+          : '';
+        const snippet = el.outerHTML.replace(/</g, '‹').replace(/\s+/g, ' ').slice(0, 160);
+        const label = `[${el.tagName.toLowerCase()} .${String(el.className ?? '').split(/\s+/).slice(0, 3).join('.')}]${ancTag} ${snippet}`;
+        // 带上当时的主题：审计前提是"当前确实是暗色"，否则结论没意义（note 里一眼能看出）
+        const stamp = document.documentElement.dataset.theme === 'monokai' ? '' : '⚠主题非暗色 ';
+        if ((sat < 24 && lum(bg) > 0.6) || (lum(bg) > 0.82 && sat < 60)) {
+          bad.push(`${stamp}浅色底板 ${label} 视觉底色=rgb(${Math.round(bg.r)},${Math.round(bg.g)},${Math.round(bg.b)})`);
+          continue;
+        }
+        const ownText = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? '').trim().length > 1);
+        if (!ownText) continue;
+        const fg = parseRgb(st.color);
+        if (!fg || fg.a < 0.5) continue;
+        const l1 = Math.max(lum(fg), lum(bg));
+        const l2 = Math.min(lum(fg), lum(bg));
+        const cr = (l1 + 0.05) / (l2 + 0.05);
+        if (cr < 2) {
+          bad.push(
+            `${stamp}低对比文字 ${label} ${st.color} on rgb(${Math.round(bg.r)},${Math.round(bg.g)},${Math.round(bg.b)}) 对比=${cr.toFixed(2)}`,
+          );
+        }
+      }
+      return [...new Set(bad)].slice(0, 8); // 去重 + 截断，别把 note 撑爆
+    };
+    /**
+     * ★审计期间**临时关掉过渡动画**：无头浏览器 + `--virtual-time-budget` 下 CSS transition 不会推进，
+     *   带 `transition-colors` 的元素会**停在切主题前那一刻的颜色**（浅色），把"暗色审计"整片带偏
+     *   （第一版就是这样报了 39 处"深底配浅色字"，实际全是这个假象 —— 诊断里 CSS/变量/探针都是对的）。
+     *   关闭过渡后颜色立即落到主题值，结果才可信。
+     */
+    const freezeAnim = (): (() => void) => {
+      const st = document.createElement('style');
+      st.textContent = '*,*::before,*::after{transition:none !important;animation:none !important}';
+      document.head.appendChild(st);
+      return () => st.remove();
+    };
+    /** 属性面板默认只展开第一个分组 —— 审计前把**所有分组**都展开，否则扫不到后面的控件 */
+    const openAllGroups = (): void => {
+      document.querySelectorAll('button.prop-group-head').forEach((b) => {
+        if (b.closest('[data-group-open]')?.getAttribute('data-group-open') === '0') (b as HTMLElement).click();
+      });
+    };
+    /** 组件箱的分类默认只开「通用」—— 全部展开，才能审到每个组件卡片 */
+    /** 审计失败时附带的环境诊断：把"主题到底生效没有"钉死（避免把浅色状态下看到的深灰当漏项） */
+    const cssDiag = (): string => {
+      const cs = getComputedStyle(document.documentElement);
+      const probe = document.createElement('span');
+      probe.className = 'text-gray-700';
+      probe.textContent = 'x';
+      document.body.appendChild(probe);
+      const probeColor = getComputedStyle(probe).color;
+      probe.remove();
+      let sheets = 0;
+      let mkRules = 0;
+      let grayRules = 0;
+      for (const sheet of [...document.styleSheets]) {
+        sheets += 1;
+        let rules: CSSRuleList | null = null;
+        try {
+          rules = sheet.cssRules;
+        } catch {
+          continue;
+        }
+        for (const r of [...(rules ?? [])]) {
+          const sel = (r as CSSStyleRule).selectorText ?? '';
+          if (sel.includes('data-theme') && sel.includes('monokai')) mkRules += 1;
+          if (sel.includes('data-theme') && sel.includes('.text-gray-700')) grayRules += 1;
+        }
+      }
+      return `诊断：--mk-ink=「${cs.getPropertyValue('--mk-ink').trim()}」--ui-ink-2=「${cs
+        .getPropertyValue('--ui-ink-2')
+        .trim()}」现造 text-gray-700 探针=${probeColor} 样式表=${sheets} monokai规则=${mkRules} text-gray-700重映射=${grayRules}`;
+    };
+    const openAllCategories = (): void => {
+      document.querySelectorAll('button[data-category-name]').forEach((h) => {
+        if (!h.parentElement?.querySelector('[data-comp-grid]')) (h as HTMLElement).click();
+      });
+    };
+
+    // 语义色令牌（.ui-ink-2 等）：这是"新增界面代码别再写死颜色"的落点，必须两边都对
+    const inkOf = (): string => {
+      const probe = document.createElement('span');
+      probe.className = 'ui-ink-2';
+      probe.textContent = '探针';
+      document.body.appendChild(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    };
+    S().setTheme('monokai');
+    S().setMode('document');
+    S().clearAll();
+    await wait(300);
+    const darkInk = inkOf();
+    S().setTheme('light');
+    await wait(120);
+    const lightInk = inkOf();
+    add(
+      '暗色模式：语义色令牌随主题走（.ui-ink-2 = 浅色 #374151 / 暗色 #e6e6dd；界面代码用它就别写死颜色）',
+      lightInk === 'rgb(55, 65, 81)' && darkInk === 'rgb(230, 230, 221)',
+      `浅色=${lightInk}；暗色=${darkInk}`,
+    );
+
+    S().setTheme('monokai');
+    S().setMode('document');
+    S().clearAll();
+    await wait(300);
+    /**
+     * ★`clearAll()` / `setMode()` 会顺带重置 `ui`（主题会被带回浅色），所以**审计前必须重新确认主题**；
+     *   这里做成"确认是暗色才审，否则重设再来"，并把当时的主题写进结论里 ——
+     *   否则会拿浅色的 DOM 去做"暗色适配"判断（第一版就踩了这个坑：报了一堆"深底配浅色字"，
+     *   实际是那一刻主题已经是浅色了，且浅色的浅色底板被当成漏项）。
+     */
+    const auditWhenDark = async (): Promise<string[]> => {
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        S().setTheme('monokai');
+        const unfreeze = freezeAnim();
+        await wait(200);
+        if (document.documentElement.dataset.theme === 'monokai') {
+          const out = darkAudit();
+          const stable = document.documentElement.dataset.theme === 'monokai';
+          unfreeze();
+          if (stable) return out;
+        } else {
+          unfreeze();
+        }
+      }
+      return ['（主题反复被重置成浅色，本次审计未取得可信结果）'];
+    };
+    openAllCategories();
+    await wait(240);
+    const offenders: string[] = (await auditWhenDark()).map((o) => `外壳/组件箱：${o}`);
+
+    // ① 逐个组件：加一个 → 选中 → 展开全部属性分组 → 审计（含左栏组件箱）
+    const allDefs = getAllComponents();
+    let scanned = 0;
+    for (const def of allDefs) {
+      if (def.type.startsWith('__')) continue; // `__probe_*` 是自检探针，不是真组件
+      const wantMode: 'document' | 'web' = def.supportedModes.includes('document') ? 'document' : 'web';
+      S().setMode(wantMode);
+      S().clearAll();
+      const id = S().addComponent(def.type);
+      if (!id) continue;
+      await wait(110);
+      S().selectComponent([id]);
+      await wait(110);
+      openAllGroups();
+      await wait(110);
+      scanned += 1;
+      offenders.push(...(await auditWhenDark()).map((o) => `${def.type}：${o}`));
+    }
+
+    // ② 最容易漏的浮层：首选项 / 新建文档 / Markdown 源码 / 诊断面板
+    const overlays: [string, () => void][] = [
+      ['首选项', () => S().toggleUI('prefsOpen')],
+      ['新建文档', () => S().setNewDocOpen(true)],
+      ['Markdown 源码', () => S().toggleUI('showMarkdown')],
+      ['诊断面板', () => S().toggleUI('showDiagnostics')],
+    ];
+    for (const [name, toggle] of overlays) {
+      toggle();
+      await wait(340);
+      offenders.push(...(await auditWhenDark()).map((o) => `${name}：${o}`));
+      toggle();
+      await wait(200);
+    }
+
+    add(
+      `暗色模式自动审计：全部 ${scanned} 个组件的属性面板（分组全展开）+ 组件箱 + 4 个浮层，没有浅色底板 / 低对比文字`,
+      scanned > 40 && offenders.length === 0,
+      offenders.length
+        ? `${offenders.length} 处：${offenders.slice(0, 3).join(' ｜ ')} ｜ ${cssDiag()}`
+        : `扫了 ${scanned} 个组件，外壳干净`,
+    );
+
+    S().setTheme('light');
+    S().setMode('document');
+    S().clearAll();
+    await wait(260);
+  }
+
   /* ── 标尺**脱离画布**：固定在视口顶部/左侧；画布平移时标尺自己不动，只有刻度跟着平移量走 ── */
   S().setMode('document');
   await wait(220);
@@ -3513,8 +3761,14 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(300);
     S().toggleUI('prefsOpen'); // 关掉弹窗再验缩略图（弹窗是 fixed 遮罩，会影响命中测试）
     await wait(400);
-    const thumbs = [...document.querySelectorAll('[data-comp-thumb]')] as HTMLElement[];
-    const cards = [...document.querySelectorAll('[data-comp-item]')] as HTMLElement[];
+    // ★只算**真组件**：`__probe_*` 是自检自己注册的探针（render 返回字符串、不是元素），
+    //   它在 ?check=1 时确实会出现在面板里，不该拿"有没有真元素"去要求它（示例页也按 `__` 前缀排除）。
+    const isProbe = (el: Element | null): boolean =>
+      String(el?.getAttribute('data-comp-thumb') ?? '').startsWith('__');
+    const thumbs = ([...document.querySelectorAll('[data-comp-thumb]')] as HTMLElement[]).filter((t) => !isProbe(t));
+    const cards = ([...document.querySelectorAll('[data-comp-item]')] as HTMLElement[]).filter(
+      (c) => !isProbe(c.querySelector('[data-comp-thumb]')),
+    );
     // 每张缩略图里都该有**真渲染出来的元素**（boundary 里不是空的），
     // 「标题」这一张还能具体验到：真的是个 <h2>（而不是图标/占位）
     const rendered = thumbs.filter((t) => !!t.firstElementChild?.firstElementChild).length;
@@ -3527,7 +3781,14 @@ async function interactionChecks(): Promise<Result[]> {
         rendered === thumbs.length &&
         headingReal &&
         gridCols() === '1',
-      `缩略图 ${thumbs.length} 张 / 卡片 ${cards.length} 张；有真内容的 ${rendered} 张；「标题」缩略图内含 <h2>=${headingReal}；网格列=${gridCols()}`,
+      `缩略图 ${thumbs.length} 张 / 卡片 ${cards.length} 张；有真内容的 ${rendered} 张${
+        rendered === thumbs.length
+          ? ''
+          : `（空的：${thumbs
+              .filter((t) => !t.firstElementChild?.firstElementChild)
+              .map((t) => t.getAttribute('data-comp-thumb') ?? '?')
+              .join('、')}）`
+      }；「标题」缩略图内含 <h2>=${headingReal}；网格列=${gridCols()}`,
     );
 
     const t0 = thumbs.find((t) => t.getBoundingClientRect().height > 0);

@@ -1,6 +1,6 @@
 ---
 name: visual-editor-plugin-dev
-description: 给本工作区的可视化编辑器（web-editor）新增/修改**组件与插件**时的规范与验收清单。适用场景：用户说"加一个组件 / 加个插件 / 改组件 / 组件不显示 / 注册不上 / 属性面板里没有这一项 / 热重载 / 外部组件 / 重载外部组件 / 组件要能拖进容器 / 表格类组件要能按单元格编辑 / 组件 schema / propSchema / EditorKit / live 前缀 / dryRun 校验"，或要把某个 A4 编辑器组件、某段 HTML 表格、某个业务卡片搬进编辑器。含：三种组件形态该放哪里、外部插件的硬性要求、EditorKit 完整 API、propSchema 控件与分组规范、七个分类、容器与表格的硬性约定、真实踩过的坑（jsx 签名 / live 前缀 / 裸节点空表 / 容器裁剪 / 二次缩放 / data-cell 标记…）、以及三步验证流程（重载外部组件 → DOM/面板核对 → ?check=1 自检；MCP 侧 plugin.validate + plugin.dryRun）。**不适用于**：与编辑器组件体系无关的纯 JS/React/TS 编码、可打印文档排版交付（用 a4-printable-html-doc）、DSH 自身的 Cordis 动态插件（用 cordis-plugin-development）。
+description: 给本工作区的可视化编辑器（web-editor）新增/修改**组件与插件**时的规范与验收清单。适用场景：用户说"加一个组件 / 加个插件 / 改组件 / 组件不显示 / 注册不上 / 属性面板里没有这一项 / 热重载 / 外部组件 / 重载外部组件 / 组件要能拖进容器 / 表格类组件要能按单元格编辑 / 组件 schema / propSchema / EditorKit / live 前缀 / dryRun 校验 / 暗色模式 / 深色主题 / 配色不适配"，或要把某个 A4 编辑器组件、某段 HTML 表格、某个业务卡片搬进编辑器。含：三种组件形态该放哪里、外部插件的硬性要求、EditorKit 完整 API、propSchema 控件与分组规范、七个分类、容器与表格的硬性约定、**暗色模式支持硬性要求（内容不跟主题 / 外壳必须跟、语义色令牌 `ui-ink` 系列、不许硬编码颜色与未覆盖的 `hover:`·`/xx` 变体、`npm run audit:dark` + `?check=1` 自动审计）**、真实踩过的坑（jsx 签名 / live 前缀 / 裸节点空表 / 容器裁剪 / 二次缩放 / data-cell 标记 / lines() 的 trim 吃掉行首缩进…）、以及三步验证流程（重载外部组件 → DOM/面板核对 → ?check=1 自检；MCP 侧 plugin.validate + plugin.dryRun）。**不适用于**：与编辑器组件体系无关的纯 JS/React/TS 编码、可打印文档排版交付（用 a4-printable-html-doc）、DSH 自身的 Cordis 动态插件（用 cordis-plugin-development）。
 ---
 
 # 可视化编辑器 · 组件 / 插件开发规范
@@ -131,7 +131,49 @@ K.register({
 * 想只暴露"单元格格式/行列数量"两个控件时，可用 `tableSchema` 生成后自己筛选，但**别自己造 `data-cell` 标记**——
   `renderTable` 已按 `data-cell="行,列"` 输出，单元格选择与格式定位都依赖它。
 
-## 7. 硬性禁令与真实踩过的坑（症状 → 原因 → 正确做法）
+## 7. 暗色模式支持（硬性要求）
+
+编辑器有**浅色**与**深色（Monokai）**两套主题，开关是 `<html data-theme="light|monokai">`。
+组件作者只需要记住一条分界线：
+
+| 你画的是什么 | 跟不跟主题 | 做法 |
+|---|---|---|
+| **画布内容**：纸张、Web 设备画布、组件渲染出来的最终外观（含左侧组件箱里的**缩略图预览**） | **不跟** | 颜色来自 `props` / 文档配置 —— 它是**要打印、要导出的成品**。`#1f2329` 这类"内容色"写死是**对的**，别改成主题色 |
+| **编辑器外壳**：面板、对话框、工具栏、浮层、属性控件、画布上的编辑态手柄/参考线 | **跟** | 用语义类或已被重映射的工具类；**绝不硬编码** |
+
+外壳里允许的三类写法（按推荐顺序）：
+
+1. **语义色类（首选，两边自动都对）**：`ui-bg` `ui-surface` `ui-raised` `ui-line` `ui-ink` `ui-ink-2` `ui-ink-3` `ui-accent`
+   —— 定义在 `src/index.css` 顶部，由 `--ui-*` 令牌驱动（`ui-ink-2` = 属性名那种次级文字，`ui-ink-3` = 分组标题/提示）。
+2. **已被重映射的 Tailwind 工具类**：`bg-white` `bg-gray-50/100/200/300/400` `border-line` `text-gray-400~900` `bg-primary` `text-primary` `bg-amber-50` `bg-red-50` `text-emerald-600` …（清单见 `index.css` 的 monokai 段）
+3. 结构性类（`flex` `h-7` `rounded` `truncate`…）随便用。
+
+### 三个真踩过的坑（症状 → 原因 → 正确做法）
+
+| 症状 | 原因 | 正确做法 |
+|---|---|---|
+| 暗色下多出一块浅色底板 / 一条浅色行，字看不清 | 用了**带透明度或带状态的变体**：`bg-amber-50/40`、`hover:bg-gray-50`、`disabled:bg-gray-50` —— Tailwind 给**每个不透明度和每个状态都生成独立类名**，只重映射基础类管不到它 | 换成不带 `/xx` 的类或语义类；确实要用就把该变体补进 `index.css` 的 monokai 段 |
+| 属性名 / 分组标题在暗色下几乎看不见（深灰配深底） | 用了**任意值类** `text-[#374151]` —— 这类根本不在重映射机制里 | 换 `ui-ink-2` / `ui-ink-3` / `text-gray-700` |
+| 焦点环、选中描边在暗色下还是另一种蓝 | `primary` 基色是写死的 `#1677ff`，而 `focus:border-primary`、`ring-primary`、`border-primary/30` 都是独立类名 | 用 `ui-accent`；或把这类变体补进 `index.css`（已补） |
+
+### 验收（改到外壳样式必做）
+
+```bash
+cd web-editor
+npm run audit:dark      # 源码级：列出"外壳里用到、但暗色重映射没覆盖"的颜色类；退出码 1 = 有漏项
+npx tsc -b && npm run build
+```
+
+* **`?check=1` 里有自动审计**（断言「暗色模式自动审计」）：切到 Monokai 后把**全部组件**（40+）逐个加进画布、
+  选中、**展开所有属性分组**，再连同左侧组件箱与「首选项 / 新建文档 / Markdown / 诊断」四个浮层一起遍历 DOM，检查
+  「外壳里没有浅色底板、没有对比度 < 2.0 的文字」；漏一处就 FAIL，note 里直接给出元素签名与两个颜色。
+  判据口径：**排除 `#canvas-viewport`（画布内容）与 `[data-comp-thumb]`（组件缩略图）**，它们白底是对的。
+* 目视复核：`http://127.0.0.1:5179/?theme=monokai`（可加 `&prefs=1` / `&new=1` 直接看浮层），需要时截图存 `logs/`。
+
+> 一句话给外部插件作者：**插件渲染的是画布内容，颜色照 `props` 写**（不要为了"跟主题"去读主题色）；
+> 只有当插件额外画**浮层/工具栏/编辑态装饰**时，才需要按上面第 1 条用语义类。
+
+## 8. 硬性禁令与真实踩过的坑（症状 → 原因 → 正确做法）
 
 | 症状 | 原因 | 正确做法 |
 |---|---|---|
@@ -148,6 +190,8 @@ K.register({
 | 分页测量把组件算错高 | 依赖了只在屏幕态存在的 DOM/交互 | 渲染要幂等、无副作用；编辑态装饰加 `no-print`；不要给节点加 `data-node-id` |
 | 组件把整个编辑器拖垮 | render 抛错未兜 | 每个节点都有错误边界（只降级该节点成红框），但**仍要修根因**：`?check=1` 会报渲染错误 |
 | 属性面板项不显示 | `control` 没实现 / `visibleWhen` 返回 false / `group` 不在默认展开的第一个分组 | 用已实现控件；需要常年可见就放到第一个分组 |
+| 子要点/分级没生效（"行首缩进表示层级"类组件） | 用了 `EditorKit.lines()` / `shared.lines()` —— 它**每行都 `trim()`**，行首空白被吃掉，级别恒为 0 | 用 `shared.indentedLines()`（保留行首空白再折算级别：2 空格 / Tab / 全角空格 = 一级） |
+| 暗色下浅色底板 / 看不见的字 | 硬编码颜色、任意值类 `text-[#xxx]`、未覆盖的 `hover:`·`/xx` 变体 | 见 §7：语义类 `ui-ink` 系列 + `npm run audit:dark` + `?check=1` 自动审计 |
 
 其它纪律：
 * 渲染里**不要缓存/读取编辑器内部对象**，只用传进来的 `props` 与 `ctx`。
@@ -179,8 +223,10 @@ K.register({
      再决定是"补沙箱 mock"还是"改插件"——**不要为了让 dryRun 过而删掉插件里的正常用法**。
    * `plugin.list / plugin.get / plugin.update / plugin.patch / plugin.create / plugin.template / plugin.logs`：列目录、读写、按锚点改、看 dryRun 日志。
 5. **构建校验**（改到内置组件或框架时）：`cd web-editor && npx tsc -b && npm run build` 必须 0 错误。
+6. **暗色模式**（碰了外壳样式、或组件里有浮层/编辑态装饰时）：`npm run audit:dark` 退出码 0，
+   并用 `?theme=monokai` 目视一遍（`?check=1` 里的自动审计会覆盖全部组件+浮层，见 §7）。
 
-## 9. 提交前清单
+## 10. 提交前清单
 
 - [ ] 文件在正确位置；外部插件已进 `public/组件/_manifest.json`。
 - [ ] `type` 有 `live` 前缀（外部插件）；`category` 是七个约定分类之一。
@@ -189,6 +235,8 @@ K.register({
 - [ ] 容器把 `children` 放进 DOM；Web 容器有裁剪层。
 - [ ] 表格类组件用 `renderTable/tableSchema`，没有自造 `data` 属性与 `data-cell` 标记。
 - [ ] 编辑态装饰带 `no-print`；没有全局副作用；没有 `data-node-id`。
+- [ ] **暗色**：外壳颜色走语义类/已重映射类，没有 `text-[#xxx]`、没有未补的 `hover:`·`/xx` 变体（`npm run audit:dark` 退出码 0）；
+      画布内容颜色仍按 `props` 写（内容**不**跟主题）。
 - [ ] 「重载外部组件」成功；`?check=1` 全绿；必要时补了断言。
 
 ## 附：模板
