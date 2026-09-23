@@ -12,6 +12,28 @@ import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
 import { findNode, getForest } from '../../store/treeUtils';
 import { mmToPx } from '../../utils/units';
+import { log } from '../../utils/logger';
+import {
+  parseTableData,
+  readCellBlock,
+  serializeTableData,
+  writeCellBlock,
+} from '../../registry/components/common/tableKit';
+import { fillSeries } from '../../registry/components/common/tableFill';
+
+/** 选区键集合 → 0 基矩形（含端点）；空集合返回 null */
+function cellRangeOf(cells: string[]): { r0: number; c0: number; r1: number; c1: number } | null {
+  const pts = cells
+    .map((k) => k.split(',').map((n) => Number(n)))
+    .filter((p) => p.length === 2 && p.every((n) => Number.isFinite(n)));
+  if (!pts.length) return null;
+  return {
+    r0: Math.min(...pts.map((p) => p[0])),
+    r1: Math.max(...pts.map((p) => p[0])),
+    c0: Math.min(...pts.map((p) => p[1])),
+    c1: Math.max(...pts.map((p) => p[1])),
+  };
+}
 
 interface Rect {
   x: number;
@@ -23,13 +45,54 @@ interface Rect {
 interface Geo {
   key: string;
   cells: Rect[];
+  /** 选中格的**并集矩形**（填充柄挂它的右下角；没有选中格时为 null） */
+  selBox: Rect | null;
+  /** 每个格的矩形（"行,列" → Rect）：填充预览框要按目标范围算并集 */
+  byKey: Record<string, Rect>;
   /** 每列右边界（最后一列除外）→ 手柄位置 */
   borders: { x: number; top: number; height: number }[];
   /** 每条行边界（最后一行除外）→ 行高手柄位置（B8：行高是整表一个值，拖任一条都改全表） */
   rowBars: { y: number; x: number; width: number; rowIndex: number; rowHeightPx: number }[];
 }
 
-const EMPTY: Geo = { key: '', cells: [], borders: [], rowBars: [] };
+const EMPTY: Geo = { key: '', cells: [], selBox: null, byKey: {}, borders: [], rowBars: [] };
+
+/** 一组格子的并集矩形（range 里的格都在 byKey 里） */
+function unionOf(byKey: Record<string, Rect>, range: { r0: number; c0: number; r1: number; c1: number }): Rect {
+  const list: Rect[] = [];
+  for (let r = range.r0; r <= range.r1; r += 1) {
+    for (let c = range.c0; c <= range.c1; c += 1) {
+      const rect = byKey[`${r},${c}`];
+      if (rect) list.push(rect);
+    }
+  }
+  if (!list.length) return { x: 0, y: 0, w: 0, h: 0 };
+  const x = Math.min(...list.map((r) => r.x));
+  const y = Math.min(...list.map((r) => r.y));
+  return { x, y, w: Math.max(...list.map((r) => r.x + r.w)) - x, h: Math.max(...list.map((r) => r.y + r.h)) - y };
+}
+
+/**
+ * 填充预览框的矩形：目标范围可能**超出**现有表格（填充会长出新行/新列），
+ * 所以先并集现有格，再按最后一行/最后一列的实测尺寸把多出来的行、列加上去。
+ */
+function extendedRect(geo: Geo, range: { r0: number; c0: number; r1: number; c1: number }): Rect {
+  const keys = Object.keys(geo.byKey);
+  if (!keys.length) return { x: 0, y: 0, w: 0, h: 0 };
+  const rows = keys.map((k) => Number(k.split(',')[0]));
+  const cols = keys.map((k) => Number(k.split(',')[1]));
+  const maxRow = Math.max(...rows);
+  const maxCol = Math.max(...cols);
+  const base = unionOf(geo.byKey, { r0: range.r0, c0: range.c0, r1: Math.min(range.r1, maxRow), c1: Math.min(range.c1, maxCol) });
+  const lastRowH = geo.byKey[`${maxRow},${range.c0}`]?.h ?? geo.byKey[`${maxRow},0`]?.h ?? 20;
+  const lastColW = geo.byKey[`${range.r0},${maxCol}`]?.w ?? geo.byKey[`0,${maxCol}`]?.w ?? 60;
+  return {
+    x: base.x,
+    y: base.y,
+    w: base.w + Math.max(0, range.c1 - maxCol) * lastColW,
+    h: base.h + Math.max(0, range.r1 - maxRow) * lastRowH,
+  };
+}
 
 function measure(host: HTMLElement, nodeId: string | null, selected: string[], zoom: number): Geo {
   const box = host.parentElement;
@@ -79,9 +142,31 @@ function measure(host: HTMLElement, nodeId: string | null, selected: string[], z
     rowHeightPx: r.height / z,
   }));
 
+  // 全部格子的矩形（预览框按目标范围算并集），以及选中格的并集（填充柄挂它右下角）
+  const byKey: Record<string, Rect> = {};
+  tableHost.querySelectorAll<HTMLElement>('[data-cell]').forEach((el) => {
+    const key = el.dataset.cell ?? '';
+    if (!key) return;
+    const r = el.getBoundingClientRect();
+    byKey[key] = { x: (r.left - boxRect.left) / z, y: (r.top - boxRect.top) / z, w: r.width / z, h: r.height / z };
+  });
+  const selRange = cellRangeOf(selected);
+  const selBox: Rect | null = selRange
+    ? unionOf(byKey, selRange)
+    : cells.length
+      ? {
+          x: Math.min(...cells.map((c) => c.x)),
+          y: Math.min(...cells.map((c) => c.y)),
+          w: Math.max(...cells.map((c) => c.x + c.w)) - Math.min(...cells.map((c) => c.x)),
+          h: Math.max(...cells.map((c) => c.y + c.h)) - Math.min(...cells.map((c) => c.y)),
+        }
+      : null;
+
   return {
     key: `${nodeId ?? ''}#${selected.join('|')}#${Math.round(z * 100)}#${borders.map((b) => Math.round(b.x)).join(',')}#${Math.round(top)},${Math.round(height)}#${rowBars.map((b) => Math.round(b.y)).join(',')}`,
     cells,
+    selBox,
+    byKey,
     borders,
     rowBars,
   };
@@ -94,6 +179,9 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
   const [geo, setGeo] = useState<Geo>(EMPTY);
   const [dragging, setDragging] = useState<number | null>(null);
   const [rowDrag, setRowDrag] = useState(false);
+  /** 填充柄拖拽中的预览（目标范围，0 基，含端点） */
+  const [fillPreview, setFillPreview] = useState<{ r0: number; c0: number; r1: number; c1: number } | null>(null);
+  const [fillDragging, setFillDragging] = useState(false);
 
   const selected = tableCells && tableCells.nodeId === nodeId ? tableCells.cells : [];
   const selectedKey = selected.join('|');
@@ -114,6 +202,8 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
      按下后就立刻移动的那一下会丢事件（手快/自动化都复现）。 */
   const drag = useRef<{ i: number; startX: number; w0: number; w1: number; tableW: number; minPct: number; all: number[] } | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  /** 填充柄拖动中的目标范围（onUp 里要读最新值，state 在闭包里是旧的） */
+  const fillPreviewRef = useRef<{ r0: number; c0: number; r1: number; c1: number } | null>(null);
 
   useEffect(() => () => cleanupRef.current?.(), []);
 
@@ -169,6 +259,73 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
   };
 
   const showHandles = !!nodeId && geo.borders.length > 0;
+
+  /* ── 填充柄（B16）──
+     选区右下角的小方块：往下/往右拖 → 按 `tableFill.continueSeries` 的规则续出内容
+     （数字 +1 递增、日期 +1 天、恒定差分继续等差、其它按源循环），松手时**一次**写回 props.data。
+     拖动过程中只画预览框（不写数据），所以历史里只有一条记录。 */
+  const startFill = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!nodeId || !geo.selBox) return;
+    const range = cellRangeOf(selected);
+    if (!range) return;
+    const box = geo.selBox;
+    const rowH = Math.max(8, box.h / Math.max(1, range.r1 - range.r0 + 1));
+    const colW = Math.max(8, box.w / Math.max(1, range.c1 - range.c0 + 1));
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const z = zoom || 1;
+    setFillDragging(true);
+    fillPreviewRef.current = null;
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = (ev.clientX - startX) / z;
+      const dy = (ev.clientY - startY) / z;
+      // 主方向判定：往哪边拖得多就按哪个轴续
+      // ★不夹到"现有行列"：填充柄本来就会**长出新的行/列**（writeCellBlock 会自动补行补列），
+      //   只做一个防手抖的上限（+200 行 / +50 列）。
+      const next =
+        Math.abs(dy) >= Math.abs(dx)
+          ? (() => {
+              const n = Math.min(200, Math.max(0, Math.round(dy / rowH)));
+              return n > 0 ? { r0: range.r0, c0: range.c0, r1: range.r1 + n, c1: range.c1 } : null;
+            })()
+          : (() => {
+              const n = Math.min(50, Math.max(0, Math.round(dx / colW)));
+              return n > 0 ? { r0: range.r0, c0: range.c0, r1: range.r1, c1: range.c1 + n } : null;
+            })();
+      fillPreviewRef.current = next;
+      setFillPreview(next);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      cleanupRef.current = null;
+      setFillDragging(false);
+      const target = fillPreviewRef.current;
+      fillPreviewRef.current = null;
+      setFillPreview(null);
+      if (!target) return;
+      // 源块 → 按规则续出目标块 → 一次写回（拖动过程中只画预览，不动数据，所以历史里只有一条）
+      const live = useEditorStore.getState();
+      const node = findNode(getForest(live.doc), nodeId);
+      const rows = parseTableData(node?.props.data);
+      const source = readCellBlock(rows, range.r0, range.c0, range.r1, range.c1);
+      const down = target.r1 > range.r1;
+      const count = down ? target.r1 - range.r1 : target.c1 - range.c1;
+      const block = fillSeries(source, count, down ? 'down' : 'right');
+      if (!block.length) return;
+      const anchorR = down ? range.r1 + 1 : range.r0;
+      const anchorC = down ? range.c0 : range.c1 + 1;
+      live.updateProps(nodeId, { data: serializeTableData(writeCellBlock(rows, anchorR, anchorC, block)) });
+      log.action('fillCells', { nodeId, count, dir: down ? 'down' : 'right' });
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    cleanupRef.current = onUp;
+  };
 
   /* ── 行高拖拽（B8）──
      `props.rowHeight` 是**整表一个值**（纯数字按 mm），所以拖任意一条行边界都改全表行高；
@@ -237,6 +394,41 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
           />
         ))}
 
+      {/* 填充柄（B16）：选区右下角的小方块，往下/往右拖按规则续内容（松手才写数据）
+          ★不依赖 `showHandles`：单列表格没有列边界手柄，但填充柄照样要有 */}
+      {!!nodeId && geo.selBox && (
+        <>
+          <div
+            data-fill-handle="1"
+            title="拖动填充：数字递增、日期 +1 天、恒定差分继续等差，其它按源循环"
+            onPointerDown={startFill}
+            className="pointer-events-auto absolute"
+            style={{
+              left: geo.selBox.x + geo.selBox.w - 4,
+              top: geo.selBox.y + geo.selBox.h - 4,
+              width: 8,
+              height: 8,
+              border: '1.5px solid #1677ff',
+              background: fillDragging ? '#1677ff' : '#fff',
+              cursor: 'crosshair',
+            }}
+          />
+          {fillPreview && (
+            <div
+              data-fill-preview="1"
+              className="pointer-events-none absolute"
+              style={{
+                left: extendedRect(geo, fillPreview).x,
+                top: extendedRect(geo, fillPreview).y,
+                width: extendedRect(geo, fillPreview).w,
+                height: extendedRect(geo, fillPreview).h,
+                border: '1.5px dashed #1677ff',
+                background: 'rgba(22,119,255,.06)',
+              }}
+            />
+          )}
+        </>
+      )}
       {/* 行高手柄（B8）：每条行边界一个，拖任意一条都改**整表**行高（props.rowHeight，mm） */}
       {showHandles &&
         geo.rowBars.map((b) => (

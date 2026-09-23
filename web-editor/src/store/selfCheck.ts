@@ -27,6 +27,7 @@ import { buildDocMarkdown } from '../utils/markdown';
 import { importHtml, importHtmlToDocument } from '../utils/htmlImport';
 import { buildPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FORMAT } from '../utils/pluginPackage';
 import { buildDocx, docxParts, isZip } from '../utils/export/docx';
+import { continueSeries, fillSeries } from '../registry/components/common/tableFill';
 import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest } from './treeUtils';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
@@ -3658,6 +3659,91 @@ async function interactionChecks(): Promise<Result[]> {
       'B15 .docx 字节可落盘（base64 写到运行目录 docs/，供 python-docx 外部复验）',
       !!saved?.ok && (saved?.bytes ?? 0) > 2000,
       saved?.ok ? `写入 ${saved.file}（${saved.bytes} 字节 base64）` : `落盘失败/无接口：${saved?.error ?? '（未托管）'}`,
+    );
+  }
+
+  /* B16 表格填充柄（拖选区右下角按规则续内容；筛选经确认**不做**） */
+  {
+    // ① 纯函数：序列规则
+    const cases: { label: string; got: string; want: string }[] = [
+      { label: '单格数字 → +1 递增', got: continueSeries(['1'], 3).join(','), want: '2,3,4' },
+      { label: '单格小数 → 保持小数位', got: continueSeries(['1.50'], 2).join(','), want: '2.50,3.50' },
+      { label: '恒定差分 → 继续等差', got: continueSeries(['1', '3', '5'], 2).join(','), want: '7,9' },
+      { label: '差分不恒定 → 按源循环', got: continueSeries(['1', '2', '9'], 4).join(','), want: '1,2,9,1' },
+      { label: '单格日期 → +1 天', got: continueSeries(['2026-09-23'], 2).join(','), want: '2026-09-24,2026-09-25' },
+      { label: '文字 → 原样重复', got: continueSeries(['甲'], 2).join(','), want: '甲,甲' },
+      { label: '向右填充按行推', got: JSON.stringify(fillSeries([['1', '2']], 2, 'right')), want: JSON.stringify([['3', '4']]) },
+      { label: '向下填充按列推（2 维源）', got: JSON.stringify(fillSeries([['1', '甲'], ['2', '乙']], 2, 'down')), want: JSON.stringify([['3', '甲'], ['4', '乙']]) },
+    ];
+    const wrong = cases.filter((c) => c.got !== c.want);
+    add(
+      'B16 填充序列规则（数字递增 / 等差继续 / 循环 / 日期 +1 天 / 按行按列推）',
+      wrong.length === 0,
+      wrong.length === 0
+        ? `8 条规则全部符合：${cases.map((c) => c.label).join('、')}`
+        : wrong.map((c) => `${c.label}：得到 ${c.got}，期望 ${c.want}`).join('；'),
+    );
+
+    // ② 画布上的填充柄：位置 + 拖动 + 只写一次
+    S().setMode('document');
+    S().clearAll();
+    const t16 = S().addComponent('table');
+    if (t16) S().updateProps(t16, { data: '值\n1', headerRow: true, cellStyles: {} });
+    await wait(460);
+    S().selectComponent(t16 ? [t16] : []);
+    S().selectTableCells(t16!, ['1,0']);
+    await wait(320);
+
+    const zoom16 = S().zoom || 1;
+    const handle16 = document.querySelector('[data-fill-handle="1"]') as HTMLElement | null;
+    const cell16 = document.querySelector(`[data-paper] [data-node-id="${t16}"] [data-cell="1,0"]`) as HTMLElement | null;
+    const hr16 = handle16?.getBoundingClientRect();
+    const cr16 = cell16?.getBoundingClientRect();
+    const atCorner =
+      !!hr16 && !!cr16 && Math.abs(hr16.left + hr16.width / 2 - cr16.right) <= 3 * zoom16 + 2;
+    add(
+      'B16 选中单元格后出现填充柄（贴着选区右下角）',
+      !!handle16 && atCorner,
+      `手柄=${!!handle16}；手柄中线与格子右边缘差 ${hr16 && cr16 ? Math.round(hr16.left + hr16.width / 2 - cr16.right) : '—'}px`,
+    );
+
+    const rowH16 = (cr16?.height ?? 24) * zoom16;
+    const hx = hr16 ? hr16.left + hr16.width / 2 : 0;
+    const hy = hr16 ? hr16.top + hr16.height / 2 : 0;
+    handle16?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: hx, clientY: hy, button: 0, pointerId: 11 }),
+    );
+    await wait(90);
+    window.dispatchEvent(
+      new PointerEvent('pointermove', { bubbles: true, clientX: hx, clientY: hy + rowH16 * 2 + 2, button: 0, pointerId: 11 }),
+    );
+    await wait(180);
+    const preview = document.querySelector('[data-fill-preview="1"]');
+    window.dispatchEvent(
+      new PointerEvent('pointerup', { bubbles: true, clientX: hx, clientY: hy + rowH16 * 2 + 2, button: 0, pointerId: 11 }),
+    );
+    await wait(340);
+    const filled = String(findNode(getForest(S().doc), t16 ?? '')?.props.data ?? '');
+    const lines16 = filled.split('\n').map((l) => l.trim());
+    const previewGone = !document.querySelector('[data-fill-preview="1"]');
+    add(
+      'B16 拖动填充柄往下 2 行：出现虚线预览框，松手后一次写回 props.data（1 → 2、3）',
+      !!preview && lines16.join('|') === '值|1|2|3' && previewGone,
+      `拖动中预览框=${!!preview}；data=「${lines16.join(' / ')}」（期望 值 / 1 / 2 / 3）；松手后预览已收=${previewGone}`,
+    );
+
+    // ③ 历史只有一条（撤销一次就回到填充前）
+    const undone = S().undo();
+    void undone;
+    await wait(220);
+    const afterUndo = String(findNode(getForest(S().doc), t16 ?? '')?.props.data ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .join('|');
+    add(
+      'B16 填充只记一条历史（Ctrl+Z 一次回到填充前）',
+      afterUndo === '值|1',
+      `撤销后 data=「${afterUndo}」（期望 值|1）`,
     );
   }
 
