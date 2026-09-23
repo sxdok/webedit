@@ -29,6 +29,12 @@ export interface ImportStats {
   guessed: number;
   /** 跳过的元素（脚本/样式/空段落…） */
   skipped: number;
+  /** 识别成「目录」组件的个数（原先是文字列表） */
+  tocFound: number;
+  /** 内嵌 `data:` 资源（图片 base64）个数 —— 这些是**真的带进来了** */
+  inlineAssets: number;
+  /** 指向外部地址（http/相对路径）的资源个数 —— 相对路径要看 HTML 自身的位置能否解析 */
+  remoteAssets: number;
 }
 
 export interface HtmlImportResult {
@@ -61,6 +67,30 @@ const TAG_MAP: Record<string, string> = {
 const SKIP_TAGS = new Set(['script', 'style', 'meta', 'link', 'title', 'head', 'noscript', 'template', 'svg', 'button']);
 /** 只递归、自己不成节点的容器 */
 const FLOW_TAGS = new Set(['div', 'section', 'article', 'main', 'body', 'header', 'footer', 'aside', 'span', 'figure-inner']);
+
+/** 资源地址：`data:` 原样保留；相对路径按 HTML 自身地址解析成绝对 URL（`?load=` 走 http 时能直接显示） */
+let baseHref: string | null = null;
+function resolveSrc(src: string): string {
+  const s = src.trim();
+  if (!s || s.startsWith('data:') || /^[a-z][\w+.-]*:/i.test(s)) return s;
+  if (!baseHref) return s;
+  try {
+    return new URL(s, baseHref).href;
+  } catch {
+    return s;
+  }
+}
+
+/** 这个容器是不是"文档目录"：含 目录/目 录/contents 字样的小标题，且里面有 ul/ol */
+function isTocContainer(el: Element): boolean {
+  const heads = [...el.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+  const hasTocHead = heads.some((h) => /^\s*(目\s*录|contents|table of contents)\s*$/i.test((h.textContent ?? '').trim()));
+  // 也认 `<nav class="toc">` / `id=toc` 这种显式写法
+  const explicit = /(^|[\s_-])toc($|[\s_-])/i.test(`${el.getAttribute('class') ?? ''} ${el.getAttribute('id') ?? ''}`);
+  if (!hasTocHead && !explicit) return false;
+  const list = el.querySelector('ol,ul');
+  return !!list && list.querySelectorAll('li').length >= 2;
+}
 
 function text(el: Element): string {
   return (el.textContent ?? '').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').trim();
@@ -178,13 +208,47 @@ function one(el: Element, mode: EditorMode, stats: ImportStats, warnings: string
   if (mapped === 'image') {
     // 兼容三种写法：裸 <img>、<figure><img>、导出物的 <div data-node-type="image"><figure>…
     const img = tag === 'img' ? el : el.querySelector('img');
+    const src = resolveSrc(img?.getAttribute('src') ?? '');
     const n = node('image', mode, {
-      src: img?.getAttribute('src') ?? '',
+      src,
       alt: img?.getAttribute('alt') ?? '',
       caption: captionOf(el),
     });
     if (n) (typed ? (stats.typed += 1) : (stats.guessed += 1));
+    if (src.startsWith('data:')) stats.inlineAssets += 1;
+    else if (src) stats.remoteAssets += 1;
     return n ? [n] : [];
+  }
+
+  /**
+   * ★目录：`<h3>目录</h3><ol>…</ol>` 这类是**文档目录**，不是"Word 列表"。
+   *   （用户 2026-09-23 反馈："目录调用了 word 的列表，不是目录组件"）
+   *   识别条件：容器里含"目录/目 录/contents"字样的标题，且有个 ul/ol 兄弟 —— 那就用 `toc` 组件，
+   *   条目取 li 文本；条目里若带页码（如 `第一章 …… 1`）按 `标题|页码` 写进 `entries`。
+   */
+  if (isTocContainer(el)) {
+    const list = el.querySelector('ol,ul');
+    const items = [...(list?.querySelectorAll('li') ?? [])].map((li) => cleanItem(multiline(li))).filter(Boolean);
+    if (items.length) {
+      const entries = items
+        .map((raw) => {
+          const m = /^(.*?)[\s.·…]*?(\d+|[IVXLC]+)$/.exec(raw);
+          return m ? `${m[1].trim()}|${m[2]}` : raw;
+        })
+        .join('\n');
+      const titleEl = el.querySelector('h1,h2,h3,h4,h5,h6');
+      const t = node('toc', mode, {
+        entries,
+        title: titleEl ? text(titleEl) : '目　录',
+        showTitle: true,
+        showPageNumbers: true,
+      });
+      if (t) {
+        stats.guessed += 1;
+        stats.tocFound += 1;
+        return [t];
+      }
+    }
   }
 
   switch (mapped) {
@@ -292,9 +356,20 @@ function walk(el: Element, mode: EditorMode, stats: ImportStats, warnings: strin
 }
 
 /** 把整篇 HTML（字符串）导入成编辑器文档 */
-export function importHtml(html: string, opts: { mode?: EditorMode } = {}): HtmlImportResult {
+export function importHtml(html: string, opts: { mode?: EditorMode; baseUrl?: string } = {}): HtmlImportResult {
   const warnings: string[] = [];
-  const stats: ImportStats = { top: 0, total: 0, typed: 0, guessed: 0, skipped: 0 };
+  const stats: ImportStats = {
+    top: 0,
+    total: 0,
+    typed: 0,
+    guessed: 0,
+    skipped: 0,
+    tocFound: 0,
+    inlineAssets: 0,
+    remoteAssets: 0,
+  };
+  // 相对图片路径要有个基准：优先调用方给的（`?load=` / 「从 URL 载入」的真实地址）
+  baseHref = opts.baseUrl ?? null;
   const doc = new DOMParser().parseFromString(html, 'text/html');
 
   // 模式判断：导出物有 @page …mm（文档模式）；Web 模式导出的是固定 px 画布容器
@@ -310,6 +385,11 @@ export function importHtml(html: string, opts: { mode?: EditorMode } = {}): Html
   const count = (list: ComponentNode[]): number =>
     list.reduce((n, x) => n + 1 + (x.children?.length ? count(x.children) : 0), 0);
   stats.total = count(components);
+  if (stats.remoteAssets && !baseHref) {
+    warnings.push(
+      `${stats.remoteAssets} 张图片用的是相对路径/外链，而这次导入没有"来源地址"（本地文件导入时会这样）—— 需要在图片属性里重新选文件或填完整地址`,
+    );
+  }
 
   return {
     title: asString(doc.title) || '导入的 HTML',
@@ -324,7 +404,7 @@ export function importHtml(html: string, opts: { mode?: EditorMode } = {}): Html
  * 导入结果 → 可载入的 `EditorDocument`（`?load=` 与「文件 → 打开 HTML」共用）。
  * 文档模式内容放 `document.components`；Web 模式放 `web.root.children`（都是编辑器里的真源）。
  */
-export function importHtmlToDocument(html: string, opts: { mode?: EditorMode; title?: string } = {}): {
+export function importHtmlToDocument(html: string, opts: { mode?: EditorMode; title?: string; baseUrl?: string } = {}): {
   doc: EditorDocument;
   result: HtmlImportResult;
 } {

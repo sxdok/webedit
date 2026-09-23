@@ -63,9 +63,17 @@ function renderNode(n: ComponentNode, ctx: RenderContext, mode: EditorMode): Rea
 
   const mt = asNumber(n.props.marginTop, 0);
   const mb = asNumber(n.props.marginBottom, 0);
+  const ml = asNumber(n.props.marginLeft, 0);
+  const mr = asNumber(n.props.marginRight, 0);
   const style: React.CSSProperties =
     mode === 'document'
-      ? { marginTop: mt ? mmToPx(mt) : undefined, marginBottom: mb ? mmToPx(mb) : undefined }
+      ? {
+          marginTop: mt ? mmToPx(mt) : undefined,
+          marginBottom: mb ? mmToPx(mb) : undefined,
+          // 左右边距（2026-09-23 新增）：与画布一致，导出物也按 mm 生效
+          marginLeft: ml ? mmToPx(ml) : undefined,
+          marginRight: mr ? mmToPx(mr) : undefined,
+        }
       : n.frame
         ? {
             position: 'absolute',

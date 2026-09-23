@@ -130,7 +130,11 @@ if (params.get('load')) {
         const res = await fetch(src, { cache: 'no-store' });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const html = await res.text();
-        const { doc, result } = m.importHtmlToDocument(html, { title: src.split('/').pop()?.replace(/\.html?$/i, '') });
+        const { doc, result } = m.importHtmlToDocument(html, {
+          title: src.split('/').pop()?.replace(/\.html?$/i, ''),
+          // 相对路径的图片按**这份 HTML 的地址**解析（?load= 走 http 时图片能直接显示）
+          baseUrl: new URL(src, location.href).href,
+        });
         useEditorStore.getState().loadDocument(doc);
         log.info('load', 'HTML 已载入编辑器', {
           来源: src,

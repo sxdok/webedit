@@ -117,12 +117,20 @@ function NodeViewInner({
   const hovered = !measure && hoveredId === node.id;
   const chrome = showChrome && !measure ? (selected ? 'node-selected' : hovered ? 'node-hover' : '') : '';
 
-  // ★上/下边距：所有组件统一属性（注册表自动补齐），在文档模式下按 mm 换算为 px 生效
+  // ★上/下/左/右四边距：所有组件统一属性（注册表自动补齐），在文档模式下按 mm 换算为 px 生效
   const mt = asNumber(node.props.marginTop, 0);
   const mb = asNumber(node.props.marginBottom, 0);
+  const ml = asNumber(node.props.marginLeft, 0);
+  const mr = asNumber(node.props.marginRight, 0);
   const spacing: React.CSSProperties =
-    mode === 'document' && (mt || mb)
-      ? { marginTop: ctx.mmToPx(mt), marginBottom: ctx.mmToPx(mb) }
+    mode === 'document' && (mt || mb || ml || mr)
+      ? {
+          marginTop: ctx.mmToPx(mt),
+          marginBottom: ctx.mmToPx(mb),
+          // 左右边距用 margin（不是 padding）：它影响的是"块在版心里占多宽"，与 Word 的左右缩进一致
+          ...(ml ? { marginLeft: ctx.mmToPx(ml) } : {}),
+          ...(mr ? { marginRight: ctx.mmToPx(mr) } : {}),
+        }
       : {};
 
   const webChild = mode === 'web' && node.frame;

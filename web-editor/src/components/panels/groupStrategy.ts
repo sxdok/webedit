@@ -51,8 +51,8 @@ export const PAGE_GROUP_HINTS: Record<string, string> = {
   页脚: '页脚区域：左/中/右三段文字 + 距页底、字号、颜色、分隔线。',
 };
 
-/** 通用属性（注册表统一补的上下边距）不参与专有属性分组，单独渲染在「通用属性」抽屉 */
-export const UNIVERSAL_KEYS = new Set(['marginTop', 'marginBottom']);
+/** 通用属性（注册表统一补的**四边边距**）不参与专有属性分组，单独渲染在「通用属性」抽屉 */
+export const UNIVERSAL_KEYS = new Set(['marginTop', 'marginBottom', 'marginLeft', 'marginRight']);
 
 export const CATEGORY_STRATEGY: Record<string, CategoryStrategy> = {
   'Word 常用': {

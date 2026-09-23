@@ -85,6 +85,11 @@ function layoutClasses(node: ComponentNode, mode: EditorMode): string {
   if (mt) out.push(`mt-[${mt}mm]`);
   const mb = asNumber(p.marginBottom, 0);
   if (mb) out.push(`mb-[${mb}mm]`);
+  // 左右边距（2026-09-23 新增）：与画布/HTML 导出同一口径
+  const ml = asNumber(p.marginLeft, 0);
+  if (ml) out.push(`ml-[${ml}mm]`);
+  const mr = asNumber(p.marginRight, 0);
+  if (mr) out.push(`mr-[${mr}mm]`);
   if (asBool(p.shadow, false)) out.push('shadow');
   const align = asString(p.align);
   if (align === 'center') out.push('text-center');

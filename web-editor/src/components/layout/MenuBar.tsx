@@ -82,9 +82,12 @@ export function MenuBar() {
         (r.warnings.length ? `\n\n提示：\n${r.warnings.slice(0, 8).map((w) => `· ${w}`).join('\n')}` : ''),
     );
   };
-  const importHtmlText = (html: string, src: string): void => {
+  const importHtmlText = (html: string, src: string, baseUrl?: string): void => {
     void import('../../utils/htmlImport').then((m) => {
-      const { doc, result } = m.importHtmlToDocument(html, { title: src.split(/[\\/]/).pop()?.replace(/\.html?$/i, '') });
+      const { doc, result } = m.importHtmlToDocument(html, {
+        title: src.split(/[\\/]/).pop()?.replace(/\.html?$/i, ''),
+        baseUrl,
+      });
       S().loadDocument(doc);
       log.info('load', 'HTML 已载入编辑器', { 来源: src, 模式: result.mode, 节点: result.stats });
       showImportResult(src, result, doc.title);
@@ -101,7 +104,7 @@ export function MenuBar() {
     try {
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      importHtmlText(await res.text(), url);
+      importHtmlText(await res.text(), url, url);
     } catch (e) {
       setNotice(`载入失败：${url}\n${e instanceof Error ? e.message : String(e)}\n\n（跨域地址需要对方允许 CORS；本工程自己的页面/导出物没有这个限制）`);
     }

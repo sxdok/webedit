@@ -7,7 +7,7 @@
  * 对应验收标准：1、2、3、4、5、7、9、10。
  */
 import { Type } from 'lucide-react';
-import { getAllComponents, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
+import { getAllComponents, getCategoriesByMode, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
 import { COMPONENT_MODULES, collectComponents } from '../registry/components';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
 import { CATEGORY_ORDER, pageLabel, type ComponentDefinition } from '../registry/types';
@@ -4010,6 +4010,104 @@ async function interactionChecks(): Promise<Result[]> {
       'B16 填充只记一条历史（Ctrl+Z 一次回到填充前）',
       afterUndo === '值|1',
       `撤销后 data=「${afterUndo}」（期望 值|1）`,
+    );
+  }
+
+  /* 2026-09-23 追加：四边距 / 图片多图化 / HTML 导入的目录与图片 */
+  {
+    // ① 通用属性：上下左右四个边距（注册表统一补，所有组件都有）
+    const all = getAllComponents();
+    const missing = all.filter((d) => !['marginTop', 'marginBottom', 'marginLeft', 'marginRight'].every((k) => d.propSchema.some((i) => i.key === k)));
+    add(
+      '通用属性：所有组件都有**上下左右四个边距**（mm，注册表统一补齐）',
+      all.length > 20 && missing.length === 0,
+      `组件 ${all.length} 个，缺边距的 ${missing.length} 个${missing.length ? `：${missing.slice(0, 5).map((d) => d.type).join(',')}` : ''}`,
+    );
+
+    // 面板里能看到 4 项；画布上真的生效（左边距 10mm ≈ 37.8px）
+    S().setMode('document');
+    S().clearAll();
+    const mNode = S().addComponent('paragraph');
+    if (mNode) S().updateProps(mNode, { marginLeft: 10, marginRight: 5, text: '四边距' });
+    await wait(460);
+    const propKeys = [...document.querySelectorAll('[data-prop-key]')].map((el) => el.getAttribute('data-prop-key'));
+    const el = document.querySelector(`[data-node-id="${mNode}"]`) as HTMLElement | null;
+    const cs = el ? getComputedStyle(el) : null;
+    add(
+      '四边距在属性面板可见、并在画布上生效（左边距 10mm → 37.8px，右边距 5mm → 18.9px）',
+      ['marginTop', 'marginBottom', 'marginLeft', 'marginRight'].every((k) => propKeys.includes(k)) &&
+        !!cs &&
+        Math.abs(Number.parseFloat(cs.marginLeft) - mmToPx(10)) < 2 &&
+        Math.abs(Number.parseFloat(cs.marginRight) - mmToPx(5)) < 2,
+      `面板有 4 项=${['marginTop', 'marginBottom', 'marginLeft', 'marginRight'].every((k) => propKeys.includes(k))}；计算样式 margin-left=${cs?.marginLeft} margin-right=${cs?.marginRight}（期望 ${mmToPx(10).toFixed(1)} / ${mmToPx(5).toFixed(1)}px）`,
+    );
+
+    // ② 图片组件：多图（一个组件搞定 2/3/4 张并排）
+    S().clearAll();
+    const gal = S().addComponent('image');
+    const pix = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    if (gal) S().updateProps(gal, { images: `${pix} | 图一\n${pix} | 图二\n${pix} | 图三`, columns: 3, gap: 12 });
+    await wait(460);
+    const gallery = document.querySelector(`[data-node-id="${gal}"] [data-image-gallery="1"]`) as HTMLElement | null;
+    const imgs = gallery?.querySelectorAll('img').length ?? 0;
+    const caps = gallery?.querySelectorAll('[data-gallery-caption]').length ?? 0;
+    add(
+      '图片组件支持**多图**（填「多图」+「列数」即可 3 张并排，每张各带图题）',
+      !!gallery &&
+        gallery.getAttribute('data-gallery-columns') === '3' &&
+        imgs === 3 &&
+        caps === 3 &&
+        (gallery.getAttribute('style') ?? '').includes('repeat(3'),
+      `网格列数=${gallery?.getAttribute('data-gallery-columns')}；<img> ${imgs} 个；图题 ${caps} 条`,
+    );
+
+    // 单图模式不受影响（老文档照旧）
+    if (gal) S().updateProps(gal, { images: '', src: pix, caption: '单图' });
+    await wait(400);
+    const single = document.querySelector(`[data-node-id="${gal}"] img`);
+    const stillGallery = document.querySelector(`[data-node-id="${gal}"] [data-image-gallery="1"]`);
+    add(
+      '图片组件清空「多图」后仍是单图模式（老文档/单图用法不受影响）',
+      !!single && !stillGallery && !!document.querySelector(`[data-node-id="${gal}"] [data-figure-caption="1"]`),
+      `单图 <img>=${!!single}、网格残留=${!!stillGallery}`,
+    );
+
+    // 并排双图：注册表里还在（老文档能开），但左侧面板不再出现
+    const pairDef = getComponent('imagePair');
+    const panelTypes = getCategoriesByMode('document').flatMap((c) => c.items.map((i) => i.type));
+    add(
+      '「并排双图」被「图片」多图取代：仍注册（老文档照常渲染），但**左侧面板不再出现**',
+      !!pairDef && pairDef.hidden === true && !panelTypes.includes('imagePair') && panelTypes.includes('image'),
+      `imagePair 仍注册=${!!pairDef}、面板里有 imagePair=${panelTypes.includes('imagePair')}、面板里有 image=${panelTypes.includes('image')}`,
+    );
+
+    // ③ HTML 导入：目录 → toc 组件；内嵌 data: 图片真的带进来；相对路径按 baseUrl 解析
+    const px = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    const html = `<html><head><title>导入验证</title></head><body>
+      <h1>第一章 概述</h1>
+      <section><h3>目　录</h3><ol><li>AGV 系统概述 1</li><li>车型选型与参数 3</li><li>设备清单 9</li></ol></section>
+      <figure><img src="${px}" alt="内嵌图"><figcaption>图 1-1 内嵌图</figcaption></figure>
+      <p><img src="images/a.png" alt="相对路径图"></p>
+    </body></html>`;
+    const imp = importHtml(html, { baseUrl: 'http://example.com/doc/plan.html' });
+    const types = imp.components.map((n) => n.type);
+    const tocNode = imp.components.find((n) => n.type === 'toc');
+    const absNode = imp.components.find((n) => String(n.props.src ?? '').includes('example.com'));
+    add(
+      'HTML 导入：`目录 + 有序列表` 识别成**目录组件**（不再是 Word 列表），条目按「标题|页码」写进 entries',
+      types.includes('toc') &&
+        !types.includes('list') &&
+        imp.stats.tocFound === 1 &&
+        String(tocNode?.props.entries ?? '').includes('AGV 系统概述|1'),
+      `类型序列=${types.join(',')}；toc 条目=「${String(tocNode?.props.entries ?? '').replace(/\n/g, ' / ')}」`,
+    );
+    add(
+      'HTML 导入：内嵌 `data:` 图片原样带进组件（不丢图），相对路径按 HTML 地址解析成绝对 URL',
+      imp.stats.inlineAssets === 1 &&
+        imp.stats.remoteAssets === 1 &&
+        !!imp.components.find((n) => n.type === 'image' && String(n.props.src).startsWith('data:')) &&
+        absNode?.props.src === 'http://example.com/doc/images/a.png',
+      `内嵌资源 ${imp.stats.inlineAssets} 个、外链/相对 ${imp.stats.remoteAssets} 个；相对路径解析为 ${String(absNode?.props.src ?? '（没找到）')}`,
     );
   }
 

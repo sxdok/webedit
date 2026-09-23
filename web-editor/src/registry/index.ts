@@ -11,9 +11,10 @@ import {
 const registry = new Map<string, ComponentDefinition>();
 
 /**
- * 规范化属性 schema：**所有组件统一具备"上边距 / 下边距"**（用户要求），
- * 并去掉各组件原本的四边 `margin`（避免与上下边距重复；左右缩进由各组件自己的属性负责）。
- * 由 NodeView 在文档模式下统一应用（见 NodeView.tsx），组件自身不需要改渲染代码。
+ * 规范化属性 schema：**所有组件统一具备"上下左右四个边距"**（用户 2026-09-23：
+ * 原来只有上下边距，现在补上左右），并去掉各组件原本的四边 `margin`（避免重复）。
+ * 由 NodeView 在文档模式下统一应用（见 NodeView.tsx），组件自身不需要改渲染代码；
+ * Web 模式用 frame 定位，四边距不参与布局（和上下边距一致）。
  */
 function normalizeSchema(def: ComponentDefinition): ComponentDefinition {
   const schema = def.propSchema ?? [];
@@ -24,9 +25,18 @@ function normalizeSchema(def: ComponentDefinition): ComponentDefinition {
       ...next,
       { key: 'marginTop', label: '上边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
       { key: 'marginBottom', label: '下边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
+      { key: 'marginLeft', label: '左边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
+      { key: 'marginRight', label: '右边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
+    ];
+  } else if (!has('marginLeft')) {
+    // 组件自己声明了上下边距（如 heading/divider）：按同样口径补左右
+    next = [
+      ...next,
+      { key: 'marginLeft', label: '左边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
+      { key: 'marginRight', label: '右边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
     ];
   }
-  const defaultProps = { marginTop: 0, marginBottom: 0, ...def.defaultProps };
+  const defaultProps = { marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0, ...def.defaultProps };
   return { ...def, propSchema: next, defaultProps };
 }
 
@@ -63,9 +73,11 @@ export interface ComponentCategory {
   items: ComponentDefinition[];
 }
 
-/** 按分组归类（顺序：CATEGORY_ORDER 优先，其余按出现顺序），供左侧面板抽屉展示 */
+/** 按分组归类（顺序：CATEGORY_ORDER 优先，其余按出现顺序），供左侧面板抽屉展示
+ *  ★`hidden: true` 的组件**不进左侧面板**（例如已被「图片」组件取代的「并排双图」）：
+ *    它们仍在注册表里，旧文档照常渲染、MCP 组件清单也照常能看到。 */
 export function getCategoriesByMode(mode: EditorMode): ComponentCategory[] {
-  const items = getComponentsByMode(mode);
+  const items = getComponentsByMode(mode).filter((d) => d.hidden !== true);
   const buckets = new Map<string, ComponentDefinition[]>();
   items.forEach((d) => {
     const list = buckets.get(d.category) ?? [];
