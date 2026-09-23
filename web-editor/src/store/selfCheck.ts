@@ -426,32 +426,74 @@ async function interactionChecks(): Promise<Result[]> {
   S().setMode('document');
   await wait(160);
 
-  /* ── 页眉/页脚编辑区排版：不溢出面板宽度、参数行不换行 ── */
+  /* ── 页面属性面板（未选中组件）：必须与组件面板**同一套规格** ──
+     抽屉（通用/专有/状态）+ 26px 分组 + 28px 属性行 + 固定 96px 属性名列 + 说明只在悬停气泡里。 */
   S().selectComponent([]); // 让右侧显示"页面属性"
   await wait(200);
-  const bandBox = document.querySelector('[data-band-editor="1"]') as HTMLElement | null;
-  if (bandBox) {
-    const boxOverflow = bandBox.scrollWidth - bandBox.clientWidth;
-    // "距页顶/底 + 字号" 那一行的子元素必须在同一行（offsetTop 相同）；只看带标记的行，避免把外层容器算进来
-    const rows = [...bandBox.querySelectorAll('[data-band-row="pos"]')];
-    const wrapped = rows.filter((r) => {
-      const kids = [...r.children] as HTMLElement[];
-      if (kids.length < 3) return false;
-      // 行是 items-center 垂直居中，不能用 offsetTop 相等判断；
-      // 正确的换行判据：子元素的垂直跨度明显超过"最高子元素的高度"
-      const tops = kids.map((k) => k.offsetTop);
-      const bottoms = kids.map((k) => k.offsetTop + k.offsetHeight);
-      const spread = Math.max(...bottoms) - Math.min(...tops);
-      const tallest = Math.max(...kids.map((k) => k.offsetHeight));
-      return spread > tallest + 6;
-    }).length;
-    add(
-      '页眉/页脚编辑区排版正常（不溢出、数值行不换行）',
-      boxOverflow <= 1 && wrapped === 0,
-      `溢出 ${boxOverflow}px，参数行 ${rows.length} 行，换行 ${wrapped} 行`,
+  {
+    const pagePanel = document.querySelector('[data-props-page="1"]') as HTMLElement | null;
+    // 折叠的分组先点开：审计要量全部属性行（默认只展开纸张/分页/分节页码）
+    pagePanel?.querySelectorAll('[data-prop-group="1"]').forEach((g) => {
+      if (!g.querySelector('[data-prop-list="1"]')) (g.querySelector('button') as HTMLButtonElement | null)?.click();
+    });
+    await wait(90);
+
+    const drawers = [...(pagePanel?.querySelectorAll('[data-drawer="1"]') ?? [])].map((d) =>
+      d.getAttribute('data-drawer-name'),
     );
-  } else {
-    add('页眉/页脚编辑区排版正常（不溢出、数值行不换行）', false, '未找到编辑区');
+    const groupNames = [...(pagePanel?.querySelectorAll('[data-prop-group="1"]') ?? [])].map((g) =>
+      g.getAttribute('data-group-name'),
+    );
+    const rows = [...(pagePanel?.querySelectorAll('[data-prop-row="1"]') ?? [])] as HTMLElement[];
+    const wantDrawers = ['通用属性', '专有属性', '状态'];
+    const wantGroups = ['纸张', '页边距', '版式', '分页', '分节页码', '页眉', '页脚'];
+    const missing = [...wantDrawers.filter((d) => !drawers.includes(d)), ...wantGroups.filter((g) => !groupNames.includes(g))];
+    add(
+      '页面属性面板结构：三抽屉（通用/专有/状态）+ 七个分组 + 全部属性行',
+      !!pagePanel && pagePanel.clientWidth > 100 && missing.length === 0 && rows.length >= 29,
+      pagePanel
+        ? `面板宽 ${pagePanel.clientWidth}px；抽屉 ${drawers.length}（${drawers.join('/')}）；分组 ${groupNames.length}；属性行 ${rows.length}；缺 ${missing.length ? missing.join('/') : '无'}`
+        : '未找到页面属性面板（data-props-page）',
+    );
+
+    const boxOverflow = pagePanel ? pagePanel.scrollWidth - pagePanel.clientWidth : -1;
+    const rowLabel = (r: HTMLElement) =>
+      (r.querySelector('[data-prop-label="1"]')?.textContent ?? '?').trim().slice(0, 8);
+    const rowOverflow = rows.filter((r) => r.scrollWidth > r.clientWidth + 1).map(rowLabel);
+    const wrapped = rows.filter((r) => {
+      const lab = r.querySelector('[data-prop-label="1"]') as HTMLElement | null;
+      return !!lab && lab.getBoundingClientRect().height > 18;
+    }).length;
+    // 非整行式属性行的属性名列必须正好 96px（规格 §3）
+    const badLabelW = rows
+      .filter((r) => r.dataset.propWide !== '1')
+      .filter((r) => {
+        const lab = r.querySelector('[data-prop-label="1"]') as HTMLElement | null;
+        if (!lab) return true;
+        return Math.abs(lab.getBoundingClientRect().width - 96) > 2;
+      }).length;
+    const tooTall = rows.filter((r) => r.dataset.propWide !== '1' && r.getBoundingClientRect().height > 40).length;
+    add(
+      '页面属性面板排版：无溢出 / 属性名列 96px / 无折行无超高行',
+      rows.length >= 29 && rowOverflow.length === 0 && wrapped === 0 && badLabelW === 0 && tooTall === 0 && boxOverflow <= 1,
+      `${rows.length} 行；横向溢出 ${rowOverflow.length}、属性名列非 96px ${badLabelW}、折行 ${wrapped}、超高 ${tooTall}；面板溢出 ${boxOverflow}px`,
+    );
+
+    // 规格 §7：说明默认隐藏 —— 面板里不铺说明文字，每个属性名都挂着气泡触发器
+    const prose = pagePanel ? pagePanel.querySelectorAll('p').length : -1;
+    const noTip = rows.filter((r) => !r.querySelector('[data-tip="1"]')).length;
+    add(
+      '页面属性说明默认隐藏（面板内无说明段落，属性名均可悬停出气泡）',
+      prose === 0 && rows.length >= 29 && noTip === 0,
+      `说明段落 ${prose} 个、缺气泡的属性行 ${noTip} 行`,
+    );
+
+    const bandBox = pagePanel?.querySelector('[data-band-editor="1"]') as HTMLElement | null;
+    add(
+      '页眉/页脚编辑区不溢出面板宽度',
+      !!bandBox && bandBox.scrollWidth - bandBox.clientWidth <= 1,
+      bandBox ? `溢出 ${bandBox.scrollWidth - bandBox.clientWidth}px` : '未找到编辑区（data-band-editor）',
+    );
   }
 
   /* ── 打印外壳审计：主行里除 main 以外的元素（面板/折叠把手等）必须都标了 no-print ── */
