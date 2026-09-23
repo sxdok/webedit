@@ -5,10 +5,11 @@
  * 只在这里碰 pointer 事件与几何计算；视觉部分由 SelectionBox / GuideLines / InsertIndicator 渲染。
  */
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import type { Frame } from '../../registry/types';
+import type { ComponentNode, Frame } from '../../registry/types';
 import { getComponent } from '../../registry';
 import { useEditorStore } from '../../store/editorStore';
-import { findNode, getForest } from '../../store/treeUtils';
+import { findNode, findParentId, getForest } from '../../store/treeUtils';
+import { absoluteFrame } from './WebCanvas';
 import type { HandleDir } from './ResizeHandles';
 import { DRAG_MIME } from '../panels/ComponentPanel';
 
@@ -113,21 +114,52 @@ export function useCanvasInteraction(opts: CanvasInteractionOptions): CanvasInte
     return index;
   }, [canvasRef]);
 
-  /** 命中测试：某坐标落在哪个容器的内容区里（用于拖入容器） */
+  /**
+   * 命中测试：某坐标落在哪个容器的内容区里（用于拖入容器）。
+   * ★必须扫**整叠元素**（elementsFromPoint）并跳过"正在被拖的节点及其子孙"：
+   *   被拖的节点一直跟着指针，用最顶层的 elementFromPoint 只会命中它自己 →
+   *   结果"拖到容器上"永远判定不出来（换父级永远不触发）。
+   */
   const containerAt = useCallback(
     (clientX: number, clientY: number): string | null => {
-      const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
-      if (!el) return null;
-      const host = el.closest('[data-node-id]') as HTMLElement | null;
-      if (!host) return null;
-      const id = host.getAttribute('data-node-id');
-      if (!id || id === draggingId) return null;
-      const node = findNode(getForest(useEditorStore.getState().doc), id);
-      if (!node) return null;
-      return getComponent(node.type)?.isContainer ? id : null;
+      const forest = getForest(useEditorStore.getState().doc);
+      const dragging = draggingId ? findNode(forest, draggingId) : null;
+      const subtree = new Set<string>();
+      const collect = (n: ComponentNode | null | undefined): void => {
+        if (!n) return;
+        subtree.add(n.id);
+        (n.children ?? []).forEach(collect);
+      };
+      collect(dragging);
+      for (const el of document.elementsFromPoint(clientX, clientY) as HTMLElement[]) {
+        const host = el.closest?.('[data-node-id]') as HTMLElement | null;
+        if (!host) continue;
+        const id = host.getAttribute('data-node-id');
+        if (!id || subtree.has(id)) continue; // 被拖的节点/它的子孙不算落点
+        const node = findNode(forest, id);
+        if (node && getComponent(node.type)?.isContainer) return id;
+      }
+      return null;
     },
     [draggingId],
   );
+
+  /**
+   * 组件若在**容器里**，返回它相对容器的可用范围（容器边框盒）。
+   * ★用户 2026-09-23：容器会裁掉越界内容，所以拖动/缩放时要把子组件**夹在容器内** ——
+   *   否则拖到边上，子组件的边框会被裁剪层切断（看着像坏了）。
+   */
+  const innerBoxOf = useCallback((id: string): { w: number; h: number } | null => {
+    const forest = getForest(useEditorStore.getState().doc);
+    const parentId = findParentId(forest, id);
+    if (!parentId) return null;
+    const parent = findNode(forest, parentId);
+    if (!parent?.frame || !getComponent(parent.type)?.isContainer) return null;
+    return { w: parent.frame.w, h: parent.frame.h };
+  }, []);
+
+  /** 夹进 [0, max]（max < 0 时取 0：子组件比容器还大时靠左上，超出部分由容器裁掉） */
+  const clampTo = (v: number, max: number): number => Math.max(0, Math.min(v, Math.max(0, max)));
 
   /* ══════════ 吸附计算 ══════════ */
 
@@ -280,7 +312,17 @@ export function useCanvasInteraction(opts: CanvasInteractionOptions): CanvasInte
           if (s.dir.includes('n')) y = bottom - h;
         }
         const rid = lastResizeId.current;
-        if (rid) store.updateFrame(rid, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+        if (rid) {
+          // 容器里的子组件不能缩放到超出容器（否则边框被裁掉）
+          const box = innerBoxOf(rid);
+          if (box) {
+            w = Math.min(w, Math.max(MIN_SIZE, box.w - x));
+            h = Math.min(h, Math.max(MIN_SIZE, box.h - y));
+            x = clampTo(x, box.w - w);
+            y = clampTo(y, box.h - h);
+          }
+          store.updateFrame(rid, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) });
+        }
         return;
       }
 
@@ -311,11 +353,19 @@ export function useCanvasInteraction(opts: CanvasInteractionOptions): CanvasInte
         const { dx, dy, v, h } = computeSnap(candidate, skip);
         setGuides({ v, h });
         s.frames.forEach((f, id) => {
-          store.updateFrame(id, { x: Math.round(f.x + dxRaw + dx), y: Math.round(f.y + dyRaw + dy) });
+          let nx = Math.round(f.x + dxRaw + dx);
+          let ny = Math.round(f.y + dyRaw + dy);
+          // 容器里的子组件夹在容器内（否则拖到边上会被裁剪层切断边框）
+          const box = innerBoxOf(id);
+          if (box) {
+            nx = Math.round(clampTo(nx, box.w - f.w));
+            ny = Math.round(clampTo(ny, box.h - f.h));
+          }
+          store.updateFrame(id, { x: nx, y: ny });
         });
       }
     },
-    [canvas.gridSize, computeSnap, indexAtY, snap, toCanvas],
+    [canvas.gridSize, computeSnap, clampTo, indexAtY, innerBoxOf, snap, toCanvas],
   );
 
   /* ══════════ 起手 ══════════ */
@@ -398,14 +448,34 @@ export function useCanvasInteraction(opts: CanvasInteractionOptions): CanvasInte
         if (s.moved) {
           // Web 模式：拖到容器上方 → 落入容器（成为子元素）
           const target = containerAt(e.clientX, e.clientY);
-          if (target && !s.frames.has(target)) store.reparentComponent(s.primaryId, target);
+          const parentId = findParentId(getForest(store.doc), s.primaryId);
+          if (target && target !== parentId && !s.frames.has(target)) {
+            /* ★换父级必须同时把坐标换算成"相对新容器"的，并夹在容器内：
+               子组件坐标是相对父容器的，只改树结构的话它会按原画布坐标跑到容器外
+               （容器裁剪后直接看不见）。这里用绝对框相减得到新局部坐标，一次提交。 */
+            const forest = getForest(store.doc);
+            const childAbs = absoluteFrame(forest, s.primaryId);
+            const parentAbs = absoluteFrame(forest, target);
+            const parentFrame = findNode(forest, target)?.frame;
+            if (childAbs && parentAbs && parentFrame) {
+              const frame = {
+                x: Math.round(clampTo(childAbs.x - parentAbs.x, parentFrame.w - childAbs.w)),
+                y: Math.round(clampTo(childAbs.y - parentAbs.y, parentFrame.h - childAbs.h)),
+                w: childAbs.w,
+                h: childAbs.h,
+              };
+              store.reparentComponent(s.primaryId, target, frame);
+            } else {
+              store.reparentComponent(s.primaryId, target);
+            }
+          }
         }
       }
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
       endInteraction();
     },
-    [containerAt, endInteraction, onPointerMove],
+    [clampTo, containerAt, endInteraction, onPointerMove],
   );
 
   /* ══════════ 面板拖入 ══════════ */

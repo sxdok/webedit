@@ -147,7 +147,13 @@ export interface EditorStore {
   updateFrame(id: string, frame: Partial<Frame>): void;
   removeComponent(id: string): void;
   moveComponent(id: string, newParentId: string | null, index: number): void;
-  reparentComponent(id: string, newParentId: string | null): void;
+  /**
+   * 换父容器（拖入容器 / 组件树拖拽）。
+   * `frame`：**相对新父容器**的新位置尺寸；Web 模式的子组件坐标是相对父容器的，
+   * 只改树结构不换算坐标的话，子组件会按原来的画布坐标跑到容器外（被裁剪后直接看不见）。
+   * 与树结构**一次提交**（一步历史），避免"先跳一下再归位"的闪动。
+   */
+  reparentComponent(id: string, newParentId: string | null, frame?: Partial<Frame>): void;
   duplicateComponent(id: string): void;
   selectComponent(ids: string[]): void;
   toggleSelect(id: string): void;
@@ -346,13 +352,21 @@ export const useEditorStore = create<EditorStore>()(
         commit(set, get, (doc) => setForest(doc, moveNode(getForest(doc), id, newParentId, index)))
       },
 
-      reparentComponent: (id, newParentId) => {
-        log.action('reparentComponent', { id, newParentId });
+      reparentComponent: (id, newParentId, frame) => {
+        log.action('reparentComponent', { id, newParentId, frame: frame ?? null });
         commit(set, get, (doc) => {
           const parent = newParentId ? findNode(getForest(doc), newParentId) : null;
           const index = parent?.children?.length ?? 0;
-          return setForest(doc, moveNode(getForest(doc), id, newParentId, index));
-        })
+          const moved = setForest(doc, moveNode(getForest(doc), id, newParentId, index));
+          if (!frame) return moved;
+          return setForest(
+            moved,
+            updateNode(getForest(moved), id, (n) => ({
+              ...n,
+              frame: { x: 0, y: 0, w: 100, h: 40, ...n.frame, ...frame },
+            })),
+          );
+        });
       },
 
       duplicateComponent: (id) => {

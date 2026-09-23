@@ -19,7 +19,7 @@ import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 import { parseTableHtml, serializeTableHtml } from '../registry/components/common/tableHtml';
 import { saveToRunDir } from '../utils/download';
-import { findNode, getForest } from './treeUtils';
+import { findNode, findParentId, getForest } from './treeUtils';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -500,6 +500,73 @@ async function interactionChecks(): Promise<Result[]> {
       !!clipStyle && clipStyle.overflow === 'hidden' && insideHitsChild && !outsideHitsChild && !!outsideEl,
       `裁剪层=${clipStyle ? `${clipStyle.position}/${clipStyle.overflow}` : '缺失'}；容器内命中子组件=${insideHitsChild}；超界处=${outsideEl ? `命中 ${outsideEl.tagName.toLowerCase()}${outsideEl.getAttribute('data-node-id') ? `#${outsideEl.getAttribute('data-node-id')}` : ''}（不是子组件）` : '视口外，未测到'}`,
     );
+
+    /* ── 子组件被**夹在容器内**（用户 2026-09-23：拖到边上会把边框截断）── */
+    {
+      S().selectComponent([childId]);
+      await wait(200);
+      const childEl = document.querySelector(`[data-node-id="${childId}"]`) as HTMLElement | null;
+      const contFrame = findNode(getForest(S().doc), contId)?.frame;
+      if (childEl && contFrame) {
+        const c = await centerOf(childEl);
+        pe('pointerdown', c.x, c.y, childEl);
+        pe('pointermove', c.x + 700, c.y + 500, window); // 远远拖出容器
+        pe('pointerup', c.x + 700, c.y + 500, window);
+        await wait(300);
+        const after = findNode(getForest(S().doc), childId)?.frame;
+        const inside =
+          !!after && after.x >= 0 && after.y >= 0 && after.x + after.w <= contFrame.w + 0.5 && after.y + after.h <= contFrame.h + 0.5;
+        add(
+          '容器内的子组件被夹在容器内（拖到边上不会截断边框）',
+          inside,
+          after
+            ? `容器 ${contFrame.w}×${contFrame.h}；子组件 x=${after.x} y=${after.y} w=${after.w} h=${after.h} → 右下角 ${after.x + after.w},${after.y + after.h}`
+            : '无 frame',
+        );
+      } else {
+        add('容器内的子组件被夹在容器内（拖到边上不会截断边框）', false, '找不到子组件/容器 frame');
+      }
+    }
+
+    /* ── 顶层组件**拖进容器**：换父级要换算坐标（保持视觉位置）并夹在容器内 ── */
+    {
+      S().setMode('web');
+      S().clearAll();
+      const c2 = S().addComponent('container');
+      if (c2) S().updateFrame(c2, { x: 60, y: 60, w: 320, h: 200 });
+      await wait(220);
+      const b2 = S().addComponent('button');
+      if (b2) S().updateFrame(b2, { x: 460, y: 300, w: 140, h: 36 });
+      await wait(280);
+      const btnEl = b2 ? (document.querySelector(`[data-node-id="${b2}"]`) as HTMLElement | null) : null;
+      const contEl2 = c2 ? (document.querySelector(`[data-node-id="${c2}"]`) as HTMLElement | null) : null;
+      if (btnEl && contEl2 && b2 && c2) {
+        const from = await centerOf(btnEl);
+        const to = await centerOf(contEl2);
+        pe('pointerdown', from.x, from.y, btnEl);
+        // 分两步移动：先靠近，再落在容器中心（更贴近真实拖拽）
+        pe('pointermove', (from.x + to.x) / 2, (from.y + to.y) / 2, window);
+        await wait(60);
+        pe('pointermove', to.x, to.y, window);
+        await wait(60);
+        pe('pointerup', to.x, to.y, window);
+        await wait(320);
+        const forest = getForest(S().doc);
+        const movedParent = findParentId(forest, b2);
+        const local = findNode(forest, b2)?.frame;
+        const abs = document.querySelector(`[data-node-id="${b2}"]`)?.getBoundingClientRect();
+        const contRect = contEl2.getBoundingClientRect();
+        const insideContainer =
+          !!abs && abs.left >= contRect.left - 1 && abs.top >= contRect.top - 1 && abs.right <= contRect.right + 1 && abs.bottom <= contRect.bottom + 1;
+        add(
+          '顶层组件拖进容器：换父级并换算坐标（留在容器内、位置不跳飞）',
+          movedParent === c2 && !!local && insideContainer,
+          `父容器=${movedParent ?? '根'}（期望 ${c2}）；局部 frame=${local ? `${local.x},${local.y} ${local.w}×${local.h}` : '无'}；画布上落在容器内=${insideContainer}`,
+        );
+      } else {
+        add('顶层组件拖进容器：换父级并换算坐标（留在容器内、位置不跳飞）', false, '插入容器/按钮失败');
+      }
+    }
   }
 
   /* ── 表格单元格：Web 模式下也能直接点选、直接改选另一格 ── */
