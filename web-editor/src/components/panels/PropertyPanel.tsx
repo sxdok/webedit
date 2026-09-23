@@ -342,6 +342,8 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
                   item={item}
                   value={node.props[item.key]}
                   nodeId={node.id}
+                  allProps={node.props}
+                  onPatch={(patch) => updateProps(node.id, patch)}
                   onChange={(v) => updateProps(node.id, { [item.key]: v })}
                 />
               ))}

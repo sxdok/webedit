@@ -1,15 +1,20 @@
 /**
- * 组件：图片（image）—— **单图 / 多图同一个组件**（2026-09-23 用户要求）。
+ * 组件：图片（image）—— **一个组件、一个图片入口：一行一张图**（2026-09-23 用户要求）。
+ *
+ * 面板形态：属性面板里**只有**一个"图片"字段，默认就是 1 行（行首写「图片1」，行尾一个 ＋）；
+ * 点 ＋ 在下面加一行（图片2、图片3…），新行行尾的 − 删掉那一行；最多 5 行。
+ * 没有独立的"单图/多图"字段了（`src`/`caption` 仅作为老文档的兜底，见下）。
  *
  * 为什么合并：以前"并排双图"是另一个组件（`imagePair`），要三图、四图就没辙了。
- * 现在「图片」组件自带**图集**能力：填「多图（每行一张）」+「列数」，2/3/4 张并排都靠属性调，
- * 每张还能各带一条图题。`imagePair` 仍保留（老文档要能打开），但它渲染的就是本文件的同一个图集实现，
+ * 现在「图片」组件自带**图集**能力：填几行 + 「列数」，2/3/4 张并排都靠属性调，每张还能各带一条图题。
+ * `imagePair` 仍保留（老文档要能打开），但它渲染的就是本文件的同一个图集实现，
  * 并已从左侧组件面板隐藏（新组件请用「图片」）。
  *
  * 数据形态：
- *   · 单图：`props.src` + `props.caption`（老样子，完全兼容）；
- *   · 多图：`props.images`（多行文本，每行 `地址` 或 `地址 | 图题`；地址里的 `|` 会被当成图题分隔符，
- *     data:URL / 路径里不会有 `|`）+ `props.columns`（列数）+ `props.gap`（间距）。
+ *   · 图集：`props.images`（多行文本，每行 `地址` 或 `地址 | 图题`；地址里的 `|` 会被当成图题分隔符，
+ *     data:URL / 路径里不会有 `|`）+ `props.columns`（列数）+ `props.gap`（间距）；
+ *   · 老的单图写法 `props.src` + `props.caption` 仍然照常渲染（老文档不受影响），
+ *     面板里会把它当作第 1 行显示，编辑后迁移进 `images`。
  */
 import { ImageIcon } from 'lucide-react';
 import type { ComponentDefinition, ComponentProps, RenderContext } from '../../types';
@@ -178,15 +183,18 @@ function ImageBody(props: ComponentProps, ctx: RenderContext) {
 
 export const imageComponent: ComponentDefinition = {
   type: 'image',
-  label: '图片（支持多图）',
+  label: '图片',
   category: '通用',
   supportedModes: ['document', 'web'],
   icon: ImageIcon,
-  description: '单图或**图集**：填「多图」+「列数」即可 2/3/4 张并排，每张各带图题；支持宽度/圆角/边框',
+  description: '一行一张图（默认 1 行，＋ 加行 / − 减行，最多 5 张）；多张时用「列数」并排，每张各带图题',
   defaultFrame: { x: 60, y: 160, w: 320, h: 160 },
   defaultProps: {
-    src: '',
+    /** 图片内容（一行一张）—— 面板唯一入口 */
     images: '',
+    /** ↓ 老字段：只作老文档/老 MCP 调用的兜底，面板不再显示；`caption` 在多张时是"整组图题" */
+    src: '',
+    caption: '',
     columns: 2,
     gap: 10,
     galleryWidth: 100,
@@ -198,29 +206,37 @@ export const imageComponent: ComponentDefinition = {
     borderRadius: 0,
     borderWidth: 0,
     borderColor: '#e5e7eb',
-    caption: '',
     captionSize: 10.5,
     captionColor: '#6b7280',
   },
   propSchema: [
-    { key: 'src', label: '图片（单图）', control: 'image', group: '内容', defaultValue: '', placeholder: '图片地址或 data:URL' },
+    /* 2026-09-23 用户要求：**只留这一个图片入口**（一行一张图，＋ 加行 / − 减行）。
+       原来的「图片（单图）」+「多图」两个字段、以及单独的「图题（单图）」都去掉了 ——
+       老文档里的 `src`/`caption` 仍在渲染端兜底，并在面板里当作第 1 行显示（见 ImageRowsControl）。 */
     {
       key: 'images',
-      label: '多图（一行一张：地址 + 图题；＋加行 / −减行，最多 5 张）',
+      label: '图片（一行一张，最多 5 张；＋ 加行 / − 减行）',
       control: 'imageRows',
       group: '内容',
       defaultValue: '',
     },
-    { key: 'columns', label: '列数（多图时生效，最多 5 列）', control: 'number', group: '尺寸', defaultValue: 2, min: 1, max: 5 },
-    { key: 'gap', label: '图间距 px（多图）', control: 'number', group: '尺寸', defaultValue: 10, min: 0, max: 80 },
-    { key: 'galleryWidth', label: '整体宽度 %（多图）', control: 'slider', group: '尺寸', defaultValue: 100, min: 20, max: 100, step: 5 },
-    { key: 'width', label: '宽度（单图；文档模式按 mm）', control: 'unit', group: '尺寸', defaultValue: 84, unit: 'mm', min: 5, max: 400 },
+    { key: 'columns', label: '列数（多张时生效，最多 5 列）', control: 'number', group: '尺寸', defaultValue: 2, min: 1, max: 5 },
+    { key: 'gap', label: '图间距 px（多张）', control: 'number', group: '尺寸', defaultValue: 10, min: 0, max: 80 },
+    { key: 'galleryWidth', label: '整体宽度 %（多张）', control: 'slider', group: '尺寸', defaultValue: 100, min: 20, max: 100, step: 5 },
+    { key: 'width', label: '宽度（单张；文档模式按 mm）', control: 'unit', group: '尺寸', defaultValue: 84, unit: 'mm', min: 5, max: 400 },
     { key: 'heightAuto', label: '高度自适应', control: 'switch', group: '尺寸', defaultValue: true },
     { key: 'height', label: '高度', control: 'number', group: '尺寸', defaultValue: 200, min: 20, max: 1200, visibleWhen: (p) => p.heightAuto === false },
-    { key: 'align', label: '对齐（单图）', control: 'align', group: '排版', defaultValue: 'center' },
-    { key: 'caption', label: '图题（单图；多图时作为整组图题）', control: 'text', group: '内容', defaultValue: '' },
+    { key: 'align', label: '对齐（单张）', control: 'align', group: '排版', defaultValue: 'center' },
     { key: 'captionSize', label: '图题字号', control: 'unit', group: '排版', defaultValue: 10.5, unit: 'pt', min: 6, max: 24 },
     { key: 'captionColor', label: '图题颜色', control: 'color', group: '排版', defaultValue: '#6b7280' },
+    {
+      key: 'caption',
+      label: '整组图题（多张时作为整组的总图题）',
+      control: 'text',
+      group: '排版',
+      defaultValue: '',
+      visibleWhen: (p) => parseImageLines(p.images).length > 1,
+    },
     { key: 'borderRadius', label: '圆角', control: 'number', group: '外观', defaultValue: 0, min: 0, max: 80 },
     { key: 'borderWidth', label: '边框宽', control: 'number', group: '外观', defaultValue: 0, min: 0, max: 20 },
     { key: 'borderColor', label: '边框色', control: 'color', group: '外观', defaultValue: '#e5e7eb' },

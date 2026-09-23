@@ -4200,7 +4200,7 @@ async function interactionChecks(): Promise<Result[]> {
     const imgs = gallery?.querySelectorAll('img').length ?? 0;
     const caps = gallery?.querySelectorAll('[data-gallery-caption]').length ?? 0;
     add(
-      '图片组件支持**多图**（填「多图」+「列数」即可 3 张并排，每张各带图题）',
+      '图片组件支持**多张**（多行 + 「列数」即可 3 张并排，每张各带图题）',
       !!gallery &&
         gallery.getAttribute('data-gallery-columns') === '3' &&
         imgs === 3 &&
@@ -4215,7 +4215,7 @@ async function interactionChecks(): Promise<Result[]> {
     const single = document.querySelector(`[data-node-id="${gal}"] img`);
     const stillGallery = document.querySelector(`[data-node-id="${gal}"] [data-image-gallery="1"]`);
     add(
-      '图片组件清空「多图」后仍是单图模式（老文档/单图用法不受影响）',
+      '图片组件清空图片行后回到单张兜底（老文档 src/caption 写法不受影响）',
       !!single && !stillGallery && !!document.querySelector(`[data-node-id="${gal}"] [data-figure-caption="1"]`),
       `单图 <img>=${!!single}、网格残留=${!!stillGallery}`,
     );
@@ -4224,7 +4224,7 @@ async function interactionChecks(): Promise<Result[]> {
     const pairDef = getComponent('imagePair');
     const panelTypes = getCategoriesByMode('document').flatMap((c) => c.items.map((i) => i.type));
     add(
-      '「并排双图」被「图片」多图取代：仍注册（老文档照常渲染），但**左侧面板不再出现**',
+      '「并排双图」被「图片」的多张取代：仍注册（老文档照常渲染），但**左侧面板不再出现**',
       !!pairDef && pairDef.hidden === true && !panelTypes.includes('imagePair') && panelTypes.includes('image'),
       `imagePair 仍注册=${!!pairDef}、面板里有 imagePair=${panelTypes.includes('imagePair')}、面板里有 image=${panelTypes.includes('image')}`,
     );
@@ -4259,10 +4259,11 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
-  /* 图片「多图」属性：按行编辑（默认 1 行 / ＋ 加行 / − 减行 / 最多 5 张） */
+  /* 图片属性：**只有"一行一张图"一个入口**（默认 1 行 / ＋ 加行 / − 减行 / 最多 5 张） */
   {
     S().setMode('document');
     S().clearAll();
+    const pix = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     const rowsNode = S().addComponent('image');
     if (rowsNode) S().updateProps(rowsNode, { images: 'a.png | 图一', columns: 2 });
     await wait(440);
@@ -4278,10 +4279,21 @@ async function interactionChecks(): Promise<Result[]> {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v);
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
+    const rowName = (i: number): string => String(document.querySelector(`[data-image-row-name="${i}"]`)?.textContent ?? '').trim();
     add(
-      '图片「多图」改成按行编辑：默认 1 行（地址 + 图题 + ＋ / −）',
-      !!rowsEl && count() === 1 && !!srcInput(1) && !!document.querySelector('[data-image-row-caption="1"]'),
-      `行数=${count()}；地址框=${!!srcInput(1)}；图题框=${!!document.querySelector('[data-image-row-caption="1"]')}`,
+      '图片属性只有"一行一张图"这一个入口：默认 1 行，行首写「图片1」，行尾 🖼（选本地文件）/ ＋ / −',
+      !!rowsEl &&
+        count() === 1 &&
+        !!srcInput(1) &&
+        !!document.querySelector('[data-image-row-caption="1"]') &&
+        !!document.querySelector('[data-image-row-file="1"]') &&
+        rowName(1) === '图片1',
+      `行数=${count()}；行首=「${rowName(1)}」；地址框=${!!srcInput(1)}；图题框=${!!document.querySelector('[data-image-row-caption="1"]')}；选文件按钮=${!!document.querySelector('[data-image-row-file="1"]')}`,
+    );
+    add(
+      '图片面板不再有单独的「图片（单图）」与「多图」两个字段（只剩这一个图片入口）',
+      !document.querySelector('[data-prop-key="src"]') && !!document.querySelector('[data-prop-key="images"]'),
+      `src 字段在面板里=${!!document.querySelector('[data-prop-key="src"]')}；images 字段在面板里=${!!document.querySelector('[data-prop-key="images"]')}`,
     );
 
     // ＋ 加行（点第 1 行的 +）
@@ -4292,9 +4304,9 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(260);
     const afterAdd = String(findNode(getForest(S().doc), rowsNode ?? '')?.props.images ?? '');
     add(
-      '点行尾 ＋ 加一行（第 2 行可单独填地址与图题，写回 props.images）',
-      count() === 2 && afterAdd.split('\n').length === 2 && afterAdd.includes('b.png | 图二'),
-      `行数=${count()}；props.images=「${afterAdd.replace(/\n/g, ' / ')}」`,
+      '点行尾 ＋ 加一行（新行行首「图片2」，地址与图题各填各的，写回 props.images）',
+      count() === 2 && rowName(2) === '图片2' && afterAdd.split('\n').length === 2 && afterAdd.includes('b.png | 图二'),
+      `行数=${count()}；第 2 行行首=「${rowName(2)}」；props.images=「${afterAdd.replace(/\n/g, ' / ')}」`,
     );
 
     // 加到 5 张后 ＋ 禁用；再点也不涨
@@ -4324,6 +4336,26 @@ async function interactionChecks(): Promise<Result[]> {
       '点行尾 − 减一行；只剩 1 行时 − 禁用（不会删空）',
       afterRemove === 4 && count() === 1 && oneRemove?.disabled === true,
       `减一次后 ${afterRemove} 行 → 连减到 ${count()} 行；最后一行 − 的 disabled=${String(oneRemove?.disabled)}`,
+    );
+
+    // 老文档：只填了 `src`（老的单图写法）—— 面板照样当第 1 行显示，一编辑就迁移进 `images`
+    S().clearAll();
+    const oldNode = S().addComponent('image');
+    if (oldNode) S().updateProps(oldNode, { images: '', src: pix, caption: '老图题' });
+    await wait(440);
+    S().selectComponent(oldNode ? [oldNode] : []);
+    await wait(340);
+    const legacySrcBox = document.querySelector('[data-image-row-src="1"]') as HTMLInputElement | null;
+    const legacyCapBox = document.querySelector('[data-image-row-caption="1"]') as HTMLInputElement | null;
+    const legacyShown = legacySrcBox?.value === pix && legacyCapBox?.value === '老图题';
+    (document.querySelector('[data-image-row-add="1"]') as HTMLElement | null)?.click();
+    await wait(300);
+    const oldProps = findNode(getForest(S().doc), oldNode ?? '')?.props ?? {};
+    const migrated = String(oldProps.images ?? '');
+    add(
+      '老文档（只有单图 src/caption）在面板里当第 1 行显示，一编辑就迁移进 images 并清空 src',
+      legacyShown && migrated.includes(pix) && migrated.includes('老图题') && oldProps.src === '',
+      `老图显示为第 1 行=${legacyShown}（地址框${legacySrcBox ? '有' : '无'}值、图题框值=「${legacyCapBox?.value ?? ''}」）；迁移后 images 第 1 行=「${migrated.split('\n')[0].slice(0, 40)}…」、src=「${String(oldProps.src ?? '')}」`,
     );
   }
 

@@ -2,7 +2,7 @@
  * 组件：并排双图（imagePair）—— **保留给老文档，已从左侧面板隐藏**。
  *
  * 2026-09-23 用户要求：多图不该是另一个组件，应该用「图片」组件调属性就能实现。
- * 所以「图片（image）」现在自带图集能力（`images` + `columns`，2/3/4 张都行），
+ * 所以「图片（image）」现在自带图集能力（`images` 一行一张 + `columns`，2/3/4 张都行），
  * 本组件退化为"它的 2 列预设"：渲染走同一个 `renderImageGallery`，
  * 数据仍是老的 `srcs` / `caps`（每行一张）→ 已存在的文档照常打开、照常编辑。
  *
@@ -50,11 +50,11 @@ const propSchema: PropSchemaItem[] = [
 
 export const imagePairComponent: ComponentDefinition = {
   type: 'imagePair',
-  label: '并排双图（旧，建议用「图片」的多图）',
+  label: '并排双图（旧，建议用「图片」的行编辑器）',
   category: '通用',
   supportedModes: ['document', 'web'],
   icon: Columns2,
-  description: '多张图片并排（老组件，保留兼容）；新文档请用「图片」组件填「多图」+「列数」',
+  description: '多张图片并排（老组件，保留兼容）；新文档请用「图片」组件（一行一张图 + 「列数」）',
   defaultFrame: { x: 40, y: 200, w: 560, h: 200 },
   propSchema,
   defaultProps: defaultsOf(propSchema, { srcs: '\n' }),

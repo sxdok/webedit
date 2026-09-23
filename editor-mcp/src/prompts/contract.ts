@@ -41,8 +41,8 @@ export const DOC_RULES = `## 一、选组件（别用相近的东西顶替）
 | 内容 | 用哪个组件 | 说明 |
 |---|---|---|
 | 目录 / 目 录 / Contents | **\`toc\`（目录）** | 条目写 \`entries\`，每行 \`标题|页码\`；**不要**用 \`list\`/\`bullets\` 冒充目录 |
-| 图片（单张） | \`image\` | \`src\` + \`caption\`（图题）；宽度 \`width\`（文档模式 mm） |
-| 图片（2/3/4 张并排） | **\`image\` 的多图模式** | \`images\`：每行 \`地址 或 地址 | 图题\`；\`columns\`=列数；**不要**再新建 \`imagePair\`（它只为老文档保留） |
+| 图片（1 张） | \`image\` | 面板里图片只有**一个入口**：一行一张图（默认 1 行）。写 \`images\` 一行，或写老字段 \`src\`；宽度 \`width\`（文档模式 mm） |
+| 图片（2~5 张并排） | **\`image\`（同一个组件）** | \`images\`：每行 \`地址 或 地址 | 图题\`（一行 = 一张 = 面板里一行）；\`columns\`=列数（1~5）；**不要**再新建 \`imagePair\`（它只为老文档保留） |
 | 有序/无序列表 | \`list\`（\`ordered: true\` 为编号）/ \`bullets\` | 列表 ≠ 目录 |
 | 表格 | \`table\` / \`threeLineTable\` / \`paramTable\` / \`detailTable\` / \`checkTable\` | 单元格内容用 A1 记法逐格改；没有整块「数据」属性行 |
 | 标题层级 | \`heading\` + \`level\`(1~6) | 章标题用 level=1，节标题 level=2 |
@@ -53,8 +53,10 @@ export const DOC_RULES = `## 一、选组件（别用相近的东西顶替）
 
 - 源里是**内嵌 data URL**（\`data:image/...;base64,...\`）→ 直接用；若在一份 HTML 里，
   用 **\`asset.embedFromHtml { htmlPath, index, nodeId }\`**（不给 index/nodeId 先列清单）把第 N 张嵌进节点；
-- 源是**本地图片文件** → **\`asset.embed { nodeId, path }\`**；
-- 源是**外链 URL** → 直接把完整 URL 写进 \`src\`；
+- 源是**本地图片文件** → **\`asset.embed { nodeId, path }\`**（默认写 \`src\`，面板里就显示成第 1 行）；
+- 源是**外链 URL** → 直接把完整 URL 写进 \`src\`（多张时写 \`images\` 里的一行）；
+- 想在同一个节点里放多张，用 \`property.set\` 写 \`images\`（每行一张，最多 5 行），
+  别连着调两次 \`asset.embed\`（第二次会覆盖第一张）；
 - 这三个入口都是**服务端**把 base64 写进节点，回包只给"字节数/格式"，
   **base64 不会进入模型上下文** —— 所以没有"为了省 token 而留占位符"的必要。
 - 目标尺寸大、又想省空间时，可以先用 \`asset.embed\` 嵌图，再用 \`property.set\` 调 \`width\`。
@@ -65,7 +67,7 @@ export const DOC_RULES = `## 一、选组件（别用相近的东西顶替）
 2. 按源顺序逐块 \`node.add\`：\`h1~h6\`→heading(level 对应)、\`p\`→paragraph、\`ol/ul\`→列表、
    **目录块→toc**、\`table\`→table、\`blockquote\`→quote、\`pre\`→code、\`hr\`→divider、\`img\`→image；
 3. 表格用 \`table.setData\` 一次写二维数组（\`|\` 转义成 \`\\|\`、格内换行 \`\\n\`）；
-4. 图片按上面「二」嵌入，图题写进 \`caption\`（源里的 \`figcaption\`/alt 就是图题）；
+4. 图片按上面「二」嵌入，图题写进那一行的 \`地址 | 图题\`（源里的 \`figcaption\`/alt 就是图题；单张写 \`caption\` 也行）；
 5. 页脚页码走页面属性；收尾 \`doc.summary\` + \`export.json\`；
 6. 编辑器在线时，先 \`doc.attach\` 让后续调用落到**编辑器正在编辑的那份文档**（否则走无头另存一份）。`;
 

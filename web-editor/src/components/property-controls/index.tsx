@@ -43,6 +43,10 @@ export interface ControlProps {
   onChange: (value: unknown) => void;
   /** children 控件需要知道自己在编辑哪个容器节点 */
   nodeId?: string;
+  /** 选中节点的**全部**属性（只读）：个别控件要参考同级属性（如图片行编辑器要看老字段 `src`） */
+  allProps?: Record<string, unknown>;
+  /** 一次写多个属性（可选）：需要"改自己的同时清理老字段"的控件用它，比 onChange 多写几个键 */
+  onPatch?: (patch: Record<string, unknown>) => void;
 }
 
 /** 已实现的控件类型（自检用它核对：组件 schema 里不允许出现未实现的 control） */
@@ -102,7 +106,7 @@ function NotImplemented({ control }: { control: string }) {
 
 
 /** 控件派发表：**每个控件一个文件**（规格 §12）；新增控件只需加一行 + 在 IMPLEMENTED_CONTROLS 里登记 */
-export function PropertyControl({ item, value, onChange, nodeId }: ControlProps) {
+export function PropertyControl({ item, value, onChange, nodeId, allProps, onPatch }: ControlProps) {
   const wide = WIDE_CONTROLS.has(item.control);
   /** 行的视觉/气泡统一由 PropertyRow 负责（这里只出控件本体） */
   const field = (children: React.ReactNode) => (
@@ -110,7 +114,7 @@ export function PropertyControl({ item, value, onChange, nodeId }: ControlProps)
       {children}
     </PropertyRow>
   );
-  const p = { item, value, onChange, nodeId };
+  const p = { item, value, onChange, nodeId, allProps, onPatch };
 
   switch (item.control) {
     case 'text':
