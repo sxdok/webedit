@@ -3113,6 +3113,35 @@ async function interactionChecks(): Promise<Result[]> {
         `共 ${pages} 页；单页 ${Math.round(onePage)}px；刻度高 ${Math.round(tickH)}px（期望 ≈ 内容总高 ${vp.scrollHeight}px）`,
       );
 
+      /* ★2026-09-24 用户反馈：26 页时纵向标尺数字"越数越长、挤成一片"、缩放后"变形"
+         → 纵向标尺改成**逐页分段、每页从 0 读数**；刻度步长**随缩放自适应**。 */
+      const vLabelNums = [...(vTicks?.querySelectorAll('span') ?? [])]
+        .map((s) => Number.parseInt(s.textContent ?? '', 10))
+        .filter((n) => Number.isFinite(n));
+      const zeroCount = vLabelNums.filter((n) => n === 0).length;
+      const maxLabel = vLabelNums.length ? Math.max(...vLabelNums) : -1;
+      add(
+        '文档模式纵向标尺**逐页从 0 开始**（每页 0…页高；26 页也不会把数字数到 7000+mm）',
+        zeroCount >= 2 && maxLabel > 0 && maxLabel <= Math.ceil(S().doc.document.page.height) + 1,
+        `共 ${pages} 页；出现 ${zeroCount} 次「0mm」；最大读数 ${maxLabel}mm（页高 ${S().doc.document.page.height}mm）`,
+      );
+      const majorOf = (): number =>
+        Number(document.querySelector('[data-ruler="v"]')?.getAttribute('data-ruler-major') ?? 0);
+      const zoomBack = S().zoom;
+      S().setZoom(1);
+      await wait(220);
+      const major100 = majorOf();
+      S().setZoom(0.4);
+      await wait(240);
+      const major40 = majorOf();
+      S().setZoom(zoomBack);
+      await wait(200);
+      add(
+        '标尺步长随缩放自适应：缩到 40% 时大格从 10mm 自动放大到 50mm（数字不再挤成一片）',
+        major100 === 10 && major40 > major100 && major40 % 10 === 0,
+        `100% 时大格 ${major100}mm / 40% 时大格 ${major40}mm`,
+      );
+
       // ★外部（MCP 走同一套 store 写入）继续写 → 预览自动跟到下一页
       vp.scrollTop = Math.max(0, vp.scrollHeight - vp.clientHeight); // 假装"正在看最后一页"
       await wait(120);

@@ -190,6 +190,12 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   /** 平移画布（PS 式手抓工具）：按住空格 + 拖拽，或中键拖拽；偏移存 store.ui.pan，**不夹边界** */
   const pan = useEditorStore((s) => s.ui.pan) ?? { x: 0, y: 0 };
   const setPan = useEditorStore((s) => s.setPan);
+  /**
+   * ★文档模式：量出**每一页**在内容里的区间（未缩放 px）。
+   *   纵向标尺用它做"逐页从 0 读数" —— 以前是整篇一根连续标尺，26 页就要一路数到 7000+mm，
+   *   数字越数越长、越挤（用户 2026-09-24 反馈）。纸张位置只能实测（分页是先量再切片的）。
+   */
+  const [pageSpans, setPageSpans] = useState<{ start: number; length: number }[]>([]);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const [panReady, setPanReady] = useState(false);
@@ -278,6 +284,38 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     }
     followRef.current.h = h;
   }, [isDoc, contentH, zoom, nodes.length, ui.docPageCount, activePageId]);
+
+  /**
+   * 量出文档模式下**每一页**的区间（未缩放 px，相对内容顶）：纵向标尺据此逐页从 0 读数。
+   * 纸张位置只能实测（分页是"先量全部节点、再切片"算出来的，量完还可能再变一次），所以补一帧 + 一次延迟兜底。
+   */
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!isDoc || !el) {
+      setPageSpans((prev) => (prev.length ? [] : prev));
+      return;
+    }
+    const measure = (): void => {
+      const base = el.getBoundingClientRect();
+      const z = useEditorStore.getState().zoom || 1;
+      const next = [...el.querySelectorAll('[data-paper]')].map((p) => {
+        const r = p.getBoundingClientRect();
+        return { start: Math.round((r.top - base.top) / z), length: Math.round(r.height / z) };
+      });
+      setPageSpans((prev) =>
+        prev.length === next.length && prev.every((s, i) => s.start === next[i].start && s.length === next[i].length)
+          ? prev
+          : next,
+      );
+    };
+    measure();
+    const raf = window.requestAnimationFrame(measure);
+    const t = window.setTimeout(measure, 180);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [isDoc, ref, zoom, nodes.length, page, activePageId, ui.docPageCount, ui.showRuler]);
 
   /** 适应宽度（只算画布预览的缩放，不动编辑器界面） */
   const fitWidth = () => {
@@ -484,7 +522,15 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
               data-ruler-ticks="v"
               style={{ transform: `translateY(${rulerOffset.y}px)`, height: contentH * zoom }}
             >
-              <Ruler mode={mode} length={contentH} zoom={zoom} orientation="vertical" thickness={RULER_H} />
+              <Ruler
+                mode={mode}
+                length={contentH}
+                /* ★文档模式：逐页分段、每页从 0 读数（用户 2026-09-24 要求） */
+                spans={isDoc ? pageSpans : undefined}
+                zoom={zoom}
+                orientation="vertical"
+                thickness={RULER_H}
+              />
             </div>
           </div>
         )}
