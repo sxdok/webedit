@@ -196,6 +196,20 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
    *   数字越数越长、越挤（用户 2026-09-24 反馈）。纸张位置只能实测（分页是先量再切片的）。
    */
   const [pageSpans, setPageSpans] = useState<{ start: number; length: number }[]>([]);
+  /**
+   * ★文档模式：内容比视口窄时 `margin:0 auto` 会把它**居中** —— 横向标尺的 0 必须跟着纸张左边缘走。
+   *   以前刻度从"视口左边缘"起算，纸张一居中就差出一个 auto margin（用户 2026-09-24 截图：顶部比例尺偏移）。
+   */
+  const insetRef = useRef(0);
+  const [leadInset, setLeadInset] = useState(0);
+  const measureInsets = useCallback((): void => {
+    const el = ref.current;
+    if (!el || !isDoc) return;
+    const layerEl = el.parentElement; // [data-pan-layer]：宽度 = 内容宽 × zoom，auto margin 就是内缩量
+    const inset = Math.max(0, Math.round(layerEl?.offsetLeft ?? 0));
+    insetRef.current = inset;
+    setLeadInset((prev) => (prev === inset ? prev : inset));
+  }, [isDoc, ref]);
   const spaceRef = useRef(false);
   const panRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const [panReady, setPanReady] = useState(false);
@@ -262,7 +276,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const onViewportScroll = (e: React.UIEvent<HTMLDivElement>): void => {
     const el = e.currentTarget;
     scrollRef.current = { x: el.scrollLeft, y: el.scrollTop };
-    if (hTickRef.current) hTickRef.current.style.transform = `translateX(${-el.scrollLeft}px)`;
+    if (hTickRef.current) hTickRef.current.style.transform = `translateX(${insetRef.current - el.scrollLeft}px)`;
     if (vTickRef.current) vTickRef.current.style.transform = `translateY(${-el.scrollTop}px)`;
   };
 
@@ -295,6 +309,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
       setPageSpans((prev) => (prev.length ? [] : prev));
       return;
     }
+    measureInsets();
     const measure = (): void => {
       const base = el.getBoundingClientRect();
       const z = useEditorStore.getState().zoom || 1;
@@ -315,7 +330,17 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
       window.cancelAnimationFrame(raf);
       window.clearTimeout(t);
     };
-  }, [isDoc, ref, zoom, nodes.length, page, activePageId, ui.docPageCount, ui.showRuler]);
+  }, [isDoc, ref, zoom, nodes.length, page, activePageId, ui.docPageCount, ui.showRuler, measureInsets]);
+
+  /** 视口尺寸变了（窗口缩放 / 拖面板分隔线）→ 居中内缩随之变，横向标尺要跟着重算 */
+  useEffect(() => {
+    if (!isDoc) return;
+    const vp = viewportRef.current;
+    if (!vp) return;
+    const ro = new ResizeObserver(() => measureInsets());
+    ro.observe(vp);
+    return () => ro.disconnect();
+  }, [isDoc, measureInsets]);
 
   /** 适应宽度（只算画布预览的缩放，不动编辑器界面） */
   const fitWidth = () => {
@@ -374,7 +399,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
       if (el) el.scrollTo({ left: 0, top: 0 });
       scrollRef.current = { x: 0, y: 0 };
       followRef.current.h = 0; // 换页/换模式后重新学一次内容高度
-      if (hTickRef.current) hTickRef.current.style.transform = 'translateX(0px)';
+      if (hTickRef.current) hTickRef.current.style.transform = `translateX(${insetRef.current}px)`;
       if (vTickRef.current) vTickRef.current.style.transform = 'translateY(0px)';
     } else {
       /**
@@ -444,7 +469,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
 
   const printDebug = new URLSearchParams(location.search).get('printdebug');
   /** 标尺刻度的偏移：文档模式=**滚动量的相反数**（内容左移，刻度跟着左移），Web 模式=平移量 */
-  const rulerOffset = isDoc ? { x: -scrollRef.current.x, y: -scrollRef.current.y } : pan;
+  const rulerOffset = isDoc ? { x: leadInset - scrollRef.current.x, y: -scrollRef.current.y } : pan;
   const R = ui.showRuler ? RULER_H : 0;
 
   const canvasBody = isDoc ? (
@@ -651,7 +676,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
               if (isDoc) {
                 if (el) el.scrollTo({ left: 0, top: 0 });
                 scrollRef.current = { x: 0, y: 0 };
-                if (hTickRef.current) hTickRef.current.style.transform = 'translateX(0px)';
+                if (hTickRef.current) hTickRef.current.style.transform = `translateX(${insetRef.current}px)`;
                 if (vTickRef.current) vTickRef.current.style.transform = 'translateY(0px)';
               } else {
                 setPan(centerPan(1));

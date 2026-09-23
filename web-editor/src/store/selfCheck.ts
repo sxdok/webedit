@@ -3142,6 +3142,22 @@ async function interactionChecks(): Promise<Result[]> {
         `100% 时大格 ${major100}mm / 40% 时大格 ${major40}mm`,
       );
 
+      /* ★横向标尺的 0 必须跟**纸张左边缘**对齐（用户 2026-09-24 截图：顶部比例尺偏移）
+         —— 内容比视口窄时 `margin:0 auto` 会把它居中，刻度必须把这个内缩算进去。 */
+      const hZeroX = (): number => {
+        const layer = document.querySelector('[data-ruler-ticks="h"]');
+        const zero = [...(layer?.querySelectorAll('span') ?? [])].find((s) => (s.textContent ?? '').trim() === '0mm');
+        const t = zero?.closest('div[style*="left"]');
+        return t ? t.getBoundingClientRect().left : Number.NaN;
+      };
+      const paperLeftX = document.querySelector('[data-paper]')?.getBoundingClientRect().left ?? Number.NaN;
+      const hDelta = hZeroX() - paperLeftX;
+      add(
+        '文档模式横向标尺的 0 与**纸张左边缘**对齐（内容居中时不再差一个 auto margin）',
+        Number.isFinite(hDelta) && Math.abs(hDelta) <= 2,
+        `纸张左边 x=${Math.round(paperLeftX)}；标尺 0mm x=${Math.round(hZeroX())}；差 ${Math.round(hDelta)}px`,
+      );
+
       // ★外部（MCP 走同一套 store 写入）继续写 → 预览自动跟到下一页
       vp.scrollTop = Math.max(0, vp.scrollHeight - vp.clientHeight); // 假装"正在看最后一页"
       await wait(120);
