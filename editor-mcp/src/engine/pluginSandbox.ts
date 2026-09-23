@@ -15,6 +15,13 @@
 import vm from 'node:vm';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import {
+  escapeCell as tkEscapeCell,
+  parseCellStyles as tkParseCellStyles,
+  parseColWidths as tkParseColWidths,
+  parseTableData as tkParseTableData,
+  serializeTableData as tkSerializeTableData,
+} from './tableKit.js';
 
 export interface PluginProblem {
   level: 'error' | 'warn';
@@ -195,8 +202,45 @@ export function dryRunPlugin(source: string, props?: Record<string, unknown>, si
     },
     defaultsOf: (schema: { key: string; defaultValue?: unknown }[]) =>
       Object.fromEntries((schema ?? []).map((s) => [s.key, s.defaultValue])),
-    defaultFrameOf: (schema: { key: string; defaultValue?: unknown }[]) =>
-      Object.fromEntries((schema ?? []).map((s) => [s.key, s.defaultValue])),
+    /**
+     * ★必须照编辑器的真实签名：`defaultFrameOf(w, h, x=40, y=40) → {x,y,w,h}`。
+     *   这里原本被写成"和 defaultsOf 一样按 schema 数组算"，于是**每个用了 defaultFrameOf 的插件
+     *   dryRun 都会报 `(schema ?? []).map is not a function`** —— 沙箱说谎比不校验更糟。
+     */
+    defaultFrameOf: (w: number, h: number, x = 40, y = 40) => ({ x, y, w, h }),
+    /**
+     * ★通用属性片段 `fontProps(size?)` / `boxProps()`：**编辑器的 EditorKit 一直有这两个**
+     *   （`registry/components/shared.ts`），而沙箱 mock 以前漏了 —— 于是用了通用属性片段的插件
+     *   （`templates/plugin-basic.js` 就是）dryRun 会报 `K.fontProps is not a function`，
+     *   让人误以为插件坏了（实际它在编辑器里正常）。这里按真实返回补齐，让 dryRun 的结论与编辑器一致。
+     *   它们只是"给属性面板用的 schema 片段"，返回数组即可，渲染不依赖。
+     */
+    fontProps: (fontSize = 12) => [
+      { key: 'fontFamily', label: '字体', control: 'font', group: '排版', defaultValue: '' },
+      { key: 'fontSize', label: '字号', control: 'unit', group: '排版', defaultValue: fontSize, unit: 'pt', min: 6, max: 72 },
+      {
+        key: 'fontWeight',
+        label: '字重',
+        control: 'select',
+        group: '排版',
+        defaultValue: 400,
+        options: [
+          { label: '常规 400', value: 400 },
+          { label: '加粗 700', value: 700 },
+        ],
+      },
+      { key: 'lineHeight', label: '行高', control: 'number', group: '排版', defaultValue: 1.5, min: 1, max: 3, step: 0.1 },
+      { key: 'letterSpacing', label: '字距', control: 'number', group: '排版', defaultValue: 0, min: -2, max: 8, step: 0.1 },
+    ],
+    boxProps: () => [
+      { key: 'background', label: '背景', control: 'color', group: '外观', defaultValue: 'transparent' },
+      { key: 'borderWidth', label: '边框宽', control: 'number', group: '外观', defaultValue: 0, min: 0, max: 12 },
+      { key: 'borderColor', label: '边框色', control: 'color', group: '外观', defaultValue: '#e5e7eb' },
+      { key: 'borderRadius', label: '圆角', control: 'number', group: '外观', defaultValue: 0, min: 0, max: 80 },
+      { key: 'shadow', label: '阴影', control: 'switch', group: '外观', defaultValue: false },
+      { key: 'padding', label: '内边距 px', control: 'number', group: '外观', defaultValue: 0, min: 0, max: 80 },
+      { key: 'margin', label: '外边距 px', control: 'number', group: '布局', defaultValue: 0, min: 0, max: 120 },
+    ],
     icon: () => () => null,
     boxStyle: () => ({}),
     typographyStyle: () => ({}),
@@ -211,6 +255,43 @@ export function dryRunPlugin(source: string, props?: Record<string, unknown>, si
     asEnum: <T,>(v: unknown, allowed: readonly T[], d: T) => (allowed.includes(v as T) ? (v as T) : d),
     mmToPx: (mm: number) => mm * 3.779527559,
     ptToPx: (pt: number) => (pt * 96) / 72,
+    /* ── 表格内核（编辑器 `EditorKit.renderTable/tableSchema` + tableKit 的解析函数）──
+       表格类插件现在靠它们拿到"和内置表格一样的单元格逻辑"，dryRun 必须也能跑：
+       这里用**同一套解析规则**（engine/tableKit 与编辑器 tableKit 是一致的）做最小实现。 */
+    parseTableData: (raw: unknown) => tkParseTableData(raw),
+    serializeTableData: (rows: string[][]) => tkSerializeTableData(rows),
+    escapeCell: (s: string) => tkEscapeCell(s),
+    parseCellStyles: (raw: unknown) => tkParseCellStyles(raw),
+    parseColWidths: (raw: unknown) => tkParseColWidths(raw),
+    tableSchema: (defaultData: string[][], variant: string) => [
+      { key: 'headerRow', label: '首行为表头', control: 'switch', group: '表格', defaultValue: true },
+      { key: 'headerCol', label: '首列为表头', control: 'switch', group: '表格', defaultValue: false },
+      { key: 'variant', label: '线条风格', control: 'select', group: '表格', defaultValue: variant ?? 'normal' },
+      { key: 'colWidths', label: '列宽（如 20,50,30）', control: 'text', group: '表格', defaultValue: '' },
+      { key: 'cellStyles', label: '单元格格式（点选单元格后可改）', control: 'cells', group: '单元格', defaultValue: {} },
+      { key: 'tableSize', label: '行 / 列数量', control: 'tableSize', group: '表格', defaultValue: null },
+      { key: 'html', label: 'HTML 源码', control: 'tableHtml', group: '表格', defaultValue: '' },
+      // 说明：编辑器侧 schema 已**不含「数据」属性行**（内容以单元格为主）；这里保持同样的形状
+      { key: '__defaultData', label: '（默认内容由 defaultProps.data 承载）', control: 'text', group: '表格', defaultValue: tkSerializeTableData(defaultData ?? []) },
+    ],
+    renderTable: (props: Record<string, unknown>) => {
+      const rows = tkParseTableData(props?.data);
+      return React.createElement(
+        'table',
+        null,
+        React.createElement(
+          'tbody',
+          null,
+          rows.map((r, i) =>
+            React.createElement(
+              'tr',
+              { key: i },
+              r.map((c, j) => React.createElement('td', { key: j, 'data-cell': `${i},${j}` }, c)),
+            ),
+          ),
+        ),
+      );
+    },
   };
 
   const sandbox: Record<string, unknown> = {

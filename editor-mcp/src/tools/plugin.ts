@@ -628,6 +628,23 @@ interface RenderContext {
   const React = window.EditorKit.React;   // ★编辑器只暴露 React（没有 reactJsxRuntime）
   window.EditorKit.register({ /* ComponentDefinition */ });
 })();
+
+// ── 表格类插件：直接用编辑器暴露的**表格内核**，就有和内置「表格」一样的单元格逻辑 ──
+//    renderTable(props, ctx)                 → 渲染真实 table（带 data-cell 标记，可点选/拖选单元格）
+//    tableSchema(二维数组, variant, opts)     → 表格属性 schema（含「单元格格式」「行 / 列数量」两个控件）
+//    parseTableData / serializeTableData / escapeCell / parseCellStyles / parseColWidths
+//    ★表格内容以**单元格**为主：schema 里没有「数据」整块文本属性，
+//      默认内容要自己给 defaultProps.data = serializeTableData(rows)（'\\|' 格内竖线、'\\n' 格内换行、A1 格式键）
+(function () {
+  const K = window.EditorKit;
+  const DATA = [['参数', '方案 A', '方案 B'], ['载重', '1000kg', '1500kg']];
+  K.register({
+    type: 'liveCompareTable', label: '对比表', category: 'Excel 表格', supportedModes: ['document', 'web'],
+    icon: 'Table', defaultProps: Object.assign(K.defaultsOf(K.tableSchema(DATA, 'hLines')), { data: K.serializeTableData(DATA) }),
+    propSchema: K.tableSchema(DATA, 'hLines'),
+    render: (props, ctx) => K.renderTable(props, ctx),
+  });
+})();
 `;
 
 export async function pluginTypes() {
@@ -639,6 +656,7 @@ export async function pluginTypes() {
         'type 必须以 live 开头，否则编辑器会拒绝注册（避免顶掉内置组件）。',
         "想用图标：jsx('span', { className }, '★') 或内联 SVG，不能 import lucide-react。",
         '容器组件必须把 render 的第三个参数 children 放进自己的 DOM，否则子组件不显示。',
+        '表格类插件用 EditorKit.renderTable + tableSchema 渲染/取 schema，即可获得与内置表格一致的**单元格编辑**（点选一格改内容、行/列数量增删）；表格内容不再有整块「数据」属性，默认内容用 defaultProps.data = serializeTableData(rows)。',
       ],
     }),
   );
