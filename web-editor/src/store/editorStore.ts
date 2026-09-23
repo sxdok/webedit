@@ -39,7 +39,7 @@ import {
 import { MergeGate, emptyHistory, pushHistory, redo, undo, type HistoryState } from './history';
 import { createId } from '../utils/id';
 import { log } from '../utils/logger';
-import { buildExportHtml, buildWordDoc } from '../utils/export/docExport';
+import { buildExportHtml } from '../utils/export/docExport';
 import { buildReactComponent } from '../utils/export/reactExport';
 
 /* ══════════════ 视图状态 ══════════════ */
@@ -63,10 +63,12 @@ export interface UIState {
   /** 新建文档对话框（文件 → 新建 / Ctrl+N）：先选模式再填参数（类似 PS 的新建） */
   newDocOpen: boolean;
   /**
-   * 组件箱是否显示**真渲染缩略图**（B9）：开=单列卡片带预览，关=原来的紧凑两列。
-   * 随 ui 持久化（默认开）。
+   * 组件箱是否显示**真渲染缩略图**（B9）：开=单列卡片带预览，关=紧凑两列（**默认关**，2026-09-23 用户要求）。
+   * 随 ui 持久化；在「视图 → 首选项…」里改（组件箱头部也留了一个快捷眼睛图标）。
    */
   compPreview: boolean;
+  /** 「首选项」对话框（视图 → 首选项…）：编辑器各项设置集中在这里 */
+  prefsOpen: boolean;
   /** Markdown 源码视图（B10，视图菜单打开；只读弹窗） */
   showMarkdown: boolean;
   /**
@@ -122,7 +124,8 @@ const initialUI: UIState = {
   rightWidth: 300,
   showDiagnostics: false,
   newDocOpen: false,
-  compPreview: true,
+  compPreview: false,
+  prefsOpen: false,
   showMarkdown: false,
   autoNumber: false,
   registryVersion: 0,
@@ -259,8 +262,8 @@ export interface EditorStore {
   importJSON(json: string): boolean;
   exportJSON(): string;
   exportHTML(): string;
-  /** 导出 Word（.doc，Word 可直接打开；版式按 @page 段落设置） */
-  exportWord(): string;
+  /* ★2026-09-23 用户要求：移除"导出 .doc"（HTML 版式的 Word），只保留真 .docx
+     （见 utils/export/docx.ts，菜单「文件 → 导出 Word（.docx）」）。 */
   exportReact(): string;
 }
 
@@ -851,12 +854,6 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
       exportHTML: () => {
         const out = buildExportHtml(get().doc, getForest(get().doc));
         log.info('store', 'exportHTML', { bytes: out.length, mode: get().doc.mode });
-        return out;
-      },
-
-      exportWord: () => {
-        const out = buildWordDoc(get().doc, getForest(get().doc));
-        log.info('store', 'exportWord', { bytes: out.length });
         return out;
       },
 

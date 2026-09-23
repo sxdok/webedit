@@ -44,6 +44,8 @@ npm run typecheck  # 只做类型检查
 | `?cell=1,0[;1,1]` | 再选中该表格的这些单元格（行列从 0 起），用于核对单元格格式 |
 | `?printdebug=1` | 打印时在纸面左上角渲染尺寸诊断块（排查分页/空白页） |
 | `?spec=1` | 生成「组件与属性说明清单」并写到运行目录 `docs/`（无 `/__save` 接口时改为下载） |
+| `?prefs=1` | 启动后打开「首选项」（编辑器设置集中在这里；截图/核对用） |
+| `?load=<url\|路径>` | 载入一份已有 HTML（本工程导出的 HTML 能**原样读回**；等价入口：文件 →「打开 HTML…」/「从 URL 载入 HTML…」） |
 
 > **本机沙箱注意**：`vite dev` / `vite preview` / `npm install` 都依赖 esbuild 启动子进程，
 > 在 DSH 的受限文件沙箱下会报 `spawn EPERM`（沙箱边界，不是代码问题）。两种做法：
@@ -92,7 +94,7 @@ web-editor/
    │   ├─ units.ts / id.ts / download.ts
    │   ├─ logger.ts                 分级日志 + 500 条环形缓冲 + 尾部落盘
    │   ├─ diagnostics.ts            诊断报告 / 状态快照
-   │   └─ export/                   docExport.ts（HTML / Word .doc）、reactExport.ts（React/TSX）
+   │   └─ export/                   docExport.ts（HTML）、docx.ts（真 .docx）、reactExport.ts（React/TSX）
    └─ components/
        ├─ layout/                   MenuBar / ToolBar / StatusBar / ModeSwitcher / useShortcuts
        ├─ panels/                   ComponentPanel / PropertyPanel / PagePropertyPanel / CanvasPropertyPanel /
@@ -173,10 +175,14 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 
 | 菜单项 | 产物 | 说明 |
 |---|---|---|
-| 导出 HTML | 单文件 `.html` | 自包含（组件内联样式 + 按需补一份最小 CSS，不依赖 Tailwind）；文档模式带 `@page` 与文档页边距；Web 模式是"设备尺寸容器 + 绝对定位"的忠实快照 |
-| 导出 Word（.doc） | `.doc` | Word 可直接打开的 HTML 版式，带 `xmlns:w` 命名空间与 `@page WordSection1`（纸张/页边距），段落/表格可继续编辑。Web 模式的绝对定位 Word 支持差，故按流输出 |
+| 导出 HTML | 单文件 `.html` | 自包含（组件内联样式 + 按需补一份最小 CSS，不依赖 Tailwind）；文档模式带 `@page` 与文档页边距；Web 模式是"设备尺寸容器 + 绝对定位"的忠实快照；每个顶层块带 `data-node-type`（可被「打开 HTML」/`?load=` 原样读回） |
+| 导出 Word（.docx） | `.docx` | **真 OOXML**（`word/document.xml` + `styles.xml` + `numbering.xml` + `sectPr` 纸张页边距，装进一个自带的最小 ZIP），Word/WPS/python-docx 都能打开；图片暂为占位文字 |
 | 导出 JSON / 导入 JSON | `.json` | 完整工程数据（两种模式内容） |
 | 导出 React 代码 | `.tsx` | 生成可独立使用的组件源码：语义标签 + Tailwind 任意值类（`absolute left-[120px]`、`w-[160px]`…）+ 内联样式兜底，不依赖本编辑器运行时 |
+| 打开 HTML（导入成组件）… / 从 URL 载入 HTML… | — | 把已有 HTML 读回编辑器（`?load=` 的可视化入口）：本工程导出物按 `data-node-type` 原样读回，常见结构 HTML（h1-h6/p/ul/ol/table/figure+img/blockquote/pre/hr）也能导入，`<script>`/`<style>` 跳过 |
+
+> ★2026-09-23 用户要求：**移除「导出 Word（.doc）」**（HTML 版式的 Word，Word 打开是「网页文档」，纸张/分页不是 Word 对象模型），
+> 只保留上面的真 `.docx`；`buildWordDoc` 及其页眉/页脚域代码辅助函数一并删除，不留死代码。
 
 ### 页眉 / 页脚 / 页码（都是**页面属性**，不是组件）
 
@@ -187,7 +193,23 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 - **三段式页码**（对齐 A4 编辑器的分节编号）：勾「首页（封面）不显示页码」+ 填「目录页数（罗马数字）」+「正文起始页」，
   例如封面 + 目录 1 页 + 正文从 1 开始 → 封面无、第 2 页 `I`、第 3 页起 `1、2、3…`。面板顶部会实时预览前 5 页的效果；
 - 算出为空页码的页（封面），其**页眉/页脚整块不渲染**（同 Word 的「首页不同」），不会出现"第 页 / 共 N 页"；
-- 导出 Word 时页眉页脚是真 Word 页眉页脚，变量写成 `PAGE` / `NUMPAGES` / `DATE` 域。
+- 页眉/页脚目前**只在 HTML 导出里按流渲染**（`.docx` 导出暂未写入 Word 的 header/footer 部件，见「十四」B15 备注）。
+
+---
+
+### 首选项（视图 → 首选项…）
+
+编辑器自己的设置**集中在一个弹窗**里（`ui.prefsOpen`，`?prefs=1` 可直接打开），全部读写 `store.ui`、随 ui 持久化：
+
+| 分组 | 设置项 |
+|---|---|
+| 组件箱 | 显示组件缩略图（**默认关**，紧凑两列；开则每张卡片真渲染一份预览）、显示组件树 |
+| 画布 | 显示网格、显示标尺、显示辅助线、对齐吸附、预览模式（隐藏编辑态装饰） |
+| 文档 | 图表按章编号（图 X-Y / 表 X-Y） |
+| 外观 | 界面主题（浅色 / 深色 Monokai） |
+| 面板 | 面板宽度（显示当前值，可一键恢复默认 左 240 / 右 300；也可直接拖分隔线） |
+
+底部有「**恢复默认设置**」一键还原。视图菜单里原有的同名勾选项保留（快捷开关），两处改的是同一个状态。
 
 ---
 
@@ -436,7 +458,7 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 三 | Canvas 分派 + PaperCanvas 分页预览 + WebCanvas 拖拽/缩放/旋转/吸附/辅助线/框选/多选 | ✅ 完成（含离屏测量分页、拖动排序插入指示线、容器落点高亮） |
 | 四 | 组件库（Word 常用 + PPT 专用 + Excel 表格 + 布局分页 + 通用 + Web 控件/容器） | ✅ 完成（**44 个内置** + 3 个外部插件；7 个分类，见「十二」） |
 | 五 | 组件树拖拽、导出 HTML/Word/React、快捷键、持久化、日志诊断、组件热加载 | ✅ 完成 |
-| 六 | 验收标准 1–10 逐条复核 | ✅ 完成（见「十一」；自检已从当年 52 条增长到 **207 条**，见「十四」） |
+| 六 | 验收标准 1–10 逐条复核 | ✅ 完成（见「十一」；自检已从当年 52 条增长到 **213 条**，见「十四」） |
 | 七+ | 后续各轮（A4 组件合入、Qt Designer 属性编辑器、Excel 式表格、容器裁剪、画布分页、新建文档、两份全组件示例、本工作区插件开发 Skill…） | ✅ 见「十、验证记录」逐轮条目与「十三」「十四」 |
 
 
@@ -496,12 +518,13 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 6 | 选中/悬停/拖拽/缩放/旋转/吸附/框选/多选可用（Web 模式） | ✅ | 自检「Web 拖动移动元素（真实 PointerEvent）」「Web 缩放手柄改变尺寸」「Web 框选能选中元素」；辅助线/网格/容器落点高亮 |
 | 7 | 文档模式可拖动排序、面板拖入按落点插入、分页符换页 | ✅ | 自检「文档模式拖动排序（插入指示线 + 真实 PointerEvent）」「分页符强制另起一页（纸张数 +1）」「上/下边距计入分页高度」 |
 | 8 | 撤销/重做覆盖所有改动，连续输入合并为一步 | ✅ | 自检「连续属性输入合并成一步」「历史栈上限 50 步」「模式切换可撤销/重做」 |
-| 9 | 导出 HTML 可在浏览器独立打开；导出 Word 可编辑 | ✅ | 自检「导出 HTML 是完整文档（@page + 正文内容）」「导出 Word(.doc) 含 Word 命名空间与页面设置」；另有「导出 React 代码可独立使用」 |
+| 9 | 导出 HTML 可在浏览器独立打开；导出 Word 可编辑 | ✅ | 自检「导出 HTML 是完整文档（@page + 正文内容）」「导出真 .docx：ZIP + OOXML 部件齐全」「.docx 内容正确」；另有「导出 React 代码可独立使用」 |
 | 10 | 出问题可定位（日志 + 诊断报告） | ✅ | 自检「日志记录了本次自检的动作」「日志带时间戳/级别/作用域」「window 运行时错误被捕获进日志」「诊断报告包含环境/状态/注册表/日志四段」 |
 
 **按设计保留的取舍（不是遗漏）**
 
-- 导出 Word 是 **`.doc`（Word HTML 版式，含真正的 `mso-element` 页眉/页脚与 PAGE/NUMPAGES 域）**，不是 OOXML `.docx`；真 docx 需要 OOXML 映射（见「十四」未做清单）。
+- ~~导出 Word 是 `.doc`（HTML 版式）~~ → **2026-09-23 已按用户要求移除**：现在只有真 `.docx`（OOXML，`utils/export/docx.ts`）。
+- `.docx` 里**图片暂为占位文字**（`[图片：alt]`）：内嵌图片要写 media 部件与关系，见「十四」B15 备注；页眉/页脚也还没写进 Word 的 header/footer 部件。
 - 导出的**独立 HTML 不含页眉页脚**：浏览器打印的内容流无法让页眉页脚按页重复（Chrome 不支持 `@page` margin box）；编辑器内打印与 Word 导出都有页眉页脚。
 - 打印需按画布下方提示设置（A4、100%、边距"无/默认"、勾选背景图形）。
 - 撤销栈上限 50 步（超出丢弃最早的记录）。
@@ -565,13 +588,15 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | Markdown 源码视图（文档 ↔ Markdown） | — | ✅ 已合入（单向：文档 → Markdown，只读弹窗 + 复制/下载；反向导入不在范围；见「十四」B10） |
 | `?load=` 载入任意已有 HTML 文档 | — | ✅ 已合入（`?load=<url\|路径>`；本工程导出的 HTML 因带 `data-node-type` 可原样读回，常见结构 HTML 也能导入；见「十四」B13） |
 | 富文本工具条（层级/字体/段落/表格/列表） | `richtext` 组件自带工具条；块级属性走属性面板 | ⚠ 实现方式不同，无独立工具条 |
-| 组件层自检 | `?check=1` **207 条**（A4 为 37 条） | ✅ 本工程覆盖更广 |
+| 组件层自检 | `?check=1` **213 条**（A4 为 37 条） | ✅ 本工程覆盖更广 |
 
 ### 3. 反向：本工程有、A4 没有的
 
 双模式（文档 + Web 设备画布）、绝对定位/缩放/旋转/吸附/辅助线/框选/多选、组件树与拖拽改层级、
 撤销重做栈（50 步）、分级日志与诊断报告、深色主题（Monokai）、导出 React/TSX、导出/导入 JSON、
-外部组件热加载（改文件不构建）、PPT 组件组。
+外部组件热加载（改文件不构建）、PPT 组件组、**首选项**（设置集中管理）、**真 `.docx` 导出**、
+**Markdown 源码视图**、**HTML 导入**（`?load=` 与「打开 HTML」）、**组件包导入/导出**、
+图表按章编号、表格排序/冻结首行/填充柄/按行行高、单元格键盘导航与双击改字。
 
 ### 4. 未合入项的优先级建议（**这是我的判断，不是既定需求**）
 
@@ -600,7 +625,7 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 三 | `PropertyDrawer`（通用 / 专有 / 状态三抽屉）+ `groupStrategy.ts` + 多选面板 | ✅ **完成**：三抽屉可折叠（断言 3/3 默认展开、上下边距在通用抽屉）；`groupStrategy.ts` 按类别给分组顺序与专属文案（Word / PPT / Excel 表格 / Web 控件 / Web 容器 五套 + 兜底）；`MultiSelectPanel`（位置尺寸批量、对齐、层级、删除）；**可见/锁定**在通用抽屉（锁定是编辑器态 `ui.lockedIds`）；状态抽屉 6 行只读 |
 | 四 | 表格专项 | ✅ **完成**：`cellStyles` 用 **Excel A1 记法 + 范围键**（兼容旧 `"行,列"`；插入/删除行列按 A1 平移）；`cells` 控件含垂直对齐、四边边框+色、**合并/拆分**（colSpan/rowSpan，被覆盖格不渲染）、整行/整列、清除；范围显示 `B2:C3`；行/列数量可改（失焦或回车提交）+ 区域拖选 + 插入/删除行列 + 列宽自适应 + 「清空内容」两次点击确认。**「数据」属性行已删除**（见「十四」C3） |
 | 五 | 行级/面板级 memo、快捷键、面板宽度拖拽、折叠状态持久化 | ⚠ **大部分完成**：行级 memo ✅（`PropertyRow`）、**折叠状态持久化** ✅（`ui.propClosed` + 断言）、**面板宽度拖拽** ✅（`PanelResizer`，夹 **180–560px**，双击恢复默认 —— 见「十四」C1）；**面板级 memo 与几个快捷键（Tab/Enter/F2/Ctrl+[ ]）当时未做，已列入「十四」B 清单** |
-| 六 | 按验收标准 1–10 自测并修复 | ✅ **完成**（见「十一」；并持续以 `?check=1` 回归，现 **207 条**） |
+| 六 | 按验收标准 1–10 自测并修复 | ✅ **完成**（见「十一」；并持续以 `?check=1` 回归，现 **213 条**） |
 
 ### 与规格的差距 → 现状
 
@@ -648,7 +673,7 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | 可用组件（按模式） | 文档模式 **43** / Web 模式 **45**（含外部插件） |
 | 属性控件 | **21 种**（各自一个文件；`IMPLEMENTED_CONTROLS`，B12 新增 `tableSort`、行高修正新增 `tableRowHeights`） |
 | 分类 | **7 类**：通用 / 布局分页 / Word 常用 / Excel 表格 / PPT 专用 / Web 控件 / Web 容器 |
-| 自检 | `?check=1` **207 条**（每次实现都会补断言，数字随之下涨） |
+| 自检 | `?check=1` **213 条**（每次实现都会补断言，数字随之下涨） |
 | 形态 | 双模式 + **画布分页（每页一份独立文档）** + 两份"全组件示例" + MCP 桥接 |
 
 ### C. 已按用户确认并入规格的 3 条调整
@@ -671,15 +696,15 @@ store 内部用 `getForest(doc)` / `setForest(doc, forest)` 把两种布局统�
 | B6 | 中 | **单元格键盘导航**（方向键移动活动格、`Tab` 下一格、`Enter` 跳「内容」框）+ **双击画布单元格**改字 | `useShortcuts.ts`、`useCellEdit.tsx` | ✅ 已完成 |
 | B7 | 中 | **图片宽度拖拽手柄**（文档模式右边缘拖动 → `props.width` mm） | `WidthOverlay.tsx`（纸张内覆盖层） | ✅ 已完成 |
 | B8 | 中 | **表格行高拖拽手柄**（**每行一个手柄**，拖哪一条只改那一行：`props.rowHeights[行号]` mm；`props.rowHeight` 退化为整表默认） | `TableOverlay.tsx`、`tableKit.parseRowHeights`、新 `tableRowHeights` 控件 | ✅ 已完成（2026-09-23 修正：原先拖任意边界都整表一起变 —— 用户反馈后改为按行覆盖，未覆盖的行用整表默认；面板可逐条清除） |
-| B9 | 中 | **组件箱缩略图**（每张卡片真渲染一份，指针事件隔离） | `ComponentPanel.tsx` + `ComponentThumb.tsx` | ✅ 已完成（默认开，卡片头部眼睛图标可切回紧凑两列；`ui.compPreview` 持久化） |
+| B9 | 中 | **组件箱缩略图**（每张卡片真渲染一份，指针事件隔离） | `ComponentPanel.tsx` + `ComponentThumb.tsx` + **首选项** | ✅ 已完成（**默认关**＝紧凑两列；在「视图 → 首选项…」里开，组件箱头部眼睛图标是同一开关的快捷入口；`ui.compPreview` 持久化） |
 | B10 | 中 | **Markdown 源码视图**（文档 → Markdown，只读 + 一键复制） | 新 `utils/markdown.ts` + 菜单/弹窗 | ⬜ 未开始 |
 | B11 | 中 | **图表按章编号**（图 X-Y / 表 X-Y，按 `heading(level=1)` 计章，经 `RenderContext` 注入） | `registry/numbering.ts` + `PaperCanvas`/`tableKit`/`image`/`chartBar` | ✅ 已完成（视图菜单开关，默认关；章前用连续编号「图 1」；`ui.autoNumber` 持久化） |
 | B12 | 难 | **表格排序（按列升/降）+ 冻结首行**（Web 模式 sticky；文档模式跨页已重复表头） | `tableKit`（`sortRows`/`remapCellStylesByOrder`）+ 新 `tableSort` 控件 | ✅ 已完成（排序在**渲染期**做、不动 `props.data`；单元格格式按行置换搬移；冻结首行仅 Web 模式生效） |
-| B13 | 难 | **`?load=` 载入已有 HTML 文档**（需 HTML → 组件映射；先支持本工程导出的 HTML） | `utils/htmlImport.ts` + `main.tsx` + 导出物加 `data-node-type` | ✅ 已完成（导出物带 `data-node-type` 可**原样读回**；常见结构 HTML 也能导入；脚本/样式跳过并记 warning） |
+| B13 | 难 | **`?load=` 载入已有 HTML 文档**（需 HTML → 组件映射；先支持本工程导出的 HTML） | `utils/htmlImport.ts` + `main.tsx` + 导出物加 `data-node-type` | ✅ 已完成（入口两处：URL `?load=`，以及**文件 →「打开 HTML（导入成组件）…」/「从 URL 载入 HTML…」**；导出物带 `data-node-type` 可**原样读回**，常见结构 HTML 也能导入，脚本/样式跳过并记 warning） |
 | B14 | 难 | **组件包导入/导出 UI**（导出全部插件源码为 JSON；导入时写回插件目录） | `utils/pluginPackage.ts` + `MenuBar` + 启动器 `/__savePlugin` | ✅ 已完成（导出下载 JSON 包；导入校验后写回 `public/组件/`，无接口则退化为会话内注册并如实提示；启动器已加 `/__savePlugin`，**需重启启动器才生效**） |
-| B15 | 难 | **真 `.docx`（OOXML）**（手写 OOXML + 最小 ZIP writer，或引入 `docx` 依赖） | `utils/export/docx.ts`（自带 STORE ZIP + OOXML，无第三方依赖） | ✅ 已完成（文件 →「导出 Word（.docx，真 OOXML）」；**外部复验**：python-docx 能打开 —— Heading 1 样式、表格 3×2、页面 210×297mm、页边距 25.4/31.7mm；图片仍是占位文字） |
+| B15 | 难 | **真 `.docx`（OOXML）**（手写 OOXML + 最小 ZIP writer，或引入 `docx` 依赖） | `utils/export/docx.ts`（自带 STORE ZIP + OOXML，无第三方依赖） | ✅ 已完成（文件 →「导出 Word（.docx）」；`.doc` 版式已按用户要求移除；**外部复验**：python-docx 能打开 —— Heading 1 样式、表格 3×2、页面 210×297mm、页边距 25.4/31.7mm；图片暂为占位文字） |
 | B16 | 难·需决策 | **填充柄**（拖选区右下角填充）与**筛选**（按列条件筛选行） | `registry/components/common/tableFill.ts` + `TableOverlay.tsx` | ⚠ **部分完成**：填充柄 ✅（数字 +1、日期 +1 天、恒定差分继续等差、其它循环；拖动只画虚线预览，松手一次写回、只记一条历史）；**筛选按用户 2026-09-23 决定不做**（隐藏行与"所见即所得排版/交付"冲突） |
 
 > 每个 B 项的实现都会同步：① 补/改 `?check=1` 断言；② 更新本表状态；③ `tsc -b` + `vite build` 0 错。
 >
-> **B1–B16 的验收断言**（都在 `src/store/selfCheck.ts` 的「B 清单」段，`?check=1` 共 206 条）：B1 用 `data-props-renders` 渲染计数探针 —— 在画布上移动鼠标（外层确实重渲染，光标读数跟着变）后面板渲染计数必须**不动**；B2 依次验证 `Tab`/`Shift+Tab`（含末尾循环）、`Ctrl+]`/`Ctrl+[` 层级、`Enter` 进子节点再回父容器；B3 双击标签出现 `data-page-rename-input`，输入并回车后标签与 `doc.title` 同步；B4 断言「表格」组内属性顺序为结构→数据→线条→尺寸→文字，且分组分割线数 = 分组数 − 1；B5 选中 `A1:A2` → `Ctrl+C` → 粘到 `B1` 得到 `A | A / C | C`；B6 断言方向键 / `Shift+方向键` / `Tab` / `Enter` 的落点与焦点，以及双击画布单元格出现 `data-cell-editor`（在缩放层内）后 `Enter` 写回 `props.data`、`Esc` 不写回；B7 拖宽手柄 40px → `props.width` 增加约 10.6mm（并验没有 mm 宽度属性的组件不出手柄）；B8 断言**按行**行高：拖第 1 条边界只第 1 行 +25px 且其它行一点不动、写入 `props.rowHeights["1"]`（`props.rowHeight` 整表默认不被改），再拖第 2 条两条共存、**最后一行也能单独拖**，属性面板「按行行高」列出并逐条清除（清掉后该行回到默认）；B9 缩略图张数 = 卡片数、每张都渲染出真元素、`pointer-events:none`、开关关掉后回到紧凑两列；B10 断言 Markdown 抬头/标题层级/项目符号缩进/表格管道表，以及弹窗出现与关闭；B11 断言「图 1-1 / 表 1-1 / 图 2-1 / 表 2-1」与把 `level=1` 降级后的重排（章前用连续编号「图 1」）；B12 断言数值列升/降序（`10` 不会排到 `2` 前）、排序不改 `props.data`、单元格格式跟着行走、冻结首行只在 Web 模式生成滚动外壳且表头 `position: sticky`；B13 断言导出 HTML 带 `data-node-type`、能原样读回（标题层级/列表条目/表格数据），以及常见结构 HTML 的导入（`<script>` 跳过并计数）；B14 断言组件包导出（3 个外部组件源码）、包自校验，以及**整包拒收**路径穿越 / 内部文件 / 非 `.js` / 空源码 / format 不对 / 空包；B15 断言 `.docx` 的 ZIP 头与 8 个 OOXML 部件、`sectPr`/Heading/表格/编号引用，并把字节 base64 落盘供 python-docx 外部复验；B16 断言填充序列规则（数字/小数/等差/循环/日期/按行/按列 8 条）+ 画布填充柄位置、拖动预览框、一次写回与**只记一条历史**。
+> **B1–B16 的验收断言**（都在 `src/store/selfCheck.ts` 的「B 清单」段，`?check=1` 共 213 条）：B1 用 `data-props-renders` 渲染计数探针 —— 在画布上移动鼠标（外层确实重渲染，光标读数跟着变）后面板渲染计数必须**不动**；B2 依次验证 `Tab`/`Shift+Tab`（含末尾循环）、`Ctrl+]`/`Ctrl+[` 层级、`Enter` 进子节点再回父容器；B3 双击标签出现 `data-page-rename-input`，输入并回车后标签与 `doc.title` 同步；B4 断言「表格」组内属性顺序为结构→数据→线条→尺寸→文字，且分组分割线数 = 分组数 − 1；B5 选中 `A1:A2` → `Ctrl+C` → 粘到 `B1` 得到 `A | A / C | C`；B6 断言方向键 / `Shift+方向键` / `Tab` / `Enter` 的落点与焦点，以及双击画布单元格出现 `data-cell-editor`（在缩放层内）后 `Enter` 写回 `props.data`、`Esc` 不写回；B7 拖宽手柄 40px → `props.width` 增加约 10.6mm（并验没有 mm 宽度属性的组件不出手柄）；B8 断言**按行**行高：拖第 1 条边界只第 1 行 +25px 且其它行一点不动、写入 `props.rowHeights["1"]`（`props.rowHeight` 整表默认不被改），再拖第 2 条两条共存、**最后一行也能单独拖**，属性面板「按行行高」列出并逐条清除（清掉后该行回到默认）；B9 缩略图张数 = 卡片数、每张都渲染出真元素、`pointer-events:none`、开关关掉后回到紧凑两列；B10 断言 Markdown 抬头/标题层级/项目符号缩进/表格管道表，以及弹窗出现与关闭；B11 断言「图 1-1 / 表 1-1 / 图 2-1 / 表 2-1」与把 `level=1` 降级后的重排（章前用连续编号「图 1」）；B12 断言数值列升/降序（`10` 不会排到 `2` 前）、排序不改 `props.data`、单元格格式跟着行走、冻结首行只在 Web 模式生成滚动外壳且表头 `position: sticky`；B13 断言导出 HTML 带 `data-node-type`、能原样读回（标题层级/列表条目/表格数据），以及常见结构 HTML 的导入（`<script>` 跳过并计数）；B14 断言组件包导出（3 个外部组件源码）、包自校验，以及**整包拒收**路径穿越 / 内部文件 / 非 `.js` / 空源码 / format 不对 / 空包；B15 断言 `.docx` 的 ZIP 头与 8 个 OOXML 部件、`sectPr`/Heading/表格/编号引用，并把字节 base64 落盘供 python-docx 外部复验；B16 断言填充序列规则（数字/小数/等差/循环/日期/按行/按列 8 条）+ 画布填充柄位置、拖动预览框、一次写回与**只记一条历史**。

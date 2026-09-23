@@ -14,6 +14,7 @@ import { ComponentTree } from './components/panels/ComponentTree';
 import { DiagnosticsPanel } from './components/panels/DiagnosticsPanel';
 import { MarkdownDialog } from './components/panels/MarkdownDialog';
 import { NewDocDialog } from './components/layout/NewDocDialog';
+import { PreferencesDialog } from './components/panels/PreferencesDialog';
 import { PropertyPanel } from './components/panels/PropertyPanel';
 import { useEditorStore } from './store/editorStore';
 
@@ -174,6 +175,9 @@ export default function App() {
 
       {/* Markdown 源码视图（视图 → Markdown 源码）：只读，实时由组件树生成 */}
       <MarkdownDialog open={ui.showMarkdown} onClose={() => toggleUI('showMarkdown')} />
+
+      {/* 首选项（视图 → 首选项…）：编辑器各项设置集中在这里 */}
+      <PreferencesDialog />
 
       {/* 新建文档（文件 → 新建 / Ctrl+N）：先选模式 → 再按模式填参数 */}
       <NewDocDialog />

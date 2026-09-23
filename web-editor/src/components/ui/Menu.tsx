@@ -44,6 +44,7 @@ export function DropdownMenu({ label, items }: { label: string; items: MenuEntry
     <div className="relative" ref={boxRef}>
       <button
         type="button"
+        data-menu={label}
         onClick={() => setOpen((v) => !v)}
         className={`h-7 rounded px-2.5 text-[13px] transition-colors ${
           open ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-100'
@@ -61,6 +62,7 @@ export function DropdownMenu({ label, items }: { label: string; items: MenuEntry
                 key={entry.key}
                 type="button"
                 disabled={entry.disabled}
+                data-menu-item={entry.key}
                 onClick={() => {
                   setOpen(false);
                   entry.onClick?.();

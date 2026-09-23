@@ -1013,7 +1013,7 @@ async function interactionChecks(): Promise<Result[]> {
     );
     catBtn?.click(); // 还原折叠状态
     await wait(60);
-    S().setCompPreview(true); // 还原「显示预览」（默认开），后面的 B9 断言还要用
+    S().setCompPreview(false); // 还原「显示缩略图」的**默认值（关）**，后面的 B9 断言从这里起步
     await wait(280);
   }
 
@@ -1039,12 +1039,8 @@ async function interactionChecks(): Promise<Result[]> {
       exportHtml.length > 800,
     `${exportHtml.length} 字节`,
   );
-  const exportWord = S().exportWord();
-  add(
-    '导出 Word(.doc) 含 Word 命名空间与页面设置',
-    exportWord.includes('xmlns:w=') && exportWord.includes('WordSection1') && exportWord.includes('@page WordSection1'),
-    `${exportWord.length} 字节`,
-  );
+  // ★2026-09-23 用户要求：**移除导出 .doc**（HTML 版式的 Word），只保留真 .docx；
+  //   所以这里不再断言 .doc，改为断言"菜单里没有 .doc、有 .docx"（见下面菜单结构断言）。
 
   /* ── 导出 React 代码（阶段五最后一项）── */
   S().setMode('web');
@@ -3324,17 +3320,43 @@ async function interactionChecks(): Promise<Result[]> {
     );
   }
 
-  /* B9 组件箱的**真渲染缩略图**（不是图标替代；且不参与交互） */
+  /* B9 组件箱缩略图（**默认关**，2026-09-23 用户要求）+ 「首选项」集中管理编辑器设置 */
   {
     S().setMode('document');
     S().clearAll();
-    await wait(320);
+    S().setCompPreview(false);
+    await wait(360);
     const toggle = document.querySelector('[data-comp-preview-toggle="1"]') as HTMLElement | null;
-    if (document.querySelectorAll('[data-comp-thumb]').length === 0) {
-      // 正常情况默认就是开的；万一上一条断言没还原，这里兜一下
-      S().setCompPreview(true);
-      await wait(300);
-    }
+    const gridCols = (): string | null => document.querySelector('[data-comp-grid]')?.getAttribute('data-comp-grid-cols') ?? null;
+    add(
+      'B9 默认**不渲染缩略图**（组件箱是紧凑两列，缩略图 0 张）',
+      toggle?.getAttribute('data-comp-preview-state') === '0' &&
+        document.querySelectorAll('[data-comp-thumb]').length === 0 &&
+        gridCols() === '2',
+      `开关=${toggle?.getAttribute('data-comp-preview-state')}；缩略图=${document.querySelectorAll('[data-comp-thumb]').length} 张；网格列=${gridCols()}`,
+    );
+
+    /* 首选项：编辑器设置集中在这里（含"显示组件缩略图"） */
+    S().toggleUI('prefsOpen');
+    await wait(320);
+    const prefKeys = [...document.querySelectorAll('[data-pref]')].map((el) => el.getAttribute('data-pref'));
+    const wantPrefs = ['compPreview', 'showTree', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'theme', 'panelWidths'];
+    const missingPrefs = wantPrefs.filter((k) => !prefKeys.includes(k));
+    add(
+      '首选项（视图 → 首选项…）：编辑器各项设置集中在一个弹窗里（组件箱/画布/文档/外观/面板）',
+      missingPrefs.length === 0 &&
+        !!document.querySelector('[data-pref="compPreview"] [data-switch]') &&
+        !!document.querySelector('[data-pref-select="theme"]') &&
+        !!document.querySelector('[data-pref-restore="1"]'),
+      `共 ${prefKeys.length} 项：${prefKeys.join('、')}${missingPrefs.length ? `；缺 ${missingPrefs.join('、')}` : ''}`,
+    );
+
+    // 用首选项里的开关打开缩略图（这是它的正式入口；组件箱头部的眼睛图标是快捷方式）
+    const prefSwitch = document.querySelector('[data-pref="compPreview"] [data-switch]') as HTMLElement | null;
+    prefSwitch?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(300);
+    S().toggleUI('prefsOpen'); // 关掉弹窗再验缩略图（弹窗是 fixed 遮罩，会影响命中测试）
+    await wait(400);
     const thumbs = [...document.querySelectorAll('[data-comp-thumb]')] as HTMLElement[];
     const cards = [...document.querySelectorAll('[data-comp-item]')] as HTMLElement[];
     // 每张缩略图里都该有**真渲染出来的元素**（boundary 里不是空的），
@@ -3342,14 +3364,14 @@ async function interactionChecks(): Promise<Result[]> {
     const rendered = thumbs.filter((t) => !!t.firstElementChild?.firstElementChild).length;
     const headingReal = !!document.querySelector('[data-comp-thumb="heading"] h2');
     add(
-      'B9 组件箱卡片显示**真渲染缩略图**（张数 = 卡片数，且每张都渲染出真元素）',
-      !!toggle &&
-        toggle.getAttribute('data-comp-preview-state') === '1' &&
+      'B9 在首选项里打开「显示组件缩略图」→ 每张卡片真渲染一份（张数 = 卡片数，每张都有真元素）',
+      S().ui.compPreview === true &&
         thumbs.length > 0 &&
         thumbs.length === cards.length &&
         rendered === thumbs.length &&
-        headingReal,
-      `开关=${toggle?.getAttribute('data-comp-preview-state')}；缩略图 ${thumbs.length} 张 / 卡片 ${cards.length} 张；有真内容的 ${rendered} 张；「标题」缩略图内含 <h2>=${headingReal}`,
+        headingReal &&
+        gridCols() === '1',
+      `缩略图 ${thumbs.length} 张 / 卡片 ${cards.length} 张；有真内容的 ${rendered} 张；「标题」缩略图内含 <h2>=${headingReal}；网格列=${gridCols()}`,
     );
 
     const t0 = thumbs.find((t) => t.getBoundingClientRect().height > 0);
@@ -3364,22 +3386,90 @@ async function interactionChecks(): Promise<Result[]> {
       `pointer-events=${pe || '—'}、aria-hidden=${ariaHidden ?? '—'}、命中元素=${hit?.tagName ?? '—'}${inCard ? '（在卡片按钮内）' : '（不在卡片内）'}`,
     );
 
-    toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    // 首选项里再关掉 → 回到紧凑两列（再关掉弹窗）
+    S().toggleUI('prefsOpen');
+    await wait(320);
+    const prefSwitch2 = document.querySelector('[data-pref="compPreview"] [data-switch]') as HTMLElement | null;
+    prefSwitch2?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(300);
+    S().toggleUI('prefsOpen');
     await wait(360);
-    const offThumbs = document.querySelectorAll('[data-comp-thumb]').length;
-    const offCols = document.querySelector('[data-comp-grid]')?.getAttribute('data-comp-grid-cols');
     add(
-      'B9 关掉「显示预览」→ 缩略图消失、网格回到紧凑两列（状态写进 ui.compPreview）',
-      offThumbs === 0 && offCols === '2' && toggle?.getAttribute('data-comp-preview-state') === '0' && S().ui.compPreview === false,
-      `缩略图=${offThumbs}、网格列=${offCols}、ui.compPreview=${String(S().ui.compPreview)}`,
+      'B9 在首选项里关掉 → 缩略图消失、回到紧凑两列（状态写进 ui.compPreview，随 ui 持久化）',
+      S().ui.compPreview === false &&
+        document.querySelectorAll('[data-comp-thumb]').length === 0 &&
+        gridCols() === '2',
+      `缩略图=${document.querySelectorAll('[data-comp-thumb]').length}、网格列=${gridCols()}、ui.compPreview=${String(S().ui.compPreview)}`,
     );
 
+    // 组件箱头部的眼睛图标是同一个开关的快捷入口（点一下开、再点一下关）
     toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await wait(360);
+    const onByEye = document.querySelectorAll('[data-comp-thumb]').length > 0;
+    document.querySelector('[data-comp-preview-toggle="1"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(360);
     add(
-      'B9 再点一次恢复缩略图（开关随 ui 持久化，默认开）',
-      S().ui.compPreview === true && document.querySelectorAll('[data-comp-thumb]').length > 0,
-      `ui.compPreview=${String(S().ui.compPreview)}、缩略图=${document.querySelectorAll('[data-comp-thumb]').length}`,
+      'B9 组件箱头部的眼睛图标是同一开关的快捷入口（开→关都能切）',
+      onByEye && S().ui.compPreview === false && document.querySelectorAll('[data-comp-thumb]').length === 0,
+      `眼睛图标打开后缩略图=${onByEye ? '有' : '无'}；再点一次后 ui.compPreview=${String(S().ui.compPreview)}、缩略图=${document.querySelectorAll('[data-comp-thumb]').length}`,
+    );
+
+    // 「恢复默认设置」：先把某个开关拧乱，再点恢复
+    S().toggleUI('prefsOpen');
+    await wait(300);
+    const gridBefore = S().ui.showGrid;
+    S().toggleUI('showGrid');
+    S().setCompPreview(true);
+    await wait(240);
+    (document.querySelector('[data-pref-restore="1"]') as HTMLElement | null)?.click();
+    await wait(340);
+    add(
+      '首选项「恢复默认设置」把各项设置还原（含缩略图默认关、网格默认不显示）',
+      S().ui.showGrid === gridBefore && S().ui.compPreview === false && S().ui.autoNumber === false && S().ui.theme === 'light',
+      `恢复后 showGrid=${String(S().ui.showGrid)}、compPreview=${String(S().ui.compPreview)}、autoNumber=${String(S().ui.autoNumber)}、theme=${S().ui.theme}`,
+    );
+
+    S().toggleUI('prefsOpen');
+    await wait(240);
+    add(
+      '首选项弹窗可关闭（关掉后不留痕）',
+      !document.querySelector('[data-pref-restore="1"]'),
+      `弹窗还在=${!!document.querySelector('[data-pref-restore="1"]')}`,
+    );
+  }
+
+  /* 菜单结构（2026-09-23 用户要求）：导出只留 .docx、HTML 载入入口、首选项入口 */
+  {
+    const openMenu = async (label: string): Promise<string[]> => {
+      const btn = document.querySelector(`[data-menu="${label}"]`) as HTMLElement | null;
+      btn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(180);
+      return [...document.querySelectorAll('[data-menu-item]')].map((el) => el.getAttribute('data-menu-item') ?? '');
+    };
+    const closeMenu = async (): Promise<void> => {
+      document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      await wait(140);
+    };
+
+    const fileItems = await openMenu('文件');
+    await closeMenu();
+    add(
+      '菜单：文件 → 导出 Word **只保留 .docx**（.doc 已移除）',
+      fileItems.includes('docx') && !fileItems.includes('word'),
+      `文件菜单项：${fileItems.join(' / ')}`,
+    );
+    add(
+      '菜单：文件 → 有 HTML 载入入口（打开 HTML / 从 URL 载入，就是 ?load= 的可视化入口）',
+      fileItems.includes('open-html') && fileItems.includes('load-html-url'),
+      `含 open-html=${fileItems.includes('open-html')}、load-html-url=${fileItems.includes('load-html-url')}`,
+    );
+
+    const viewItems = await openMenu('视图');
+    await closeMenu();
+    add(
+      '菜单：视图 → 首选项…（编辑器设置入口）',
+      viewItems[0] === 'prefs',
+      `视图菜单项：${viewItems.join(' / ')}`,
     );
   }
 

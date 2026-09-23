@@ -6,6 +6,7 @@
  *   ?check=1                    运行自检并把结果写到标题、console 与右下角浮层
  *   ?demo=1                     灌入示例文档（两种模式各一页、含全部组件）    ?mode=web|document  启动后切到指定模式
  *   ?new=1                      启动后打开「新建文档」对话框（先选模式/示例 → 再填参数）
+ *   ?prefs=1                    启动后打开「首选项」（编辑器设置集中在这里）
  *   ?select=table              启动后选中第一个该类型的节点（也可给序号），用于核对属性面板排版
  *   ?cell=1,0[;1,1]            再选中该表格的这些单元格（核对单元格格式；行列从 0 起）
  *   ?theme=monokai|light  ?scroll=N  ?printdebug=1
@@ -92,6 +93,11 @@ if (params.get('diag')) {
 // ?new=1 → 启动后直接打开「新建文档」对话框（先选模式/示例 → 再填参数）
 if (params.get('new')) {
   setTimeout(() => useEditorStore.getState().setNewDocOpen(true), 200);
+}
+
+// ?prefs=1 → 启动后打开「首选项」（截图/核对设置项用）
+if (params.get('prefs')) {
+  setTimeout(() => useEditorStore.getState().toggleUI('prefsOpen'), 240);
 }
 
 // ?check=1 → 自检

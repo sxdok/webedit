@@ -1,22 +1,21 @@
 /**
- * 职责：把当前模式的内容序列化成**静态交付物**——导出 HTML 与导出 Word(.doc)。
+ * 职责：把当前模式的内容序列化成**静态交付物**——导出 HTML。
+ * （Word 交付走 `utils/export/docx.ts` 的真 `.docx`；`2026-09-23` 起不再导出 `.doc` 版式。）
  *
  * 做法：直接复用组件注册表的 `render()`，用 `renderToStaticMarkup` 把 React 树渲染成静态 HTML 字符串。
  *   · 组件本身用的是内联样式，所以导出物与画布所见一致，不依赖编辑器运行时；
  *   · 少数组件里用到的 Tailwind 工具类由 `utilCss()` 按需补一份最小 CSS（导出物不引 Tailwind）；
- *   · 文档模式：内容以"流"输出，分页交给浏览器/Word（`@page` 用文档页边距 + 分页避免切断块）；
- *   · Web 模式：HTML 导出为"设备尺寸容器 + 绝对定位子元素"的忠实快照；Word 不支持绝对定位，
- *     因此 Word 导出按流输出（在文档里说明这一限制）。
+ *   · 文档模式：内容以"流"输出，分页交给浏览器（`@page` 用文档页边距 + 分页避免切断块）；
+ *   · Web 模式：HTML 导出为"设备尺寸容器 + 绝对定位子元素"的忠实快照。
+ *   · 每个顶层块都带 `data-node-type`（自描述，也让 `?load=` / 「打开 HTML」能原样读回）。
  */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { getComponent } from '../../registry';
 import {
-  pageBand,
   type ComponentNode,
   type EditorDocument,
   type EditorMode,
-  type PageBandConfig,
   type RenderContext,
 } from '../../registry/types';
 import { mmToPx, ptToPx } from '../units';
@@ -155,64 +154,8 @@ ${canvasWrap}
 `;
 }
 
-/** 导出 Word：Word 可直接打开的 .doc（HTML 版式，Word 会按 @page 段落设置排版） */
-export function buildWordDoc(doc: EditorDocument, topNodes?: ComponentNode[]): string {
-  const page = doc.document.page;
-  // Word 对绝对定位支持很差：Web 模式也按"流"输出（保持可编辑的段落/表格）
-  const body = buildBodyHtml(doc, 'document', topNodes);
-  // 页眉/页脚是页面属性 → 导出成 Word 真正的页眉/页脚（会按页重复）
-  const headCfg = pageBand(page, 'header');
-  const footCfg = pageBand(page, 'footer');
-  const headUsed = page.showHeader && !!(headCfg.left || headCfg.center || headCfg.right);
-  const footUsed = page.showFooter && !!(footCfg.left || footCfg.center || footCfg.right);
-  const bandElements = (headUsed ? wordBandElement('header', headCfg) : '') + (footUsed ? wordBandElement('footer', footCfg) : '');
-  const bandRefs = `${headUsed ? 'mso-header: header1;' : ''}${footUsed ? 'mso-footer: footer1;' : ''}`;
-  return `<html xmlns:o="urn:schemas-microsoft-com:office:office"
-      xmlns:w="urn:schemas-microsoft-com:office:word"
-      xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8">
-<title>${escapeHtml(asString(doc.title, '未命名文档'))}</title>
-<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom>
-<w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->
-<style>
-  @page WordSection1 { size: ${page.width}mm ${page.height}mm; margin: ${page.margin.top}mm ${page.margin.right}mm ${page.margin.bottom}mm ${page.margin.left}mm; ${bandRefs} mso-header-margin: ${headCfg.offset}mm; mso-footer-margin: ${footCfg.offset}mm; }
-  div.WordSection1 { page: WordSection1; }
-  body { font-family: "宋体", SimSun, serif; font-size: ${page.defaultFontSize}pt; line-height: ${page.lineHeight}; color: #000; }
-  table { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
-  td, th { vertical-align: top; }
-  img { max-width: 100%; }
-${utilCss(body)}
-</style>
-</head>
-<body>
-<div class="WordSection1">
-${body}
-${bandElements}
-</div>
-</body>
-</html>
-`;
-}
-
-/** 页眉/页脚文字里的变量 → Word 域代码（PAGE / NUMPAGES / DATE），Word 打开后是活域 */
-function bandToWordHtml(text: string): string {
-  return escapeHtml(text)
-    .replace(/\{page\}/g, "<span style='mso-field-code:PAGE'>1</span>")
-    .replace(/\{total\}/g, "<span style='mso-field-code:NUMPAGES'>1</span>")
-    .replace(/\{date\}/g, "<span style='mso-field-code:DATE'>2026-01-01</span>");
-}
-
-/** Word 的页眉/页脚元素（mso-element:header / footer），由 @page 的 mso-header/mso-footer 引用 */
-function wordBandElement(which: 'header' | 'footer', cfg: PageBandConfig): string {
-  const cls = which === 'header' ? 'MsoHeader' : 'MsoFooter';
-  const parts = [cfg.left, cfg.center, cfg.right]
-    .map((t) => bandToWordHtml(t))
-    .filter((t) => t !== '');
-  return `<div style='mso-element:${which}' id=${which}1>
-<p class=${cls} style='margin:0;font-size:${cfg.fontSize}pt;color:${cfg.color}'>${parts.join('&nbsp;&nbsp;&nbsp;&nbsp;')}</p>
-</div>`;
-}
+/* 2026-09-23 用户要求：**移除导出 .doc**（HTML 版式的 Word，Word 打开是「网页文档」，纸张/分页不是 Word 对象模型）。
+   现在只保留真 .docx（见 utils/export/docx.ts）。原来的 buildWordDoc / bandToWordHtml / wordBandElement 一并删除，避免死代码。 */
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');

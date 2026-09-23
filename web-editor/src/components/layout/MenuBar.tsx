@@ -53,8 +53,8 @@ const MARGIN_PRESETS: { label: string; value: number }[] = [
 
 export function MenuBar() {
   const [helpOpen, setHelpOpen] = useState(false);
-  /** 组件包导入/导出的结果提示（B14）——用弹窗展示，而不是 window.alert，便于逐条看 */
-  const [pkgMsg, setPkgMsg] = useState<string | null>(null);
+  /** 结果提示（组件包导入/导出、HTML 导入）——用弹窗展示，而不是 window.alert，便于逐条看 */
+  const [notice, setNotice] = useState<string | null>(null);
   const mode = useEditorStore(selectMode);
   const forest = useEditorStore(selectForest);
   const canUndo = useEditorStore(selectCanUndo);
@@ -70,6 +70,42 @@ export function MenuBar() {
 
   const selectedIds = () => S().doc.selectedIds;
   const allIds = () => flatten(forest).map((f) => f.node.id);
+
+  /* ── HTML → 编辑器（B13 的 UI 入口：`?load=` 是同一套逻辑的 URL 版）── */
+  const showImportResult = (src: string, r: { mode: string; stats: { top: number; total: number; typed: number; guessed: number; skipped: number }; warnings: string[] }, title2: string): void => {
+    setNotice(
+      `已把 HTML 载入编辑器：${src}\n` +
+        `文档标题：${title2}\n` +
+        `识别模式：${r.mode === 'document' ? '文档模式' : 'Web 模式'}\n` +
+        `顶层组件 ${r.stats.top} 个 / 含子节点共 ${r.stats.total} 个\n` +
+        `（按 data-node-type 精确识别 ${r.stats.typed} 个、按标签识别 ${r.stats.guessed} 个、跳过 ${r.stats.skipped} 个）` +
+        (r.warnings.length ? `\n\n提示：\n${r.warnings.slice(0, 8).map((w) => `· ${w}`).join('\n')}` : ''),
+    );
+  };
+  const importHtmlText = (html: string, src: string): void => {
+    void import('../../utils/htmlImport').then((m) => {
+      const { doc, result } = m.importHtmlToDocument(html, { title: src.split(/[\\/]/).pop()?.replace(/\.html?$/i, '') });
+      S().loadDocument(doc);
+      log.info('load', 'HTML 已载入编辑器', { 来源: src, 模式: result.mode, 节点: result.stats });
+      showImportResult(src, result, doc.title);
+    });
+  };
+  const openHtmlFile = async (): Promise<void> => {
+    const text = await pickTextFile('.html,.htm,text/html');
+    if (text == null) return;
+    importHtmlText(text, '（本地文件）');
+  };
+  const loadHtmlFromUrl = async (): Promise<void> => {
+    const url = window.prompt('HTML 地址（http(s):// 或站内相对路径，如 /组件/示例.html）', location.origin + '/');
+    if (!url) return;
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      importHtmlText(await res.text(), url);
+    } catch (e) {
+      setNotice(`载入失败：${url}\n${e instanceof Error ? e.message : String(e)}\n\n（跨域地址需要对方允许 CORS；本工程自己的页面/导出物没有这个限制）`);
+    }
+  };
 
   const fileMenu: MenuEntry[] = [
     {
@@ -88,6 +124,8 @@ export function MenuBar() {
         if (!S().importJSON(text)) window.alert('导入失败：不是有效的编辑器 JSON。');
       },
     },
+    { key: 'open-html', label: '打开 HTML（导入成组件）…', onClick: () => void openHtmlFile() },
+    { key: 'load-html-url', label: '从 URL 载入 HTML…', onClick: () => void loadHtmlFromUrl() },
     { key: 's1', separator: true },
     {
       key: 'save',
@@ -98,21 +136,12 @@ export function MenuBar() {
     { key: 'html', label: '导出 HTML', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
     { key: 'react', label: '导出 React 代码', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
     {
-      key: 'word',
-      label: '导出 Word（.doc）',
-      onClick: () => downloadText(`${title || 'export'}.doc`, S().exportWord(), 'application/msword'),
-    },
-    {
       key: 'docx',
-      label: '导出 Word（.docx，真 OOXML）',
+      label: '导出 Word（.docx）',
       onClick: () => {
         void import('../../utils/export/docx').then((m) => {
           const r = m.downloadDocx(S().doc, getForest(S().doc));
-          log.info('export', '导出 .docx（OOXML）', {
-            字节: r.bytes.length,
-            块数: r.blocks,
-            提示: r.warnings.length,
-          });
+          log.info('export', '导出 .docx', { 字节: r.bytes.length, 块数: r.blocks, 提示: r.warnings.length });
         });
       },
     },
@@ -141,6 +170,8 @@ export function MenuBar() {
   ];
 
   const viewMenu: MenuEntry[] = [
+    { key: 'prefs', label: '首选项…', onClick: () => S().toggleUI('prefsOpen') },
+    { key: 'v0', separator: true },
     { key: 'grid', label: '显示网格', checked: ui.showGrid, onClick: () => S().toggleUI('showGrid') },
     { key: 'ruler', label: '显示标尺', checked: ui.showRuler, onClick: () => S().toggleUI('showRuler') },
     { key: 'guides', label: '显示辅助线（页边距）', checked: ui.showGuides, onClick: () => S().toggleUI('showGuides') },
@@ -254,7 +285,7 @@ export function MenuBar() {
       onClick: () => {
         void buildPluginPackage().then(({ pkg, errors }) => {
           downloadText(packageFileName(), JSON.stringify(pkg, null, 2), 'application/json');
-          setPkgMsg(
+          setNotice(
             `已导出 ${pkg.plugins.length} 个组件的源码：\n${pkg.plugins.map((p) => `· ${p.name}（${p.code.length} 字符）`).join('\n')}` +
               (errors.length ? `\n\n读取失败 ${errors.length} 个：${errors.map((e) => `${e.name}（${e.error}）`).join('、')}` : ''),
           );
@@ -271,18 +302,18 @@ export function MenuBar() {
           try {
             parsed = JSON.parse(text);
           } catch (e) {
-            setPkgMsg(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
+            setNotice(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
             return;
           }
           const check = validatePluginPackage(parsed);
           if (!check.ok) {
-            setPkgMsg(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
+            setNotice(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
             return;
           }
           const r = await installPluginPackage(parsed as PluginPackage);
           const reload = await loadRuntimeComponents(true);
           S().bumpRegistry();
-          setPkgMsg(
+          setNotice(
             `组件包导入完成：写回组件目录 ${r.saved.length} 个` +
               (r.runtime.length ? `、仅本次会话注册 ${r.runtime.length} 个` : '') +
               (r.failed.length ? `、失败 ${r.failed.length} 个（${r.failed.map((f) => `${f.name}：${f.error}`).join('；')}）` : '') +
@@ -350,9 +381,9 @@ export function MenuBar() {
       </Modal>
 
       {/* 组件包导入 / 导出结果（B14） */}
-      <Modal open={pkgMsg != null} title="组件包" onClose={() => setPkgMsg(null)} width={620}>
-        <pre data-pkg-msg="1" className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-gray-700">
-          {pkgMsg ?? ''}
+      <Modal open={notice != null} title="提示" onClose={() => setNotice(null)} width={620}>
+        <pre data-notice-msg="1" className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-gray-700">
+          {notice ?? ''}
         </pre>
         <p className="mt-3 text-2xs text-gray-400">
           包格式：<code>{PACKAGE_FORMAT}</code> · 导入会把 <code>.js</code> 逐个写回组件目录（启动器
