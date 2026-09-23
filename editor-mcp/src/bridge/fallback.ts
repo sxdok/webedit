@@ -1,0 +1,76 @@
+/**
+ * 双通道自动降级（规格 §二 / §4.1）：
+ *
+ *   优先 Live Bridge（编辑器实例，实时同步）
+ *   ↳ 不可用（没开桥接 / 版本不匹配 / 调用失败）时**静默降级**到 Headless（磁盘文档），
+ *     并在返回值里标 `degraded: true`，让客户端知道"没连上编辑器"。
+ *
+ * 注意两点：
+ *   1. 写操作在 Live 失败后降级到 Headless 是**有意为之**：离线批处理也要能建文档；
+ *      但如果 Live 已经连上却"调用报错"（比如 NODE_NOT_FOUND），那是业务错误，**不再降级**，
+ *      否则会把用户的编辑意图悄悄写进另一个地方。
+ *   2. 编辑器从未连上时的代价要可控：`ensureReady` 最多等几百毫秒，绝不让工具挂住。
+ */
+import { log } from '../log.js';
+import { liveBridge } from './liveBridge.js';
+
+export type Via = 'live' | 'headless';
+
+export interface ChannelResult<T> {
+  data: T;
+  degraded: boolean;
+  via: Via;
+}
+
+export class BridgeCallError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'BridgeCallError';
+    this.code = code;
+  }
+}
+
+/**
+ * 先试 Live，再退 Headless。
+ * @param method  桥接方法名（与 Tool 名一致，如 'doc.create'）
+ * @param params  桥接参数
+ * @param headless 无头实现
+ * @param opts.readyTimeoutMs 等待桥接就绪的上限（默认 800ms）
+ */
+export async function withBridge<T>(
+  method: string,
+  params: Record<string, unknown>,
+  headless: () => Promise<T>,
+  opts: { readyTimeoutMs?: number; callTimeoutMs?: number } = {},
+): Promise<ChannelResult<T>> {
+  const ready = await liveBridge.ensureReady(opts.readyTimeoutMs ?? 800);
+  if (ready) {
+    try {
+      const data = await liveBridge.call<T>(method, params, opts.callTimeoutMs ?? 8000);
+      return { data, degraded: false, via: 'live' };
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      // 桥接侧的"业务错误"（带错误码前缀）→ 直接抛，不降级
+      if (/^[A-Z_]+:/.test(msg)) {
+        const [code, ...rest] = msg.split(':');
+        throw new BridgeCallError(code, rest.join(':').trim() || msg);
+      }
+      log.warn(`Live 调用 ${method} 失败（${msg}），降级到无头`);
+    }
+  }
+  const data = await headless();
+  return { data, degraded: true, via: 'headless' };
+}
+
+/** 给资源/诊断用的桥接状态摘要 */
+export function bridgeSummary() {
+  const s = liveBridge.status();
+  return {
+    ...s,
+    mode: s.ready ? 'live' : 'headless',
+    hint: s.ready
+      ? undefined
+      : '编辑器未开启 MCP 桥接（菜单「帮助 → 开启 MCP 桥接」），当前所有操作走无头模式并标记 degraded=true',
+  };
+}

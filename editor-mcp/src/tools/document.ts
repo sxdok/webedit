@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { ok, ErrorCodes, fail, runTool, type ToolResult } from '../errors.js';
 import { config, safeName } from '../config.js';
 import { listDocuments, makeDocument, writeDocument } from '../bridge/headless.js';
+import { withBridge } from '../bridge/fallback.js';
 
 export const docCreateSchema = {
   title: z.string().optional().describe('文档标题，缺省「未命名文档」'),
@@ -25,18 +26,28 @@ export async function docCreate(args: {
   docId?: string;
   pageSize?: 'A4' | 'A3' | 'A5' | 'Letter' | 'Legal' | 'Custom';
   device?: 'Desktop' | 'Laptop' | 'Tablet' | 'Mobile' | 'Custom';
-}): Promise<ToolResult<{ docId: string; path: string; mode: string; title: string }>> {
+}): Promise<ToolResult<{ docId: string; path?: string; mode: string; title: string; via: string }>> {
   return runTool('doc.create', args, async () => {
-    if (!config.allowWrite) {
-      return fail(ErrorCodes.WRITE_DISABLED, 'EDITOR_MCP_ALLOW_WRITE=false，写操作被拒绝');
-    }
-    const doc = makeDocument(args);
-    const docId = safeName(args.docId?.trim() || `${doc.title}-${Date.now().toString(36)}`);
-    if (!docId) return fail(ErrorCodes.IO_ERROR, '文档 id 不合法（安全化后为空）');
-    const file = await writeDocument(docId, doc);
+    // ① 先试 Live（编辑器实例）；② 不可用则无头写盘（规格 §二 的降级策略）
+    const res = await withBridge<{ docId: string; path?: string; mode?: string; title?: string }>(
+      'doc.create',
+      args as Record<string, unknown>,
+      async () => {
+        if (!config.allowWrite) {
+          throw new Error('WRITE_DISABLED: EDITOR_MCP_ALLOW_WRITE=false，写操作被拒绝');
+        }
+        const doc = makeDocument(args);
+        const docId = safeName(args.docId?.trim() || `${doc.title}-${Date.now().toString(36)}`);
+        if (!docId) throw new Error('IO_ERROR: 文档 id 不合法（安全化后为空）');
+        const file = await writeDocument(docId, doc);
+        return { docId, path: file, mode: doc.mode, title: doc.title };
+      },
+    );
+    const d = res.data;
+    if (!d?.docId) return fail(ErrorCodes.IO_ERROR, 'doc.create 没有返回 docId', `via=${res.via}`);
     return ok(
-      { docId, path: file, mode: doc.mode, title: doc.title },
-      { degraded: true, changed: ['document'] },
+      { docId: d.docId, ...(d.path ? { path: d.path } : {}), mode: d.mode ?? args.mode ?? 'document', title: d.title ?? args.title ?? '未命名文档', via: res.via },
+      { degraded: res.degraded, changed: ['document'] },
     );
   });
 }
