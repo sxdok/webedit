@@ -51,12 +51,13 @@ async function main(): Promise<void> {
   log.info(
     `${config.name} v${config.version} 启动（协议版本 ${config.protocolVersion}，transport=${wantHttp ? 'http' : stdio ? 'stdio' : 'none'}）`,
   );
-  const { server, tools } = buildServer();
+  const { server, tools, resources, prompts, dispose } = buildServer();
 
   if (wantList) {
     process.stdout.write(
-      `${JSON.stringify({ name: config.name, version: config.version, protocolVersion: config.protocolVersion, tools }, null, 2)}\n`,
+      `${JSON.stringify({ name: config.name, version: config.version, protocolVersion: config.protocolVersion, tools, resources, prompts }, null, 2)}\n`,
     );
+    dispose();
     return;
   }
 

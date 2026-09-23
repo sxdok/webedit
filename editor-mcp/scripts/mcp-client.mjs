@@ -19,6 +19,7 @@ export async function startClient({ env = {}, args = ['--stdio'] } = {}) {
   let seq = 0;
   const pending = new Map();
   const stderr = [];
+  const notes = [];
   child.stderr.on('data', (d) => stderr.push(d.toString('utf8')));
   child.stdout.on('data', (d) => {
     buf += d.toString('utf8');
@@ -31,6 +32,11 @@ export async function startClient({ env = {}, args = ['--stdio'] } = {}) {
       try {
         msg = JSON.parse(line);
       } catch {
+        continue;
+      }
+      // 服务端主动推送（通知没有 id）
+      if (msg.method && msg.id == null) {
+        notes.push(msg);
         continue;
       }
       if (msg.id != null && pending.has(msg.id)) {
@@ -72,6 +78,10 @@ export async function startClient({ env = {}, args = ['--stdio'] } = {}) {
     serverInfo: init.result?.serverInfo,
     tools,
     call,
+    /** 原始 JSON-RPC 调用（resources/* 与 prompts/* 用） */
+    raw: req,
+    /** 服务端推来的通知（notifications/resources/updated 等） */
+    notifications: () => notes.slice(),
     stderr: () => stderr.join(''),
     close: () => child.kill(),
   };

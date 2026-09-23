@@ -14,7 +14,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { z } from 'zod';
 import { log } from '../log.js';
-import { ErrorCodes, fail, type ToolResult } from '../errors.js';
+import { ErrorCodes, fail, isWriteTool, type ToolResult } from '../errors.js';
 import {
   docClose,
   docCloseSchema,
@@ -113,6 +113,7 @@ import {
   nodeUpdate,
   nodeUpdateSchema,
 } from './node.js';
+import { notifyResources } from '../resources/index.js';
 import { componentList, componentListSchema } from './component.js';
 import {
   pluginCreate,
@@ -249,6 +250,14 @@ export function notImplemented(tool: string, phase: string): ToolResult<never> {
 /** 一行注册：省掉几十个 Tool 的样板（inputSchema 直接给 zod 原始 shape） */
 type ZodShape = Record<string, z.ZodTypeAny>;
 
+/** 写操作之后要推哪些资源更新（规格 §六 的 3 个可订阅 URI） */
+function changedResources(tool: string): string[] {
+  if (tool.startsWith('plugin.')) return ['editor://plugin/list'];
+  const uris = ['editor://document/current'];
+  if (tool.startsWith('selection.') || tool.startsWith('table.setCellSelection')) uris.push('editor://selection/current');
+  return uris;
+}
+
 function reg<S extends ZodShape>(
   server: McpServer,
   name: string,
@@ -263,7 +272,12 @@ function reg<S extends ZodShape>(
   server.registerTool(
     name,
     { title, description, inputSchema: inputSchema as never },
-    (async (args: unknown) => toContent(await handler(args as z.infer<z.ZodObject<S>>))) as never,
+    (async (args: unknown) => {
+      const res = await handler(args as z.infer<z.ZodObject<S>>);
+      // ★写成功后推送资源更新（客户端订阅了才推）——订阅功能必须接在真实写路径上，否则永远不会触发
+      if (res.ok && isWriteTool(name)) void notifyResources(server, changedResources(name));
+      return toContent(res);
+    }) as never,
   );
   out.push(name);
 }
