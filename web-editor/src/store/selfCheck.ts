@@ -3239,12 +3239,12 @@ async function interactionChecks(): Promise<Result[]> {
     const othersUntouched = after.slice(1).every((h, i) => Math.abs(h - before[i + 1]) <= 1);
     add(
       'B8 拖某一行边界 → **只改那一行**（渲染 +25px、其它行一点不动、写进 props.rowHeights[行号]）',
-      handles.length === Math.max(0, rowEls.length - 1) &&
+      handles.length === rowEls.length &&
         Math.abs(after[0] - before[0] - 25) <= 4 &&
         othersUntouched &&
         Object.keys(overrides).join(',') === '1' &&
         Math.abs(Number(overrides['1']) - expectMm8) <= 3,
-      `行高 ${before.join('/')}px → ${after.join('/')}px（只有第 1 行 +25px）；props.rowHeights=${JSON.stringify(overrides)}（期望 ≈${expectMm8}mm）；props.rowHeight=「${rh}」（整表默认，没被改）`,
+      `手柄 ${handles.length} 个 / 行 ${rowEls.length} 个（每行都能单独拖，含最后一行）；行高 ${before.join('/')}px → ${after.join('/')}px（只有第 1 行 +25px）；props.rowHeights=${JSON.stringify(overrides)}（期望 ≈${expectMm8}mm）；props.rowHeight=「${rh}」（整表默认，没被改）`,
     );
 
     // 再拖第 2 条边界：两条按行行高**共存**，互不影响
@@ -3271,6 +3271,30 @@ async function interactionChecks(): Promise<Result[]> {
       `行高 ${after2.join('/')}px（第 1 行延续 ${after[0]}、第 2 行 ${before[1]}→${after2[1]}、第 3 行 ${before[2]}→${after2[2]}）；rowHeights=${JSON.stringify(overrides2)}`,
     );
 
+    // 最后一行也能单独拖（以前"行高是整表一个值"时它没有手柄）
+    const lastHandle = handles[handles.length - 1];
+    const hr8c = lastHandle?.getBoundingClientRect();
+    const px3 = hr8c ? hr8c.left + 5 : 0;
+    const py3 = hr8c ? hr8c.top + 3 : 0;
+    lastHandle?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: px3, clientY: py3, button: 0, pointerId: 13 }),
+    );
+    await wait(90);
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: px3, clientY: py3 + 20, button: 0, pointerId: 13 }));
+    await wait(200);
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: px3, clientY: py3 + 20, button: 0, pointerId: 13 }));
+    await wait(340);
+    const after3 = heights();
+    const overrides3 = ((findNode(getForest(S().doc), t8 ?? '')?.props ?? {}) as Record<string, unknown>).rowHeights as Record<string, unknown>;
+    add(
+      'B8 最后一行也能单独拖高（每行一个手柄；拖它不影响上面的行）',
+      Math.abs(after3[2] - before[2] - 20) <= 4 &&
+        Math.abs(after3[0] - after2[0]) <= 1 &&
+        Math.abs(after3[1] - after2[1]) <= 1 &&
+        Object.keys(overrides3).sort().join(',') === '1,2,3',
+      `行高 ${after2.join('/')}px → ${after3.join('/')}px（第 3 行 ${before[2]}→${after3[2]}）；rowHeights=${JSON.stringify(overrides3)}`,
+    );
+
     // 属性面板「按行行高」：列出被改过的行，可逐条清除 / 全部清除
     await openGroup('表格');
     await wait(220);
@@ -3284,9 +3308,9 @@ async function interactionChecks(): Promise<Result[]> {
     const afterClearHeights = heights();
     add(
       'B8 属性面板「按行行高」列出被改过的行，可逐条清除（清掉后那一行回到整表默认）',
-      items.join(',') === '1,2' &&
+      items.join(',') === '1,2,3' &&
         hasClearAll &&
-        Object.keys(cleared).join(',') === '2' &&
+        Object.keys(cleared).sort().join(',') === '2,3' &&
         Math.abs(afterClearHeights[0] - before[0]) <= 2,
       `列出 ${items.join('/')}；清除第 1 行后 rowHeights=${JSON.stringify(cleared)}；第 1 行渲染高 ${afterClearHeights[0]}px（默认时 ${before[0]}px）`,
     );

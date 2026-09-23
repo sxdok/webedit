@@ -130,11 +130,12 @@ function measure(host: HTMLElement, nodeId: string | null, selected: string[], z
   const rects = [...firstRow.cells].map((c) => c.getBoundingClientRect());
   const borders = rects.slice(0, -1).map((r) => ({ x: (r.right - boxRect.left) / z, top, height }));
 
-  // 行边界：每一行的下边（最后一行不画 —— 它的高度由"表格总高"决定，拖它没有意义）
+  // 行边界：**每一行**的下边都给一个手柄（改成"按行行高"之后，最后一行也该能单独拖高 ——
+  // 以前排除最后一行是因为行高是整表一个值，拖它没有意义）
   const rowRects = [...table.rows].map((r) => r.getBoundingClientRect());
   const left = (tableRect.left - boxRect.left) / z;
   const width = tableRect.width / z;
-  const rowBars = rowRects.slice(0, -1).map((r, i) => ({
+  const rowBars = rowRects.map((r, i) => ({
     y: (r.bottom - boxRect.top) / z,
     x: left,
     width,
