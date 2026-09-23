@@ -1,0 +1,28 @@
+{
+  "name": "editor-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "可视化编辑器 MCP 服务器：把编辑器的软件能力与插件（外部组件）能力全部暴露为 MCP Tool / Resource / Prompt",
+  "bin": {
+    "editor-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "start": "node dist/index.js --stdio",
+    "start:http": "node dist/index.js --http --port 37651",
+    "dev": "node --experimental-strip-types src/index.ts --stdio"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
