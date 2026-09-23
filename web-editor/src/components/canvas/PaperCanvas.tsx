@@ -20,7 +20,9 @@ import { getComponent } from '../../registry';
 import { useEditorStore } from '../../store/editorStore';
 import { NodeView } from './NodeView';
 import { InsertIndicator } from './InsertIndicator';
+import { computeNumbering } from '../../registry/numbering';
 import { TableOverlay } from './TableOverlay';
+import { WidthOverlay } from './WidthOverlay';
 import { useTableCellSelect } from './useTableCellSelect';
 import type { CanvasInteractionApi } from './useCanvasInteraction';
 
@@ -96,6 +98,10 @@ export function PaperCanvas({
     [page.margin],
   );
   const contentWidth = Math.max(40, w - pad.left - pad.right);
+  /* 图表按章编号（B11）：整篇顺序算一次，塞进 ctx 供组件取用（开关在"视图"菜单里） */
+  const autoNumber = useEditorStore((s) => s.ui.autoNumber ?? false);
+  const numbering = useMemo(() => (autoNumber ? computeNumbering(nodes).labels : undefined), [autoNumber, nodes]);
+  const docCtx = useMemo<RenderContext>(() => (numbering ? { ...ctx, numbering } : ctx), [ctx, numbering]);
   const contentHeight = Math.max(40, h - pad.top - pad.bottom);
   const visible = nodes.filter((n) => !n.hidden);
 
@@ -322,7 +328,7 @@ export function PaperCanvas({
         const cont = seg.from != null && seg.from > 0;
         // 表格续排段：只渲染 [from,to) 这段数据行（续表由表格自己重复表头）
         const segCtx: RenderContext =
-          seg.from != null && seg.to != null ? { ...ctx, tableRowRange: { from: seg.from, to: seg.to } } : ctx;
+          seg.from != null && seg.to != null ? { ...docCtx, tableRowRange: { from: seg.from, to: seg.to } } : docCtx;
         return (
           <NodeView
             key={`${n.id}#${seg.from ?? 0}-${seg.to ?? 0}`}
@@ -368,8 +374,8 @@ export function PaperCanvas({
   );
 
   /** 三段式页码：物理第 i 页 → 该页应显示的页码文字（空串 = 不显示，如封面） */
-  const numbering = pageNumbering(page);
-  const labelOf = (i: number) => pageLabel(i, numbering);
+  const pageNum = pageNumbering(page);
+  const labelOf = (i: number) => pageLabel(i, pageNum);
 
   const pageChrome = (pageNo: number, total: number) => (
     <>
@@ -413,7 +419,7 @@ export function PaperCanvas({
           <NodeView
             key={`m-${n.id}`}
             node={n}
-            ctx={ctx}
+            ctx={docCtx}
             mode="document"
             selectedIds={[]}
             hoveredId={null}
@@ -446,6 +452,8 @@ export function PaperCanvas({
             {page.showFooter && labelOf(i + 1) !== '' && band(pageBand(page, 'footer'), 'foot', labelOf(i + 1), slices.length)}
             {/* 表格覆盖层：单元格选框 + 列宽拖拽手柄（编辑态，no-print） */}
             <TableOverlay nodeId={showChrome ? (selectedIds[0] ?? null) : null} zoom={zoom} />
+            {/* 宽度手柄：文档模式没有 frame，宽度只能改组件属性（mm）（编辑态，no-print） */}
+            <WidthOverlay nodeId={showChrome ? (selectedIds[0] ?? null) : null} zoom={zoom} />
           </div>
         ))}
 

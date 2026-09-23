@@ -164,7 +164,13 @@ function NodeViewInner({
    */
   const content = def ? (
     <NodeErrorBoundary type={node.type}>
-      <NodeBody def={def} props={node.props} rctx={{ ...ctx, isSelected: selected }} childNodes={childNodes} />
+      <NodeBody
+        def={def}
+        props={node.props}
+        /* 图表按章编号（B11）：把本节点的编号（如「图 1-2」）注进 ctx，组件在自己的图题/表题里显示 */
+        rctx={{ ...ctx, isSelected: selected, autoLabel: ctx.numbering?.[node.id] }}
+        childNodes={childNodes}
+      />
     </NodeErrorBoundary>
   ) : (
     <div

@@ -77,7 +77,9 @@ function renderNode(n: ComponentNode, ctx: RenderContext, mode: EditorMode): Rea
             transform: n.frame.rotation ? `rotate(${n.frame.rotation}deg)` : undefined,
           }
         : {};
-  return React.createElement('div', { key: n.id, style }, content);
+  // ★导出物带上 `data-node-type`：① 便于外部工具/人看懂结构；
+  //   ② 让「?load=」能把本工程导出的 HTML **原样读回**编辑器（见 utils/htmlImport.ts）。
+  return React.createElement('div', { key: n.id, style, 'data-node-type': n.type }, content);
 }
 
 /** 当前模式下、去掉编辑器外壳后的内容 HTML（不含 <html> 外壳） */

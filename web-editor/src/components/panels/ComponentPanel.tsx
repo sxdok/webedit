@@ -3,12 +3,14 @@
  *       双击追加、拖拽到画布插入。面板代码不感知任何具体组件类型（§四 注册表机制）。
  */
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, Eye, EyeOff, Search } from 'lucide-react';
 import { getCategoriesByMode } from '../../registry';
-import { categoryLabel, type ComponentDefinition } from '../../registry/types';
+import { categoryLabel, type ComponentDefinition, type RenderContext } from '../../registry/types';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { selectMode, useEditorStore } from '../../store/editorStore';
+import { mmToPx, ptToPx } from '../../utils/units';
 import { Tooltip } from '../ui/Tooltip';
+import { ComponentThumb } from './ComponentThumb';
 
 export const DRAG_MIME = 'application/x-editor-component';
 
@@ -20,7 +22,7 @@ function defaultSizeText(def: ComponentDefinition): string {
   return '默认尺寸：自适应（文档流）';
 }
 
-function ComponentItem({ def }: { def: ComponentDefinition }) {
+function ComponentItem({ def, ctx, preview }: { def: ComponentDefinition; ctx: RenderContext; preview: boolean }) {
   const addComponent = useEditorStore((s) => s.addComponent);
   const Icon = def.icon;
   return (
@@ -43,23 +45,34 @@ function ComponentItem({ def }: { def: ComponentDefinition }) {
       type="button"
       draggable
       data-comp-item="1"
+      data-comp-preview={preview ? '1' : '0'}
       onDoubleClick={() => addComponent(def.type)}
       onDragStart={(e) => {
         e.dataTransfer.setData(DRAG_MIME, def.type);
         e.dataTransfer.setData('text/plain', def.type);
         e.dataTransfer.effectAllowed = 'copy';
       }}
-      className="flex h-8 w-full min-w-0 cursor-grab items-center gap-1.5 rounded px-1 text-left text-[13px] text-gray-700 hover:bg-primary/5 hover:text-primary active:cursor-grabbing"
+      className={`w-full min-w-0 cursor-grab rounded text-left text-[13px] text-gray-700 hover:bg-primary/5 hover:text-primary active:cursor-grabbing ${
+        preview ? 'px-1 py-1' : 'flex h-8 items-center gap-1.5 px-1'
+      }`}
     >
-      <span
-        data-comp-icon="1"
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-white text-gray-500"
-      >
-        <Icon className="h-4 w-4" />
+      <span className={preview ? 'flex items-center gap-1.5' : 'contents'}>
+        <span
+          data-comp-icon="1"
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line bg-white text-gray-500"
+        >
+          <Icon className="h-4 w-4" />
+        </span>
+        <span data-comp-name="1" className="min-w-0 flex-1 truncate">
+          {def.label}
+        </span>
       </span>
-      <span data-comp-name="1" className="min-w-0 flex-1 truncate">
-        {def.label}
-      </span>
+      {/* 真渲染缩略图（B9）：取景框整体 pointer-events:none，点击/拖拽仍旧落在卡片上 */}
+      {preview && (
+        <span className="mt-1 block">
+          <ComponentThumb def={def} ctx={ctx} />
+        </span>
+      )}
     </button>
     </Tooltip>
   );
@@ -70,11 +83,15 @@ function Category({
   items,
   open,
   onToggle,
+  ctx,
+  preview,
 }: {
   name: string;
   items: ComponentDefinition[];
   open: boolean;
   onToggle: () => void;
+  ctx: RenderContext;
+  preview: boolean;
 }) {
   return (
     <div className="mb-1">
@@ -91,9 +108,13 @@ function Category({
         <span className="text-2xs font-normal text-gray-400">{items.length}</span>
       </button>
       {open && (
-        <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 pl-0.5" data-comp-grid="1">
+        <div
+          data-comp-grid="1"
+          data-comp-grid-cols={preview ? '1' : '2'}
+          className={`mt-1 grid gap-x-2 gap-y-0.5 pl-0.5 ${preview ? 'grid-cols-1 gap-y-1' : 'grid-cols-2'}`}
+        >
           {items.map((def) => (
-            <ComponentItem key={def.type} def={def} />
+            <ComponentItem key={def.type} def={def} ctx={ctx} preview={preview} />
           ))}
         </div>
       )}
@@ -105,6 +126,10 @@ export function ComponentPanel() {
   const mode = useEditorStore(selectMode);
   const registryVersion = useEditorStore((s) => s.ui.registryVersion);
   const bumpRegistry = useEditorStore((s) => s.bumpRegistry);
+  const preview = useEditorStore((s) => s.ui.compPreview ?? true);
+  const setCompPreview = useEditorStore((s) => s.setCompPreview);
+  const page = useEditorStore((s) => s.doc.document.page);
+  const canvas = useEditorStore((s) => s.doc.web.canvas);
   const [query, setQuery] = useState('');
   // 默认只展开「Word 常用」（最常用的一类），其余分类折叠（点分类标题展开）
   const [closed, setClosed] = useState<Record<string, boolean>>({
@@ -138,13 +163,27 @@ export function ComponentPanel() {
 
   const total = categories.reduce((n, c) => n + c.items.length, 0);
 
+  /** 缩略图的渲染上下文：只读、非编辑态，纸张/画布取当前文档的（同一套比例） */
+  const thumbCtx: RenderContext = useMemo(
+    () => ({ mode, page, canvas, isEditing: false, isSelected: false, mmToPx, ptToPx }),
+    [mode, page, canvas],
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1.5 border-b border-line px-3 py-2">
         <span className="panel-title">组件</span>
-        <span className="ml-auto text-2xs text-gray-400">
-          {mode === 'document' ? '文档模式' : 'Web 模式'}
-        </span>
+        <button
+          type="button"
+          data-comp-preview-toggle="1"
+          data-comp-preview-state={preview ? '1' : '0'}
+          title={preview ? '隐藏缩略图（回到紧凑两列）' : '显示真渲染缩略图'}
+          onClick={() => setCompPreview(!preview)}
+          className="ml-auto rounded border border-line p-1 text-gray-400 hover:border-primary hover:text-primary"
+        >
+          {preview ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+        </button>
+        <span className="text-2xs text-gray-400">{mode === 'document' ? '文档模式' : 'Web 模式'}</span>
       </div>
 
       <div className="border-b border-line px-2 py-2">
@@ -174,6 +213,8 @@ export function ComponentPanel() {
               items={c.items}
               open={!closed[c.name]}
               onToggle={() => setClosed((s) => ({ ...s, [c.name]: !s[c.name] }))}
+              ctx={thumbCtx}
+              preview={preview}
             />
           ))
         )}

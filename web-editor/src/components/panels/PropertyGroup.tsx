@@ -18,13 +18,21 @@ interface Props {
   open: boolean;
   /** 分组用途说明（悬停气泡） */
   hint?: string;
+  /** 在本组之前画一条细分隔线（第一个分组不画）—— 规格 §8.1 的"分区分割线" */
+  divider?: boolean;
   onToggle: () => void;
   children: ReactNode;
 }
 
-function PropertyGroupInner({ name, count, open, hint, onToggle, children }: Props) {
+function PropertyGroupInner({ name, count, open, hint, divider, onToggle, children }: Props) {
   return (
-    <div className="mb-1.5" data-prop-group="1" data-group-name={name} data-group-open={open ? '1' : '0'}>
+    <div
+      className={`mb-1.5 ${divider ? 'mt-2 border-t border-line/70 pt-1.5' : ''}`}
+      data-prop-group="1"
+      data-group-name={name}
+      data-group-open={open ? '1' : '0'}
+      data-group-divider={divider ? '1' : '0'}
+    >
       <button
         type="button"
         onClick={onToggle}

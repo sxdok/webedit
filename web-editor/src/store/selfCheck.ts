@@ -23,6 +23,10 @@ import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 import { buildDemoPages } from './demo';
 import { parseTableHtml, serializeTableHtml } from '../registry/components/common/tableHtml';
+import { buildDocMarkdown } from '../utils/markdown';
+import { importHtml, importHtmlToDocument } from '../utils/htmlImport';
+import { buildPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FORMAT } from '../utils/pluginPackage';
+import { buildDocx, docxParts, isZip } from '../utils/export/docx';
 import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest } from './treeUtils';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
@@ -952,6 +956,10 @@ async function interactionChecks(): Promise<Result[]> {
      背景：Tooltip 的包装元素若用行内级盒子（inline-flex），组件项会横向流动成"挤在一起的两列"，
      宽度参差、名称也不省略。这里把"两列对齐 + 等宽 + 省略号"钉成断言。 */
   {
+    // ★紧凑两列是「显示预览」**关掉**时的形态（B9 开了缩略图就变成单列卡片）；
+    //   这里先关掉预览验紧凑布局，验完再打开（顺便把开关本身也走一遍）。
+    S().setCompPreview(false);
+    await wait(280);
     const grid = document.querySelector('[data-comp-grid="1"]') as HTMLElement | null;
     const items = [...(grid?.querySelectorAll('[data-comp-item="1"]') ?? [])] as HTMLElement[];
     const perRow = (() => {
@@ -1004,6 +1012,8 @@ async function interactionChecks(): Promise<Result[]> {
     );
     catBtn?.click(); // 还原折叠状态
     await wait(60);
+    S().setCompPreview(true); // 还原「显示预览」（默认开），后面的 B9 断言还要用
+    await wait(280);
   }
 
   /* ── 打印外壳审计：主行里除 main 以外的元素（面板/折叠把手等）必须都标了 no-print ── */
@@ -2846,6 +2856,809 @@ async function interactionChecks(): Promise<Result[]> {
       if (back) S().setActivePage(back.id);
       await wait(240);
     }
+  }
+
+  /* ══════════ B 清单（按易→难实现）的验收断言 ══════════ */
+
+  /* B1 面板级 memo：外层因鼠标坐标重渲染时，属性子树不应重渲染 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const b1 = S().addComponent('table');
+    await wait(380);
+    S().selectComponent(b1 ? [b1] : []);
+    await wait(260);
+    const panel = document.querySelector('[data-props-panel="1"]') as HTMLElement | null;
+    const before = Number(panel?.getAttribute('data-props-renders') ?? '-1');
+    // 画布上的 mousemove 会 setPointer（App 级 useState）→ App/面板整体重渲染；
+    // 属性子树被 memo 挡住，渲染计数应当不动。
+    const paper = document.querySelector('.page-flow') as HTMLElement | null;
+    const coordsText = (): string =>
+      [...document.querySelectorAll('span,div')].find((el) => el.textContent?.startsWith('光标：'))?.textContent ?? '';
+    const c0 = coordsText();
+    const rect = paper?.getBoundingClientRect();
+    if (paper && rect) {
+      const pts: Array<[number, number]> = [
+        [rect.left + 30, rect.top + 30],
+        [rect.left + rect.width / 2, rect.top + rect.height / 2],
+        [rect.left + rect.width - 30, rect.top + rect.height - 30],
+      ];
+      for (const [x, y] of pts) {
+        paper.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
+        await wait(60);
+      }
+    }
+    await wait(260);
+    const c1 = coordsText();
+    const after = Number(document.querySelector('[data-props-panel="1"]')?.getAttribute('data-props-renders') ?? '-2');
+    add(
+      'B1 属性面板级 memo：画布鼠标移动引起的外层重渲染不再重渲染属性子树',
+      before > 0 && after === before && !!c0 && c1 !== c0,
+      `属性子树渲染计数 ${before} → ${after}；光标读数「${c0.trim()}」→「${c1.trim()}」（证明外层确实重渲染了）`,
+    );
+  }
+
+  /* B2 快捷键：Tab/Shift+Tab 移动选择、Ctrl+]/Ctrl+[ 层级、Enter 进出容器 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const k1 = S().addComponent('paragraph');
+    const k2 = S().addComponent('paragraph');
+    const k3 = S().addComponent('paragraph');
+    await wait(340);
+    S().selectComponent(k1 ? [k1] : []);
+    await wait(160);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    await wait(200);
+    const afterTab = S().doc.selectedIds[0];
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+    await wait(200);
+    const afterShiftTab = S().doc.selectedIds[0];
+    S().selectComponent(k3 ? [k3] : []);
+    await wait(160);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    await wait(200);
+    const wrapped = S().doc.selectedIds[0];
+    add(
+      'B2 快捷键 Tab / Shift+Tab：在组件之间前后移动选择（到末尾循环回第一个）',
+      afterTab === k2 && afterShiftTab === k1 && wrapped === k1,
+      `Tab→${afterTab}（期望 ${k2}）、Shift+Tab→${afterShiftTab}（期望 ${k1}）、末尾 Tab→${wrapped}（期望 ${k1}）`,
+    );
+
+    S().selectComponent(k1 ? [k1] : []);
+    await wait(140);
+    const orderBefore = S().doc.document.components.map((n) => n.id).join(',');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', ctrlKey: true, bubbles: true }));
+    await wait(220);
+    const orderAfter = S().doc.document.components.map((n) => n.id).join(',');
+    add(
+      'B2 快捷键 Ctrl+] / Ctrl+[：层级上移 / 下移一层',
+      orderBefore !== orderAfter && S().doc.document.components[1]?.id === k1,
+      `顺序 ${orderBefore} → ${orderAfter}`,
+    );
+
+    const cont = S().addComponent('columns');
+    const child = cont ? S().addComponent('paragraph', cont) : null;
+    await wait(340);
+    S().selectComponent(cont ? [cont] : []);
+    await wait(160);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await wait(220);
+    const into = S().doc.selectedIds[0];
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await wait(220);
+    const back = S().doc.selectedIds[0];
+    add(
+      'B2 快捷键 Enter：进出容器（有子节点→进第一个子节点；无子节点→回到父容器）',
+      !!child && !!cont && into === child && back === cont,
+      `第一次 Enter→${into ?? '无'}（期望子节点 ${child ?? '无'}）、第二次 Enter→${back ?? '无'}（期望父容器 ${cont ?? '无'}）`,
+    );
+  }
+
+  /* B3 分页标签就地改名（双击 / F2） */
+  {
+    const pageId = S().activePageId;
+    const tab = document.querySelector(`[data-page-select="${pageId}"]`) as HTMLElement | null;
+    tab?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    await wait(260);
+    const input = document.querySelector(`[data-page-rename-input="${pageId}"]`) as HTMLInputElement | null;
+    if (input) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, '改过名的页');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+    await wait(320);
+    const title = S().doc.title;
+    const tabText = document.querySelector(`[data-page-select="${pageId}"]`)?.textContent ?? '';
+    add(
+      'B3 分页标签就地改名：双击（或 F2）出现输入框，Enter 提交后页标题与文档标题一起变',
+      !!input && title === '改过名的页' && tabText.includes('改过名的页'),
+      `输入框出现=${!!input}；文档标题=「${title}」；标签文本=「${tabText.trim()}」`,
+    );
+  }
+
+  /* B4 表格组属性顺序 + 分组分割线 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const b4 = S().addComponent('table');
+    await wait(380);
+    S().selectComponent(b4 ? [b4] : []);
+    await wait(240);
+    await openGroup('表格');
+    const tableGroup = document.querySelector('[data-prop-group="1"][data-group-name="表格"]');
+    const keys = [...(tableGroup?.querySelectorAll('[data-prop-key]') ?? [])].map(
+      (el) => el.getAttribute('data-prop-key') ?? '',
+    );
+    const at = (k: string) => keys.indexOf(k);
+    const ordered =
+      at('headerRow') >= 0 &&
+      at('headerRow') < at('caption') &&
+      at('caption') < at('tableSize') &&
+      at('tableSize') < at('variant') &&
+      at('variant') < at('width') &&
+      at('width') < at('fontSize');
+    add(
+      'B4 表格组属性顺序：结构 → 数据 → 线条 → 尺寸 → 文字',
+      ordered,
+      `前 14 项=${keys.slice(0, 14).join(',')}`,
+    );
+    const groups = [...document.querySelectorAll('[data-prop-group="1"]')];
+    const dividers = groups.filter((g) => g.getAttribute('data-group-divider') === '1').length;
+    add(
+      'B4 属性分组之间的分割线（第一个分组不画；每多一个分组多一条）',
+      groups.length >= 2 && dividers === groups.length - 1,
+      `${groups.length} 个分组，带分割线 ${dividers} 个`,
+    );
+  }
+
+  /* B5 单元格复制 / 粘贴 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const b5 = S().addComponent('table');
+    if (b5) S().updateProps(b5, { data: 'A | B\nC | D', headerRow: true, cellStyles: {} });
+    await wait(400);
+    S().selectComponent(b5 ? [b5] : []);
+    S().selectTableCells(b5!, ['0,0', '1,0']);
+    await wait(240);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, bubbles: true }));
+    await wait(180);
+    S().selectTableCells(b5!, ['0,1']);
+    await wait(220);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', ctrlKey: true, bubbles: true }));
+    await wait(320);
+    const data = String(findNode(getForest(S().doc), b5 ?? '')?.props.data ?? '');
+    const flatData = data.replace(/\s+/g, '');
+    add(
+      'B5 单元格复制 / 粘贴：Ctrl+C 复制选区 → Ctrl+V 粘到目标格（自动补足行列）',
+      flatData.includes('A|A') && flatData.includes('C|C'),
+      `data=「${data.replace(/\n/g, ' ⏎ ')}」`,
+    );
+  }
+
+  /* B6 单元格键盘导航（方向键 / Shift+方向键 / Tab / Enter）+ 双击画布单元格改字 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const b6 = S().addComponent('table');
+    if (b6) S().updateProps(b6, { data: 'A | B | C\nD | E | F\nG | H | I', cellStyles: {} });
+    await wait(420);
+    S().selectComponent(b6 ? [b6] : []);
+    S().selectTableCells(b6!, ['1,1']);
+    await wait(240);
+    const key = () => String(useEditorStore.getState().ui.tableCells?.cells.join(' ') ?? '');
+    const arrow = (k: string, shift = false) =>
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: k, shiftKey: shift, bubbles: true }));
+
+    arrow('ArrowRight');
+    await wait(120);
+    const right = key();
+    arrow('ArrowDown');
+    await wait(120);
+    const down = key();
+    // 左/上越界要**夹住**，不能跑到表外
+    S().selectTableCells(b6!, ['0,0']);
+    await wait(100);
+    arrow('ArrowLeft');
+    arrow('ArrowUp');
+    await wait(140);
+    const clamped = key();
+    add(
+      'B6 方向键在单元格之间移动活动格（越界夹住，不跑出表格）',
+      right === '1,2' && down === '2,2' && clamped === '0,0',
+      `右→${right}（期望 1,2）、下→${down}（期望 2,2）、左上越界→${clamped}（期望 0,0）`,
+    );
+
+    S().selectTableCells(b6!, ['1,1']);
+    await wait(100);
+    arrow('ArrowRight', true);
+    await wait(140);
+    const extended = key();
+    add(
+      'B6 Shift+方向键：从选区左上角扩选成一片',
+      extended === '1,1 1,2',
+      `Shift+右→「${extended}」（期望「1,1 1,2」）`,
+    );
+
+    S().selectTableCells(b6!, ['0,2']);
+    await wait(100);
+    arrow('Tab');
+    await wait(140);
+    const tabNext = key();
+    S().selectTableCells(b6!, ['0,0']);
+    await wait(100);
+    arrow('Tab', true);
+    await wait(140);
+    const tabPrev = key();
+    add(
+      'B6 Tab / Shift+Tab：按行优先顺序走下一格 / 上一格（行末自动换行）',
+      tabNext === '1,0' && tabPrev === '2,2',
+      `行末 Tab→${tabNext}（期望 1,0）、首格 Shift+Tab→${tabPrev}（期望 2,2）`,
+    );
+
+    S().selectTableCells(b6!, ['2,1']);
+    await wait(120);
+    await openGroup('单元格');
+    arrow('Enter');
+    await wait(300);
+    const focused = document.activeElement as HTMLElement | null;
+    const collapsed = key();
+    add(
+      'B6 Enter：收敛到活动格并把焦点交给属性面板的「单元格内容」框',
+      focused?.getAttribute('data-cell-text') === '1' && collapsed === '2,1',
+      `焦点=${focused?.tagName}${focused?.getAttribute('data-cell-text') ? '（data-cell-text=1）' : ''}；选中=${collapsed}`,
+    );
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    /* 双击画布单元格 → 就地改字 */
+    const cell = document.querySelector(`[data-node-id="${b6}"] [data-cell="1,1"]`) as HTMLElement | null;
+    cell?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    await wait(300);
+    const editor = document.querySelector('[data-cell-editor="1"]') as HTMLInputElement | null;
+    const inPaper = !!editor?.closest('[data-pan-layer="1"]');
+    if (editor) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(editor, '双击改的字');
+      editor.dispatchEvent(new Event('input', { bubbles: true }));
+      editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    }
+    await wait(320);
+    const afterEdit = String(findNode(getForest(S().doc), b6 ?? '')?.props.data ?? '').replace(/\s+/g, '');
+    add(
+      'B6 双击画布单元格就地改字（输入框挂在缩放层里，Enter 提交写回 props.data）',
+      !!cell && !!editor && inPaper && afterEdit.includes('双击改的字'),
+      `命中格子=${!!cell}、输入框=${!!editor}、在缩放层内=${inPaper}；data=「${afterEdit}」`,
+    );
+
+    /* Esc 取消不写入 */
+    const cell2 = document.querySelector(`[data-node-id="${b6}"] [data-cell="0,0"]`) as HTMLElement | null;
+    cell2?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }));
+    await wait(280);
+    const editor2 = document.querySelector('[data-cell-editor="1"]') as HTMLInputElement | null;
+    if (editor2) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(editor2, '不该写进去');
+      editor2.dispatchEvent(new Event('input', { bubbles: true }));
+      editor2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    }
+    await wait(300);
+    const afterEsc = String(findNode(getForest(S().doc), b6 ?? '')?.props.data ?? '').replace(/\s+/g, '');
+    add(
+      'B6 Esc 取消双击改字（不写回数据，输入框收起）',
+      !!editor2 && !afterEsc.includes('不该写进去') && !document.querySelector('[data-cell-editor="1"]'),
+      `输入框出现过=${!!editor2}、数据含取消内容=${afterEsc.includes('不该写进去')}、输入框已收起=${!document.querySelector('[data-cell-editor="1"]')}`,
+    );
+  }
+
+  /* B7 文档模式的**宽度拖拽手柄**（按 mm 写回 props.width） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const img = S().addComponent('image');
+    const para = S().addComponent('paragraph');
+    if (img) S().updateProps(img, { width: 84, src: '' });
+    await wait(440);
+    S().selectComponent(img ? [img] : []);
+    await wait(320);
+
+    const zoom = S().zoom || 1;
+    const handle = document.querySelector('[data-width-handle="1"]') as HTMLElement | null;
+    const box = document.querySelector(`[data-node-id="${img}"] [data-width-box="1"]`) as HTMLElement | null;
+    const hr = handle?.getBoundingClientRect();
+    const br = box?.getBoundingClientRect();
+    const flush = !!hr && !!br && Math.abs(hr.left + hr.width / 2 - br.right) <= 3 * zoom + 2;
+    add(
+      'B7 文档模式选中图片出现宽度手柄（贴在图片右边缘，不是整列宽度）',
+      !!handle && !!box && flush,
+      `手柄=${!!handle}、宽度盒子=${!!box}；手柄中线与图片右边缘差 ${hr && br ? Math.round(hr.left + hr.width / 2 - br.right) : '—'}px（zoom=${zoom}）`,
+    );
+
+    const startW = Number(findNode(getForest(S().doc), img ?? '')?.props.width);
+    const x0 = hr ? hr.left + hr.width / 2 : 0;
+    const y0 = hr ? hr.top + hr.height / 2 : 0;
+    handle?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x0, clientY: y0, button: 0, pointerId: 7 }),
+    );
+    await wait(90);
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: x0 + 40, clientY: y0, button: 0, pointerId: 7 }));
+    await wait(160);
+    const badge = document.querySelector('[data-width-badge="1"]')?.textContent?.trim() ?? '';
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x0 + 40, clientY: y0, button: 0, pointerId: 7 }));
+    await wait(240);
+    const endW = Number(findNode(getForest(S().doc), img ?? '')?.props.width);
+    const want = Math.round((startW + 40 / zoom / mmToPx(1)) * 10) / 10;
+    add(
+      'B7 拖动宽度手柄 40px → 宽度按 mm 写回 props.width（并显示 mm 角标）',
+      Math.abs(endW - want) < 1.6 && badge.includes('mm'),
+      `${startW}mm --拖 40px（zoom=${zoom}）--> ${endW}mm（期望 ≈${want}mm）；拖动中角标「${badge}」`,
+    );
+
+    S().selectComponent(para ? [para] : []);
+    await wait(280);
+    add(
+      'B7 没有 mm 宽度属性的组件（段落）不出现宽度手柄',
+      !document.querySelector('[data-width-handle="1"]'),
+      `手柄数=${document.querySelectorAll('[data-width-handle="1"]').length}`,
+    );
+  }
+
+  /* B8 表格**行高拖拽手柄**（整表统一行高，单位 mm） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const t8 = S().addComponent('table');
+    if (t8) S().updateProps(t8, { data: 'A | B\nC | D\nE | F', rowHeight: '', cellStyles: {} });
+    await wait(460);
+    S().selectComponent(t8 ? [t8] : []);
+    await wait(360);
+
+    const zoom8 = S().zoom || 1;
+    const handles = [...document.querySelectorAll('[data-row-handle="1"]')] as HTMLElement[];
+    const rowEls = [...document.querySelectorAll(`[data-node-id="${t8}"] tr`)] as HTMLElement[];
+    const heightOf = (i: number): number => rowEls[i]?.getBoundingClientRect().height ?? 0;
+    const before = heightOf(0);
+    const hr8 = handles[0]?.getBoundingClientRect();
+    const px = hr8 ? hr8.left + 5 : 0;
+    const py = hr8 ? hr8.top + 3 : 0;
+    handles[0]?.dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true, clientX: px, clientY: py, button: 0, pointerId: 9 }),
+    );
+    await wait(90);
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: px, clientY: py + 25, button: 0, pointerId: 9 }));
+    await wait(200);
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: px, clientY: py + 25, button: 0, pointerId: 9 }));
+    await wait(320);
+
+    const rh = String(findNode(getForest(S().doc), t8 ?? '')?.props.rowHeight ?? '');
+    const after = heightOf(0);
+    const expectMm8 = Math.round(((before + 25) / zoom8 / mmToPx(1)) * 10) / 10;
+    add(
+      'B8 表格行边界手柄：拖 25px → 整表行高写回 props.rowHeight（mm），渲染行高跟着变',
+      handles.length === Math.max(0, rowEls.length - 1) &&
+        Math.abs(after - before - 25) <= 4 &&
+        Math.abs(Number(rh) - expectMm8) <= 3,
+      `手柄 ${handles.length} 个 / 行 ${rowEls.length} 个；渲染行高 ${Math.round(before)}px → ${Math.round(after)}px（期望 +25px）；props.rowHeight=「${rh}」（期望 ≈${expectMm8}mm）`,
+    );
+
+    S().selectComponent([]);
+    await wait(240);
+    add(
+      'B8 取消选中后行高手柄收起（只在选中表格时出现）',
+      document.querySelectorAll('[data-row-handle="1"]').length === 0,
+      `手柄数=${document.querySelectorAll('[data-row-handle="1"]').length}`,
+    );
+  }
+
+  /* B9 组件箱的**真渲染缩略图**（不是图标替代；且不参与交互） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    await wait(320);
+    const toggle = document.querySelector('[data-comp-preview-toggle="1"]') as HTMLElement | null;
+    if (document.querySelectorAll('[data-comp-thumb]').length === 0) {
+      // 正常情况默认就是开的；万一上一条断言没还原，这里兜一下
+      S().setCompPreview(true);
+      await wait(300);
+    }
+    const thumbs = [...document.querySelectorAll('[data-comp-thumb]')] as HTMLElement[];
+    const cards = [...document.querySelectorAll('[data-comp-item]')] as HTMLElement[];
+    // 每张缩略图里都该有**真渲染出来的元素**（boundary 里不是空的），
+    // 「标题」这一张还能具体验到：真的是个 <h2>（而不是图标/占位）
+    const rendered = thumbs.filter((t) => !!t.firstElementChild?.firstElementChild).length;
+    const headingReal = !!document.querySelector('[data-comp-thumb="heading"] h2');
+    add(
+      'B9 组件箱卡片显示**真渲染缩略图**（张数 = 卡片数，且每张都渲染出真元素）',
+      !!toggle &&
+        toggle.getAttribute('data-comp-preview-state') === '1' &&
+        thumbs.length > 0 &&
+        thumbs.length === cards.length &&
+        rendered === thumbs.length &&
+        headingReal,
+      `开关=${toggle?.getAttribute('data-comp-preview-state')}；缩略图 ${thumbs.length} 张 / 卡片 ${cards.length} 张；有真内容的 ${rendered} 张；「标题」缩略图内含 <h2>=${headingReal}`,
+    );
+
+    const t0 = thumbs.find((t) => t.getBoundingClientRect().height > 0);
+    const tr = t0?.getBoundingClientRect();
+    const hit = tr ? document.elementFromPoint(tr.left + tr.width / 2, tr.top + tr.height / 2) : null;
+    const pe = t0 ? getComputedStyle(t0).pointerEvents : '';
+    const ariaHidden = t0?.getAttribute('aria-hidden');
+    const inCard = !!hit?.closest('[data-comp-item]');
+    add(
+      'B9 缩略图不参与交互（pointer-events:none + aria-hidden，命中测试落到卡片按钮上）',
+      !!tr && pe === 'none' && ariaHidden === 'true' && inCard,
+      `pointer-events=${pe || '—'}、aria-hidden=${ariaHidden ?? '—'}、命中元素=${hit?.tagName ?? '—'}${inCard ? '（在卡片按钮内）' : '（不在卡片内）'}`,
+    );
+
+    toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(360);
+    const offThumbs = document.querySelectorAll('[data-comp-thumb]').length;
+    const offCols = document.querySelector('[data-comp-grid]')?.getAttribute('data-comp-grid-cols');
+    add(
+      'B9 关掉「显示预览」→ 缩略图消失、网格回到紧凑两列（状态写进 ui.compPreview）',
+      offThumbs === 0 && offCols === '2' && toggle?.getAttribute('data-comp-preview-state') === '0' && S().ui.compPreview === false,
+      `缩略图=${offThumbs}、网格列=${offCols}、ui.compPreview=${String(S().ui.compPreview)}`,
+    );
+
+    toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await wait(360);
+    add(
+      'B9 再点一次恢复缩略图（开关随 ui 持久化，默认开）',
+      S().ui.compPreview === true && document.querySelectorAll('[data-comp-thumb]').length > 0,
+      `ui.compPreview=${String(S().ui.compPreview)}、缩略图=${document.querySelectorAll('[data-comp-thumb]').length}`,
+    );
+  }
+
+  /* B10 Markdown 源码视图（文档 → Markdown，只读 + 一键复制） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const mh = S().addComponent('heading');
+    if (mh) S().updateProps(mh, { level: 2, text: '自检标题' });
+    const mp = S().addComponent('paragraph');
+    if (mp) S().updateProps(mp, { text: '正文一句话' });
+    const mb = S().addComponent('bullets');
+    if (mb) S().updateProps(mb, { items: '第一条\n  子要点\n第二条' });
+    const mt = S().addComponent('table');
+    if (mt) S().updateProps(mt, { data: 'A | B\nC | D', caption: '' });
+    await wait(460);
+
+    const md = buildDocMarkdown(S().doc);
+    add(
+      'B10 文档 → Markdown：抬头 + 标题层级 + 段落 + 项目符号（含缩进）+ 表格管道表',
+      md.startsWith('# ') &&
+        md.includes('## 自检标题') &&
+        md.includes('正文一句话') &&
+        md.includes('- 第一条') &&
+        md.includes('  - 子要点') &&
+        md.includes('| A | B |') &&
+        md.includes('| --- | --- |') &&
+        md.includes('| C | D |'),
+      md
+        .split('\n')
+        .filter(Boolean)
+        .slice(0, 10)
+        .join(' ⏎ '),
+    );
+
+    S().toggleUI('showMarkdown');
+    await wait(320);
+    const src = document.querySelector('[data-md-source="1"]') as HTMLElement | null;
+    const stats = document.querySelector('[data-md-stats="1"]')?.textContent ?? '';
+    add(
+      'B10 视图 → Markdown 源码：弹窗出现、内容与文档一致，带行数/字符统计与复制、下载按钮',
+      !!src &&
+        (src.textContent ?? '').includes('自检标题') &&
+        stats.includes('行') &&
+        stats.includes('字符') &&
+        !!document.querySelector('[data-md-copy="1"]') &&
+        !!document.querySelector('[data-md-download="1"]'),
+      `弹窗=${!!src}；统计=「${stats.trim()}」`,
+    );
+
+    S().toggleUI('showMarkdown');
+    await wait(280);
+    add(
+      'B10 关闭后弹窗移除（只读视图不改文档）',
+      !document.querySelector('[data-md-source="1"]') &&
+        String(findNode(getForest(S().doc), mh ?? '')?.props.text ?? '') === '自检标题',
+      `弹窗还在=${!!document.querySelector('[data-md-source="1"]')}；标题文字=「${String(findNode(getForest(S().doc), mh ?? '')?.props.text ?? '')}」`,
+    );
+  }
+
+  /* B11 图表按章编号（图 X-Y / 表 X-Y，按 heading(level=1) 计章） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const h1 = S().addComponent('heading');
+    if (h1) S().updateProps(h1, { level: 1, text: '第一章 概述' });
+    const i1 = S().addComponent('image');
+    if (i1) S().updateProps(i1, { src: '', caption: '流水线示意' });
+    const t1 = S().addComponent('table');
+    if (t1) S().updateProps(t1, { data: 'A | B\nC | D', caption: '参数表' });
+    const h2 = S().addComponent('heading');
+    if (h2) S().updateProps(h2, { level: 1, text: '第二章 数据' });
+    const ch1 = S().addComponent('chartBar');
+    if (ch1) S().updateProps(ch1, { items: '一月|120\n二月|180', caption: '月度产量' });
+    const t2 = S().addComponent('table');
+    if (t2) S().updateProps(t2, { data: 'X | Y\n1 | 2', caption: '明细表' });
+    await wait(520);
+
+    // ★量到的题注/编号只数**纸张里的**：离屏测量容器（`[data-measure="1"]`）也会渲染一遍组件，
+    //   组件箱缩略图里也可能有同名的题注属性 —— 不限定范围就会数成两倍/拿错节点。
+    const labelList = (): string[] =>
+      [...document.querySelectorAll('[data-paper] [data-auto-label]')].map((el) => el.getAttribute('data-auto-label') ?? '');
+    const figText = document.querySelector('[data-paper] [data-figure-caption="1"]')?.textContent?.trim() ?? '';
+    add(
+      'B11 默认不开自动编号：图题/表题只显示用户填的文字',
+      labelList().length === 0 && figText === '流水线示意',
+      `带编号的题注 ${labelList().length} 个；第一个图题=「${figText}」`,
+    );
+
+    S().toggleUI('autoNumber');
+    await wait(460);
+    const labelsOn = labelList();
+    const capTexts = [...document.querySelectorAll('[data-paper] [data-auto-label]')].map((el) => el.textContent?.trim() ?? '');
+    add(
+      'B11 打开自动编号：按章给出「图 X-Y / 表 X-Y」（章内图、表各自计数）',
+      labelsOn.join(' / ') === '图 1-1 / 表 1-1 / 图 2-1 / 表 2-1' && capTexts[0].includes('流水线示意'),
+      `编号=${labelsOn.join(' / ')}；第一个题注文字=「${capTexts[0] ?? ''}」`,
+    );
+
+    // 把"第一章"降级成 level=2 → 它不再计章，于是第二章变成第 1 章，而它之前的图/表落到"无章"连续编号
+    if (h1) S().updateProps(h1, { level: 2 });
+    await wait(460);
+    const labelsAfter = labelList();
+    add(
+      'B11 章号随标题层级重排（把 level=1 降级后，编号自动重算；"章前"的图/表用连续编号）',
+      labelsAfter.join(' / ') === '图 1 / 表 1 / 图 1-1 / 表 1-1',
+      `重排后=${labelsAfter.join(' / ')}`,
+    );
+
+    S().toggleUI('autoNumber');
+    await wait(380);
+    add(
+      'B11 关掉自动编号：编号消失，用户自己填的图题/表题原样保留',
+      labelList().length === 0 &&
+        (document.querySelector('[data-paper] [data-figure-caption="1"]')?.textContent?.trim() ?? '') === '流水线示意' &&
+        (document.querySelector('[data-paper] [data-table-caption="1"]')?.textContent?.trim() ?? '') === '参数表',
+      `带编号题注 ${labelList().length} 个；图题=「${document.querySelector('[data-paper] [data-figure-caption="1"]')?.textContent?.trim() ?? ''}」；表题=「${document.querySelector('[data-paper] [data-table-caption="1"]')?.textContent?.trim() ?? ''}」`,
+    );
+  }
+
+  /* B12 表格排序（按列升/降；渲染期排序不动数据）+ 冻结首行（Web 模式 sticky） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const s12 = S().addComponent('table');
+    const raw12 = '名称 | 值\nb | 2\na | 10\nc | 1';
+    if (s12) S().updateProps(s12, { data: raw12, headerRow: true, cellStyles: { B3: { background: '#ffd7d7' } } });
+    await wait(480);
+    S().selectComponent(s12 ? [s12] : []);
+    await wait(260);
+
+    // 渲染出来的**正文行首列**（thead 不算）
+    const colVals = (col: number): string[] =>
+      [...document.querySelectorAll(`[data-paper] [data-node-id="${s12}"] tbody tr`)].map(
+        (tr) => (tr.children[col] as HTMLElement | undefined)?.textContent?.trim() ?? '',
+      );
+    const before = colVals(0);
+    if (s12) S().updateProps(s12, { sortBy: 1 });
+    await wait(400);
+    const numAsc = colVals(0);
+    if (s12) S().updateProps(s12, { sortDir: 'desc' });
+    await wait(400);
+    const numDesc = colVals(0);
+    add(
+      'B12 按列排序：数值列升序 / 降序（"10" 不会再排到 "2" 前面）',
+      before.join(',') === 'b,a,c' && numAsc.join(',') === 'c,b,a' && numDesc.join(',') === 'a,b,c',
+      `原始=${before.join(',')}；数值升序=${numAsc.join(',')}（期望 c,b,a）；降序=${numDesc.join(',')}（期望 a,b,c）`,
+    );
+
+    if (s12) S().updateProps(s12, { sortBy: 0, sortDir: 'asc' });
+    await wait(400);
+    const textAsc = colVals(0);
+    const stillRaw = String(findNode(getForest(S().doc), s12 ?? '')?.props.data ?? '');
+    const headStillFirst = [...document.querySelectorAll(`[data-paper] [data-node-id="${s12}"] thead th`)].length === 2;
+    add(
+      'B12 排序是**渲染期**行为：按文字列排也能排，表头仍在第一行、`props.data` 原始行序不变',
+      textAsc.join(',') === 'a,b,c' && stillRaw === raw12 && headStillFirst,
+      `文字升序=${textAsc.join(',')}（期望 a,b,c）；表头仍是第一行=${headStillFirst}；data 未变=${stillRaw === raw12}`,
+    );
+
+    // 单元格格式（A1 键）跟着行一起走：原 B3 是 a|10，排完在数值升序里落到最后一行
+    if (s12) S().updateProps(s12, { sortBy: 1, sortDir: 'asc' });
+    await wait(420);
+    const styledNow = [...document.querySelectorAll(`[data-paper] [data-node-id="${s12}"] tbody tr`)].findIndex(
+      (tr) => (tr.children[0] as HTMLElement | undefined)?.textContent?.trim() === 'a',
+    );
+    const styledCell = document.querySelector(`[data-paper] [data-node-id="${s12}"] [data-cell="${styledNow + 1},1"]`) as HTMLElement | null;
+    const bgOk = (styledCell?.getAttribute('style') ?? '').includes('255, 215, 215');
+    add(
+      'B12 单元格格式跟着行走（A1 键按行置换搬移，颜色不会留在原来的行号上）',
+      styledNow >= 0 && bgOk,
+      `带格式的原始行「a|10」排完后在第 ${styledNow + 1} 行；该格 style=${styledCell?.getAttribute('style') ?? '—'}`,
+    );
+
+    // 冻结首行：只在 Web 模式生效
+    S().setMode('web');
+    await wait(420);
+    add(
+      'B12 文档模式（纸张要打印）不生成冻结外壳',
+      !document.querySelector('[data-sticky-wrap="1"]'),
+      `冻结外壳数=${document.querySelectorAll('[data-sticky-wrap="1"]').length}`,
+    );
+    const w12 = S().addComponent('table');
+    if (w12) S().updateProps(w12, { data: raw12, headerRow: true, stickyHeader: true, stickyHeight: 60 });
+    await wait(480);
+    const wrap = document.querySelector('[data-sticky-wrap="1"]') as HTMLElement | null;
+    const th = wrap?.querySelector('thead th') as HTMLElement | null;
+    add(
+      'B12 冻结首行（Web 模式）：表格套一层可滚动外壳，表头 sticky 钉在顶部',
+      !!wrap &&
+        !!th &&
+        getComputedStyle(th).position === 'sticky' &&
+        wrap.scrollHeight > wrap.clientHeight &&
+        String(findNode(getForest(S().doc), w12 ?? '')?.props.stickyHeader) === 'true',
+      `外壳=${!!wrap}；表头 position=${th ? getComputedStyle(th).position : '—'}；外壳高 ${wrap?.clientHeight ?? 0} / 内容高 ${wrap?.scrollHeight ?? 0}`,
+    );
+  }
+
+  /* B13 HTML → 文档（`?load=`）：本工程导出的 HTML 能读回；常见结构 HTML 也能导入 */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const h13 = S().addComponent('heading');
+    if (h13) S().updateProps(h13, { level: 1, text: '导入标题' });
+    const p13 = S().addComponent('paragraph');
+    if (p13) S().updateProps(p13, { text: '导入段落' });
+    const b13 = S().addComponent('bullets');
+    if (b13) S().updateProps(b13, { items: '甲\n乙' });
+    const t13 = S().addComponent('table');
+    if (t13) S().updateProps(t13, { data: 'A | B\nC | D', headerRow: true });
+    await wait(460);
+
+    const html13 = S().exportHTML();
+    add(
+      'B13 导出的 HTML 自带 data-node-type（结构自描述，可被读回）',
+      html13.includes('data-node-type="heading"') && html13.includes('data-node-type="table"') && html13.includes('data-node-type="bullets"'),
+      `含 heading/table/bullets 标记=${html13.includes('data-node-type="heading"')}/${html13.includes('data-node-type="table"')}/${html13.includes('data-node-type="bullets"')}`,
+    );
+
+    const back = importHtmlToDocument(html13);
+    const typesBack = back.doc.document.components.map((n) => n.type).join(',');
+    const tableBack = back.doc.document.components.find((n) => n.type === 'table');
+    const headBack = back.doc.document.components.find((n) => n.type === 'heading');
+    const bulletsBack = back.doc.document.components.find((n) => n.type === 'bullets');
+    add(
+      'B13 本工程导出的 HTML **能读回编辑器**（组件类型、标题层级、列表条目、表格数据都对得上）',
+      typesBack === 'heading,paragraph,bullets,table' &&
+        Number(headBack?.props.level) === 1 &&
+        String(headBack?.props.text ?? '') === '导入标题' &&
+        String(bulletsBack?.props.items ?? '').replace(/\s+/g, '') === '甲乙' &&
+        String(tableBack?.props.data ?? '').replace(/\s+/g, '') === 'A|BC|D' &&
+        back.result.stats.typed >= 4,
+      `类型序列=${typesBack}；标题=「${String(headBack?.props.text ?? '')}」(level ${String(headBack?.props.level ?? '')})；列表=「${String(bulletsBack?.props.items ?? '').replace(/\n/g, '/')}」；表数据=「${String(tableBack?.props.data ?? '').replace(/\n/g, ' ⏎ ')}」；精确识别 ${back.result.stats.typed} 个`,
+    );
+
+    const raw = importHtml(
+      '<html><head><title>外站页</title></head><body><h2>外站小节</h2><p>一段话</p>' +
+        '<ul><li>一</li><li>二</li></ul>' +
+        '<table><tr><th>X</th><th>Y</th></tr><tr><td>1</td><td>2</td></tr></table>' +
+        '<figure><img src="a.png" alt="示例图"><figcaption>图注</figcaption></figure>' +
+        '<script>bad()</script></body></html>',
+    );
+    const rawTypes = raw.components.map((n) => n.type).join(',');
+    const rawImg = raw.components.find((n) => n.type === 'image');
+    add(
+      'B13 常见结构 HTML 也能导入（h2/p/ul/table/figure+img；<script> 被跳过且计入 skipped）',
+      rawTypes === 'heading,paragraph,bullets,table,image' &&
+        Number(raw.components[0]?.props.level) === 2 &&
+        String(raw.components[2]?.props.items ?? '').replace(/\s+/g, '') === '一二' &&
+        String(rawImg?.props.src ?? '') === 'a.png' &&
+        String(rawImg?.props.caption ?? '') === '图注' &&
+        raw.stats.skipped >= 1 &&
+        raw.title === '外站页',
+      `类型序列=${rawTypes}；h2 层级=${String(raw.components[0]?.props.level ?? '')}；图片 src=${String(rawImg?.props.src ?? '')}、图注=「${String(rawImg?.props.caption ?? '')}」；跳过 ${raw.stats.skipped} 个；标题=「${raw.title}」`,
+    );
+  }
+
+  /* B14 组件包导入 / 导出（导出全部外部组件源码 → JSON；导入写回组件目录） */
+  {
+    const live = getLiveTypes();
+    const { pkg, errors } = await buildPluginPackage();
+    const hasRegister = pkg.plugins.every((p) => p.code.includes('EditorKit') || p.code.includes('register'));
+    add(
+      'B14 导出组件包：把 public/组件/*.js 的源码全部收进一个 JSON 包',
+      pkg.format === PACKAGE_FORMAT &&
+        pkg.plugins.length === live.length &&
+        pkg.plugins.every((p) => p.name.endsWith('.js') && p.code.length > 50) &&
+        hasRegister &&
+        errors.length === 0,
+      `${pkg.plugins.length} 个（当前外部组件 ${live.length} 个）：${pkg.plugins.map((p) => `${p.name}/${p.code.length}字符`).join('、') || '（无）'}；读取失败 ${errors.length} 个`,
+    );
+
+    const round = validatePluginPackage(JSON.parse(JSON.stringify(pkg)) as unknown);
+    add(
+      'B14 组件包能自我校验（导出 → 反序列化 → 校验通过）',
+      round.ok && round.plugins.length === pkg.plugins.length && round.errors.length === 0,
+      `校验=${round.ok}、组件 ${round.plugins.length} 个、问题 ${round.errors.length} 条`,
+    );
+
+    const bad = [
+      { label: '路径穿越 ../evil.js', value: { format: PACKAGE_FORMAT, version: 1, plugins: [{ name: '../evil.js', code: 'x' }] } },
+      { label: '内部文件 _manifest.json', value: { format: PACKAGE_FORMAT, version: 1, plugins: [{ name: '_manifest.json', code: 'x' }] } },
+      { label: '非 .js 文件名', value: { format: PACKAGE_FORMAT, version: 1, plugins: [{ name: 'evil.html', code: 'x' }] } },
+      { label: 'code 为空', value: { format: PACKAGE_FORMAT, version: 1, plugins: [{ name: 'ok.js', code: '   ' }] } },
+      { label: 'format 不对', value: { format: 'something-else', version: 1, plugins: [{ name: 'ok.js', code: 'x' }] } },
+      { label: 'plugins 为空', value: { format: PACKAGE_FORMAT, version: 1, plugins: [] } },
+    ].map((c) => ({ label: c.label, rejected: !validatePluginPackage(c.value).ok }));
+    add(
+      'B14 组件包校验**整包拒收**不合法输入（路径穿越 / 内部文件 / 非 .js / 空源码 / format 不对 / 空包）',
+      bad.every((b) => b.rejected),
+      bad.map((b) => `${b.label}=${b.rejected ? '拒收' : '**放行**'}`).join('；'),
+    );
+
+    add(
+      'B14 导出文件名带时间戳（组件包-YYYYMMDD-HHmm.json）',
+      /^组件包-\d{8}-\d{4}\.json$/.test(packageFileName(new Date(2026, 8, 23, 9, 5))),
+      packageFileName(new Date(2026, 8, 23, 9, 5)),
+    );
+  }
+
+  /* B15 真 .docx（OOXML：ZIP + word/document.xml，自带最小 ZIP writer） */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const dh = S().addComponent('heading');
+    if (dh) S().updateProps(dh, { level: 1, text: '第一章 docx 验证' });
+    const dp = S().addComponent('paragraph');
+    if (dp) S().updateProps(dp, { html: '这是一段<strong>加粗</strong>的正文。' });
+    const db = S().addComponent('bullets');
+    if (db) S().updateProps(db, { items: '第一条\n第二条' });
+    const dt = S().addComponent('table');
+    if (dt) S().updateProps(dt, { data: '列一 | 列二\n甲 | 1\n乙 | 2', headerRow: true, caption: '验证表' });
+    await wait(460);
+
+    const docx = buildDocx(S().doc, getForest(S().doc));
+    const parts = docxParts(docx.bytes);
+    const asText = new TextDecoder('utf-8').decode(docx.bytes);
+    add(
+      'B15 导出真 .docx：ZIP 头（PK）+ OOXML 部件齐全（Content_Types / document / styles / numbering / rels / docProps）',
+      isZip(docx.bytes) &&
+        docx.bytes.length > 2000 &&
+        parts.includes('[Content_Types].xml') &&
+        parts.includes('word/document.xml') &&
+        parts.includes('word/styles.xml') &&
+        parts.includes('word/numbering.xml') &&
+        parts.includes('_rels/.rels') &&
+        parts.includes('word/_rels/document.xml.rels') &&
+        parts.includes('docProps/core.xml'),
+      `${docx.bytes.length} 字节；部件：${[...new Set(parts)].join('、')}`,
+    );
+
+    add(
+      'B15 .docx 内容正确：纸张/页边距（sectPr）+ 标题样式 + 加粗片段 + 表格 + 列表编号引用',
+      asText.includes('<w:pgSz') &&
+        asText.includes('<w:pgMar') &&
+        asText.includes('Heading1') &&
+        asText.includes('这是') &&
+        asText.includes('<w:tbl>') &&
+        asText.includes('w:numId w:val="1"') &&
+        asText.includes('第一章 docx 验证'),
+      `含 sectPr=${asText.includes('<w:pgSz')}、Heading1=${asText.includes('Heading1')}、表格=${asText.includes('<w:tbl>')}、列表编号=${asText.includes('w:numId w:val="1"')}、块数 ${docx.blocks}`,
+    );
+
+    // 把字节用 base64 存到运行目录 docs/ 下，便于用 python-docx 在**编辑器之外**再验一次
+    const b64 = (() => {
+      let s = '';
+      for (let i = 0; i < docx.bytes.length; i += 1) s += String.fromCharCode(docx.bytes[i]);
+      return btoa(s);
+    })();
+    const saved = await saveToRunDir('docs/自检-docx.docx.b64', b64);
+    add(
+      'B15 .docx 字节可落盘（base64 写到运行目录 docs/，供 python-docx 外部复验）',
+      !!saved?.ok && (saved?.bytes ?? 0) > 2000,
+      saved?.ok ? `写入 ${saved.file}（${saved.bytes} 字节 base64）` : `落盘失败/无接口：${saved?.error ?? '（未托管）'}`,
+    );
   }
 
   /* ── 示例文档（?demo=1）：两种模式**各一页**，且每页覆盖该模式下的全部组件 ── */

@@ -16,12 +16,20 @@ import {
   selectMode,
   useEditorStore,
 } from '../../store/editorStore';
-import { flatten } from '../../store/treeUtils';
+import { flatten, getForest } from '../../store/treeUtils';
 import { downloadText, pickTextFile, saveToRunDir } from '../../utils/download';
 import { log } from '../../utils/logger';
 import { saveDiagnosticReportToRunDir } from '../../utils/diagnostics';
 import { buildComponentSpecSheet } from '../../utils/specSheet';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
+import {
+  buildPluginPackage,
+  installPluginPackage,
+  packageFileName,
+  validatePluginPackage,
+  PACKAGE_FORMAT,
+  type PluginPackage,
+} from '../../utils/pluginPackage';
 import { bridgeStatus, isBridgeEnabled, setBridgeEnabled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
@@ -45,6 +53,8 @@ const MARGIN_PRESETS: { label: string; value: number }[] = [
 
 export function MenuBar() {
   const [helpOpen, setHelpOpen] = useState(false);
+  /** 组件包导入/导出的结果提示（B14）——用弹窗展示，而不是 window.alert，便于逐条看 */
+  const [pkgMsg, setPkgMsg] = useState<string | null>(null);
   const mode = useEditorStore(selectMode);
   const forest = useEditorStore(selectForest);
   const canUndo = useEditorStore(selectCanUndo);
@@ -92,6 +102,20 @@ export function MenuBar() {
       label: '导出 Word（.doc）',
       onClick: () => downloadText(`${title || 'export'}.doc`, S().exportWord(), 'application/msword'),
     },
+    {
+      key: 'docx',
+      label: '导出 Word（.docx，真 OOXML）',
+      onClick: () => {
+        void import('../../utils/export/docx').then((m) => {
+          const r = m.downloadDocx(S().doc, getForest(S().doc));
+          log.info('export', '导出 .docx（OOXML）', {
+            字节: r.bytes.length,
+            块数: r.blocks,
+            提示: r.warnings.length,
+          });
+        });
+      },
+    },
     { key: 'print', label: '打印…', shortcut: 'Ctrl+P', onClick: () => window.print() },
   ];
 
@@ -131,6 +155,8 @@ export function MenuBar() {
     { key: 'theme', label: '深色模式（Monokai）', checked: ui.theme === 'monokai', onClick: () => S().setTheme(ui.theme === 'monokai' ? 'light' : 'monokai') },
     { key: 'v3', separator: true },
     { key: 'tree', label: '显示组件树', checked: ui.showTree, onClick: () => S().toggleUI('showTree') },
+    { key: 'md', label: 'Markdown 源码（只读）', checked: ui.showMarkdown, onClick: () => S().toggleUI('showMarkdown') },
+    { key: 'autonum', label: '图表按章编号（图 X-Y / 表 X-Y）', checked: ui.autoNumber, onClick: () => S().toggleUI('autoNumber') },
     { key: 'preview', label: '预览模式（隐藏编辑态边框）', checked: ui.preview, onClick: () => S().toggleUI('preview') },
   ];
 
@@ -220,6 +246,52 @@ export function MenuBar() {
       },
     },
     { key: 'logdump', label: '下载日志文件', onClick: () => downloadText(`editor-log-${Date.now()}.txt`, log.dump(), 'text/plain') },
+    /* ── 组件包（B14）：把 public/组件/*.js 打包导出 / 导入写回组件目录 ── */
+    {
+      key: 'pkg-export',
+      label: `导出组件包（当前 ${getLiveTypes().length} 个外部组件）`,
+      disabled: getLiveTypes().length === 0,
+      onClick: () => {
+        void buildPluginPackage().then(({ pkg, errors }) => {
+          downloadText(packageFileName(), JSON.stringify(pkg, null, 2), 'application/json');
+          setPkgMsg(
+            `已导出 ${pkg.plugins.length} 个组件的源码：\n${pkg.plugins.map((p) => `· ${p.name}（${p.code.length} 字符）`).join('\n')}` +
+              (errors.length ? `\n\n读取失败 ${errors.length} 个：${errors.map((e) => `${e.name}（${e.error}）`).join('、')}` : ''),
+          );
+        });
+      },
+    },
+    {
+      key: 'pkg-import',
+      label: '导入组件包（.json，写回组件目录）',
+      onClick: () => {
+        void pickTextFile('.json,application/json').then(async (text) => {
+          if (text == null) return;
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(text);
+          } catch (e) {
+            setPkgMsg(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
+            return;
+          }
+          const check = validatePluginPackage(parsed);
+          if (!check.ok) {
+            setPkgMsg(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
+            return;
+          }
+          const r = await installPluginPackage(parsed as PluginPackage);
+          const reload = await loadRuntimeComponents(true);
+          S().bumpRegistry();
+          setPkgMsg(
+            `组件包导入完成：写回组件目录 ${r.saved.length} 个` +
+              (r.runtime.length ? `、仅本次会话注册 ${r.runtime.length} 个` : '') +
+              (r.failed.length ? `、失败 ${r.failed.length} 个（${r.failed.map((f) => `${f.name}：${f.error}`).join('；')}）` : '') +
+              `\n重新加载外部组件：${reload.ok}/${reload.total}` +
+              (r.persisted ? '\n（已写盘，刷新后仍在）' : '\n（启动器没有 /__savePlugin 接口，或写盘失败 → 只在本会话生效，刷新会丢）'),
+          );
+        });
+      },
+    },
     {
       key: 'saverun',
       label: '保存诊断报告到运行目录',
@@ -275,6 +347,17 @@ export function MenuBar() {
             ))}
           </tbody>
         </table>
+      </Modal>
+
+      {/* 组件包导入 / 导出结果（B14） */}
+      <Modal open={pkgMsg != null} title="组件包" onClose={() => setPkgMsg(null)} width={620}>
+        <pre data-pkg-msg="1" className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-gray-700">
+          {pkgMsg ?? ''}
+        </pre>
+        <p className="mt-3 text-2xs text-gray-400">
+          包格式：<code>{PACKAGE_FORMAT}</code> · 导入会把 <code>.js</code> 逐个写回组件目录（启动器
+          <code>/__savePlugin</code>），没有该接口时退化为"仅本次会话注册"。
+        </p>
       </Modal>
     </MenuBarShell>
   );

@@ -255,7 +255,9 @@ export type PropControlType =
   /** 表格行/列数量（真正增删数据的行列） */
   | 'tableSize'
   /** 表格 HTML 源码入口（粘 <table> 导入 / 生成 HTML 导出） */
-  | 'tableHtml';
+  | 'tableHtml'
+  /** 表格按列排序（选列 + 升/降序 + 清除；渲染期排序，不改数据） */
+  | 'tableSort';
 
 export interface SelectOption {
   label: string;
@@ -295,6 +297,14 @@ export interface RenderContext {
    * 非表格组件忽略它；不传就是整块渲染。
    */
   tableRowRange?: { from: number; to: number };
+  /**
+   * ★图表按章编号（B11）：`nodeId → "图 1-2" / "表 2-1"` 的映射，由文档画布在**整篇**顺序上算好
+   * （章号 = 之前出现过的 `heading(level=1)` 个数；章内图/表各自从 1 计数）。
+   * 视图菜单开关打开时才有值；组件取 `ctx.autoLabel` 显示在自带的图题/表题里。
+   */
+  numbering?: Record<string, string>;
+  /** 当前节点自己的编号（由 NodeView 从 `numbering` 里查出来注入），没有就是 undefined */
+  autoLabel?: string;
 }
 
 export interface ComponentDefinition {

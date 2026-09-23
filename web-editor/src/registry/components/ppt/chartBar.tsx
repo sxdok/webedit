@@ -8,6 +8,7 @@ import { defaultsOf, fontSizeProp, marginProp, rows, widthProp } from '../shared
 
 const schema: PropSchemaItem[] = [
   { key: 'items', label: '数据（每行：标签|值）', control: 'textarea', group: '内容', defaultValue: '一月|120\n二月|180\n三月|150\n四月|210' },
+  { key: 'caption', label: '图题（显示在图下方；开「图表按章编号」时前面自动加「图 X-Y」）', control: 'text', group: '内容', defaultValue: '' },
   { key: 'max', label: '纵轴最大值（0=自动）', control: 'number', group: '内容', defaultValue: 0, min: 0, max: 100000 },
   { key: 'height', label: '图高 px', control: 'number', group: '尺寸', defaultValue: 180, min: 60, max: 600 },
   { key: 'accent', label: '柱色', control: 'color', group: '外观', defaultValue: '#1677ff' },
@@ -39,6 +40,9 @@ export const chartBarComponent: ComponentDefinition = {
     const chartH = Math.max(30, H - labelH - (asBool(props.showValue, true) ? size * 1.4 : 0));
     const w = 100; // 百分比布局：每个柱用一个 flex 单元，内部用 SVG 无意义，直接 div 高度即可
     void w;
+    // 图题 + 图表按章编号（B11）：编号由画布经 ctx.autoLabel 注入
+    const autoLabel = asString(ctx.autoLabel);
+    const capText = [autoLabel, asString(props.caption)].filter(Boolean).join('  ');
     return (
       <div style={{ width: `${asNumber(props.width, 100)}%`, fontSize: size }}>
         {asBool(props.showAxis, true) && <div style={{ height: 1, background: '#e5e7eb', marginBottom: 2 }} />}
@@ -67,6 +71,15 @@ export const chartBarComponent: ComponentDefinition = {
             </div>
           ))}
         </div>
+        {capText && (
+          <div
+            data-figure-caption="1"
+            data-auto-label={autoLabel || undefined}
+            style={{ marginTop: 4, color: '#6b7280', fontSize: Math.max(9, size * 0.9) }}
+          >
+            {capText}
+          </div>
+        )}
       </div>
     );
   },

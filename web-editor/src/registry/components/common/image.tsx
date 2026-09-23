@@ -15,6 +15,10 @@ function ImageBody(props: ComponentProps, ctx: RenderContext) {
   const bc = asString(props.borderColor, '#e5e7eb');
   const w = ctx.mode === 'document' ? ctx.mmToPx(asNumber(props.width, 84)) : width;
   const caption = asString(props.caption);
+  // 图表按章编号（B11）：开了「视图 → 图表按章编号」时，图题前面带上「图 X-Y」；
+  // 没写图题也补一行编号（Word 里"插入题注"就是这个效果）
+  const autoLabel = asString(ctx.autoLabel);
+  const capText = [autoLabel, caption].filter(Boolean).join('  ');
 
   const box: React.CSSProperties = {
     display: 'block',
@@ -40,6 +44,7 @@ function ImageBody(props: ComponentProps, ctx: RenderContext) {
   const alignMap = { left: 'flex-start', center: 'center', right: 'flex-end' } as const;
   return (
     <figure
+      data-width-box="1"
       style={{
         margin: 0,
         display: 'flex',
@@ -48,8 +53,10 @@ function ImageBody(props: ComponentProps, ctx: RenderContext) {
       }}
     >
       {content}
-      {caption && (
-        <figcaption style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{caption}</figcaption>
+      {capText && (
+        <figcaption data-figure-caption="1" data-auto-label={autoLabel || undefined} style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+          {capText}
+        </figcaption>
       )}
     </figure>
   );

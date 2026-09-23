@@ -9,6 +9,7 @@
  *   ?select=table              启动后选中第一个该类型的节点（也可给序号），用于核对属性面板排版
  *   ?cell=1,0[;1,1]            再选中该表格的这些单元格（核对单元格格式；行列从 0 起）
  *   ?theme=monokai|light  ?scroll=N  ?printdebug=1
+ *   ?load=<url|相对路径>        载入一份已有 HTML（本工程导出的 HTML 可原样读回；见 utils/htmlImport.ts）
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -112,6 +113,33 @@ if (params.get('spec')) {
       }
     });
   }, 800); // 等外部组件加载完，清单里才会带上它们
+}
+
+// ?load=<url|相对路径> → 载入已有 HTML（导入成组件；本工程导出的 HTML 能原样读回）
+if (params.get('load')) {
+  const src = String(params.get('load'));
+  setTimeout(() => {
+    void import('./utils/htmlImport')
+      .then(async (m) => {
+        const res = await fetch(src, { cache: 'no-store' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const html = await res.text();
+        const { doc, result } = m.importHtmlToDocument(html, { title: src.split('/').pop()?.replace(/\.html?$/i, '') });
+        useEditorStore.getState().loadDocument(doc);
+        log.info('load', 'HTML 已载入编辑器', {
+          来源: src,
+          模式: result.mode,
+          顶层节点: result.stats.top,
+          节点总数: result.stats.total,
+          精确识别: result.stats.typed,
+          按标签识别: result.stats.guessed,
+          跳过: result.stats.skipped,
+          提示: result.warnings.slice(0, 5),
+        });
+        document.title = `${doc.title} · 可视化编辑器`;
+      })
+      .catch((e: unknown) => log.error('load', `?load=${src} 载入失败`, { error: String(e) }));
+  }, 300);
 }
 
 // ?demo=1 → 灌入示例文档（两种模式各一页、含全部组件）；随后（无论是否 demo）应用 ?mode=

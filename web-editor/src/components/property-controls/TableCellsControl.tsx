@@ -22,6 +22,7 @@ import {
   parseCellStyles,
   parseTableData,
   serializeTableData,
+  setCellText,
   type CellStyle,
 } from '../../registry/components/common/tableKit';
 import { Tooltip } from '../ui/Tooltip';
@@ -155,12 +156,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
     const live = useEditorStore.getState();
     const liveNode = findNode(getForest(live.doc), nodeId);
     const rows = parseTableData(liveNode?.props.data);
-    const cols = Math.max(1, rows.reduce((n, r) => Math.max(n, r.length), 0));
-    while (rows.length <= single.r0) rows.push([]);
-    const row = rows[single.r0];
-    while (row.length < Math.max(cols, single.c0 + 1)) row.push('');
-    row[single.c0] = text;
-    updateProps(nodeId, { data: serializeTableData(rows) });
+    updateProps(nodeId, { data: serializeTableData(setCellText(rows, single.r0, single.c0, text)) });
   };
 
   return (

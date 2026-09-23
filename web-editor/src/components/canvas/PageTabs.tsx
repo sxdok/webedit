@@ -7,7 +7,7 @@
  *   ＋  → 打开「新建文档」对话框（先选模式 → 再填参数）→ 新建一页
  *   ×  → 关闭该页（只剩一页时不给关；关闭当前页会切到相邻页）
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileText, Monitor, Plus, X } from 'lucide-react';
 import { useEditorStore } from '../../store/editorStore';
 
@@ -17,7 +17,37 @@ export function PageTabs() {
   const doc = useEditorStore((s) => s.doc);
   const setActivePage = useEditorStore((s) => s.setActivePage);
   const closePage = useEditorStore((s) => s.closePage);
+  const renamePage = useEditorStore((s) => s.renamePage);
   const setNewDocOpen = useEditorStore((s) => s.setNewDocOpen);
+  /** 正在就地改名的页 id（双击标签或按 F2 进入；Enter 提交、Esc 取消） */
+  const [renaming, setRenaming] = useState('');
+  const [draft, setDraft] = useState('');
+
+  // F2：给当前页就地改名（输入框里按 F2 不触发）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2') return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || t?.isContentEditable) return;
+      e.preventDefault();
+      const s = useEditorStore.getState();
+      const cur = s.pages.find((p) => p.id === s.activePageId);
+      setDraft(cur?.title ?? '');
+      setRenaming(s.activePageId);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const startRename = (id: string, title: string) => {
+    setDraft(title);
+    setRenaming(id);
+  };
+  const commitRename = () => {
+    if (renaming) renamePage(renaming, draft);
+    setRenaming('');
+  };
 
   /** 当前页的标题/模式以**活的 doc** 为准（改名、切模式后标签立刻跟着变） */
   const list = useMemo(
@@ -33,6 +63,7 @@ export function PageTabs() {
       {list.map((p) => {
         const active = p.id === activeId;
         const Icon = p.mode === 'web' ? Monitor : FileText;
+        const editing = renaming === p.id;
         return (
           <div
             key={p.id}
@@ -43,19 +74,38 @@ export function PageTabs() {
               active ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            <button
-              type="button"
-              data-page-select={p.id}
-              title={`${p.title}（${p.mode === 'web' ? 'Web 模式' : '文档模式'}）—— 点击切换这一页`}
-              className="flex max-w-[180px] items-center gap-1 truncate py-1"
-              onClick={() => setActivePage(p.id)}
-            >
-              <Icon className={`h-3 w-3 shrink-0 ${p.mode === 'web' ? 'text-emerald-600' : 'text-primary'}`} />
-              <span className="truncate">{p.title || '未命名'}</span>
-              <span className="shrink-0 rounded bg-gray-100 px-1 text-[9px] leading-4 text-gray-500">
-                {p.mode === 'web' ? 'Web' : '文档'}
-              </span>
-            </button>
+            {editing ? (
+              <input
+                data-page-rename-input={p.id}
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitRename();
+                  if (e.key === 'Escape') setRenaming('');
+                }}
+                className="my-1 w-32 rounded border border-primary/60 px-1 text-2xs outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                data-page-select={p.id}
+                title={`${p.title}（${p.mode === 'web' ? 'Web 模式' : '文档模式'}）—— 点击切换；双击 / F2 改名`}
+                className="flex max-w-[180px] items-center gap-1 truncate py-1"
+                onClick={() => setActivePage(p.id)}
+                onDoubleClick={() => {
+                  setActivePage(p.id);
+                  startRename(p.id, p.title);
+                }}
+              >
+                <Icon className={`h-3 w-3 shrink-0 ${p.mode === 'web' ? 'text-emerald-600' : 'text-primary'}`} />
+                <span className="truncate">{p.title || '未命名'}</span>
+                <span className="shrink-0 rounded bg-gray-100 px-1 text-[9px] leading-4 text-gray-500">
+                  {p.mode === 'web' ? 'Web' : '文档'}
+                </span>
+              </button>
+            )}
             {pages.length > 1 && (
               <button
                 type="button"

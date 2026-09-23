@@ -31,6 +31,7 @@ import { ChildrenControl } from './ChildrenControl';
 import { TableCellsControl } from './TableCellsControl';
 import { TableSizeControl } from './TableSizeControl';
 import { TableHtmlControl } from './TableHtmlControl';
+import { TableSortControl } from './TableSortControl';
 
 export { splitLabel };
 
@@ -63,6 +64,7 @@ export const IMPLEMENTED_CONTROLS: ReadonlySet<string> = new Set([
   'cells',
   'tableSize',
   'tableHtml',
+  'tableSort',
 ]);
 
 /** 需要独占整行宽度的控件（多行文本、工具条、多维输入、表格工具） */
@@ -76,6 +78,7 @@ export const WIDE_CONTROLS: ReadonlySet<string> = new Set([
   'cells',
   'tableSize',
   'tableHtml',
+  'tableSort',
 ]);
 
 /** 该控件在面板里是不是"标签在上、控件独占整行"的两行式（清单/文档用它描述排版） */
@@ -142,6 +145,8 @@ export function PropertyControl({ item, value, onChange, nodeId }: ControlProps)
       return field(<TableSizeControl {...p} />);
     case 'tableHtml':
       return field(<TableHtmlControl {...p} />);
+    case 'tableSort':
+      return field(<TableSortControl {...p} />);
     default:
       return <NotImplemented control={item.control} />;
   }

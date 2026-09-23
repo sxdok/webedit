@@ -31,6 +31,7 @@ import io
 import json
 import mimetypes
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -90,6 +91,27 @@ def components_dir():
     if os.path.isdir(src):
         return src
     return os.path.join(DIST, "组件")
+
+
+def save_plugin(name: str, text: str) -> dict:
+    """把组件包里的一个文件写回**组件目录**（B14「导入组件包」）。
+
+    只允许 `名字.js`（字母/数字/下划线/短横/中文），且不含路径分隔符、不以 `_` 开头
+    （`_manifest.json` 之类是内部文件）—— 防目录穿越。
+    """
+    name = (name or "").strip()
+    if not re.match(r"^[\w\u4e00-\u9fa5-]+\.js$", name) or name.startswith("_") or ".." in name:
+        return {"ok": False, "error": "文件名不合法（只允许 xxx.js，不含路径）"}
+    if not text:
+        return {"ok": False, "error": "内容为空"}
+    d = components_dir()
+    os.makedirs(d, exist_ok=True)
+    target = os.path.normpath(os.path.join(d, name))
+    if os.path.dirname(target) != os.path.normpath(d):
+        return {"ok": False, "error": "路径越界"}
+    with open(target, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+    return {"ok": True, "file": target, "bytes": len(text.encode("utf-8")), "chars": len(text)}
 
 
 def find_npm():
@@ -172,11 +194,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         """前端落盘接口：
-             POST /__log   {"kind":"editor","lines":[...]}          → 追加到 运行目录/logs/
-             POST /__save  {"path":"docs/xxx.md","text":"..."}       → 写到 运行目录 下的指定相对路径（只允许 docs/）
+             POST /__log          {"kind":"editor","lines":[...]}          → 追加到 运行目录/logs/
+             POST /__save         {"path":"docs/xxx.md","text":"..."}       → 写到 运行目录 下的指定相对路径（只允许 docs/）
+             POST /__savePlugin   {"name":"xxx.js","text":"..."}            → 写回**组件目录**（public/组件 或 dist/组件）
         """
         route = self.path.split("?", 1)[0]
-        if route not in ("/__log", "/__save"):
+        if route not in ("/__log", "/__save", "/__savePlugin"):
             self.send_error(404, "not found")
             return
         try:
@@ -199,7 +222,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             else:
                 rel = str(payload.get("path") or "")
                 text = str(payload.get("text") or "")
-                body = json.dumps(save_artifact(rel, text), ensure_ascii=False).encode("utf-8")
+                if route == "/__savePlugin":
+                    body = json.dumps(save_plugin(str(payload.get("name") or ""), text), ensure_ascii=False).encode("utf-8")
+                else:
+                    body = json.dumps(save_artifact(rel, text), ensure_ascii=False).encode("utf-8")
             self.send_response(200 if json.loads(body).get("ok") else 403)
         except Exception as e:  # 落盘失败要如实回错，前端会记一条 error
             body = json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False).encode("utf-8")

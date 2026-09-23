@@ -271,3 +271,61 @@ export async function loadRuntimeComponents(reload = false): Promise<LiveLoadRes
   log.info('live', '外部组件目录加载完成', { source, total: files.length, ok, failed });
   return { source, total: files.length, ok, failed };
 }
+
+/** 外部组件目录里的文件名清单（导出组件包用；不加载） */
+export async function listLiveFiles(): Promise<string[]> {
+  const { files } = await fetchFileList();
+  return files;
+}
+
+export interface PluginSource {
+  /** 文件名（如 `liveKpiCard.js`） */
+  name: string;
+  /** 源码文本 */
+  code: string;
+  /** 这次读取的地址（便于排查） */
+  url: string;
+}
+
+/**
+ * 读出**全部外部组件的源码**（B14「导出组件包」用）。
+ * 逐个 GET `public/组件/<file>`（带时间戳绕缓存）；读不到的把 error 记进返回里，不抛。
+ */
+export async function collectPluginSources(): Promise<{ plugins: PluginSource[]; errors: { name: string; error: string }[] }> {
+  const files = await listLiveFiles();
+  const plugins: PluginSource[] = [];
+  const errors: { name: string; error: string }[] = [];
+  const stamp = Date.now();
+  for (const name of files) {
+    const url = `${LIVE_DIR}/${encodeURIComponent(name)}?t=${stamp}`;
+    try {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      plugins.push({ name, code: await res.text(), url });
+    } catch (e) {
+      errors.push({ name, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { plugins, errors };
+}
+
+/**
+ * 用**源码文本**注册一个外部组件（导入组件包时，服务端写盘不可用时退化成"仅本次会话生效"）。
+ * 走的还是外部组件同一条路：装好 EditorKit → 用 Blob URL 动态 import，文件里自己调 `EditorKit.register()`。
+ */
+export async function registerPluginSource(code: string, label: string): Promise<string[]> {
+  installKit(React);
+  const before = new Set(liveTypes);
+  const url = URL.createObjectURL(new Blob([code], { type: 'text/javascript' }));
+  try {
+    await import(/* @vite-ignore */ url);
+  } catch (e) {
+    log.error('live', `组件包里的 ${label} 注册失败`, { error: e instanceof Error ? e.message : String(e) });
+    throw e;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+  const added = [...liveTypes].filter((t) => !before.has(t));
+  log.info('live', `组件包里的 ${label} 已在本次会话注册`, { types: added });
+  return added;
+}

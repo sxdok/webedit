@@ -11,18 +11,7 @@
  */
 import { useRef } from 'react';
 import { useEditorStore } from '../../store/editorStore';
-
-/** 两个格子之间的矩形区域（含端点，行优先） */
-export function rectKeys(a: string, b: string): string[] {
-  const [ar, ac] = a.split(',').map((n) => Number(n));
-  const [br, bc] = b.split(',').map((n) => Number(n));
-  if (![ar, ac, br, bc].every((n) => Number.isFinite(n))) return [b];
-  const out: string[] = [];
-  for (let r = Math.min(ar, br); r <= Math.max(ar, br); r++) {
-    for (let c = Math.min(ac, bc); c <= Math.max(ac, bc); c++) out.push(`${r},${c}`);
-  }
-  return out;
-}
+import { rectKeys } from '../../registry/components/common/tableKit';
 
 export function useTableCellSelect(onSelect: (id: string, additive: boolean) => void) {
   const selectTableCells = useEditorStore((s) => s.selectTableCells);

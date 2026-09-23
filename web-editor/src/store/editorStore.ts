@@ -62,6 +62,18 @@ export interface UIState {
   showDiagnostics: boolean;
   /** 新建文档对话框（文件 → 新建 / Ctrl+N）：先选模式再填参数（类似 PS 的新建） */
   newDocOpen: boolean;
+  /**
+   * 组件箱是否显示**真渲染缩略图**（B9）：开=单列卡片带预览，关=原来的紧凑两列。
+   * 随 ui 持久化（默认开）。
+   */
+  compPreview: boolean;
+  /** Markdown 源码视图（B10，视图菜单打开；只读弹窗） */
+  showMarkdown: boolean;
+  /**
+   * 图表按章编号（B11）：打开后图片/柱状图显示「图 X-Y」、表格显示「表 X-Y」
+   * （章号 = `heading(level=1)` 的序号，章内图/表各自计数）。默认关，随 ui 持久化。
+   */
+  autoNumber: boolean;
   /** 组件注册表版本：运行时（热加载）注册组件后 +1，面板据此重渲染 */
   registryVersion: number;
   /** 编辑器主题：light=浅色，monokai=深色（参考 Monokai 配色） */
@@ -110,6 +122,9 @@ const initialUI: UIState = {
   rightWidth: 300,
   showDiagnostics: false,
   newDocOpen: false,
+  compPreview: true,
+  showMarkdown: false,
+  autoNumber: false,
   registryVersion: 0,
   theme: 'light',
   docPageCount: 1,
@@ -163,6 +178,8 @@ export interface EditorStore {
    */
   loadDocument(doc: EditorDocument): string;
   setActivePage(id: string): void;
+  /** 重命名某一页（分页标签 F2 / 双击就地改名）；改的是当前页时同步文档标题 */
+  renamePage(id: string, title: string): void;
   closePage(id: string): void;
   /** 画布平移（PS 式手抓；不夹边界） */
   setPan(pan: { x: number; y: number }): void;
@@ -222,6 +239,8 @@ export interface EditorStore {
   toggleUI(key: keyof UIState): void;
   /** 打开/关闭「新建文档」对话框（先选模式 → 再填参数） */
   setNewDocOpen(open: boolean): void;
+  /** 组件箱「显示预览」开关（B9，随 ui 持久化） */
+  setCompPreview(on: boolean): void;
   /** 拖拽调整面板宽度（side=left 组件面板 / right 属性面板） */
   setPanelWidth(side: 'left' | 'right', width: number): void;
   setTitle(title: string): void;
@@ -349,6 +368,16 @@ export const useEditorStore = create<EditorStore>()(
           return page.id;
         }
         return get().addPage(doc);
+      },
+
+      /** 重命名某一页（F2 / 双击标签）；改当前页时同步 doc.title（并被 commit 记入历史） */
+      renamePage: (id, title) => {
+        const s = get();
+        const name = title.trim() || '未命名';
+        const pages = s.pages.map((p) => (p.id === id ? { ...p, title: name } : p));
+        log.info('store', 'renamePage', { id, title: name, active: id === s.activePageId });
+        set({ pages });
+        if (id === s.activePageId) get().setTitle(name);
       },
 
       setActivePage: (id) => {        const s = get();
@@ -750,6 +779,10 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
       setNewDocOpen: (open) => {
         log.debug('store', 'setNewDocOpen', { open });
         set((s) => ({ ui: { ...s.ui, newDocOpen: open } }));
+      },
+      setCompPreview: (on) => {
+        log.debug('store', 'setCompPreview', { on });
+        set((s) => ({ ui: { ...s.ui, compPreview: on } }));
       },
       /** 拖拽调整左右面板宽度（夹在 180–560px；越界时不写盘，避免拖出不可用布局） */
       setPanelWidth: (side, width) => {

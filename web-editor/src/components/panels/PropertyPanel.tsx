@@ -10,7 +10,7 @@
  * **面板代码不感知任何具体组件字段**：不出现 `if (type === 'table')`，
  * 表格的特殊性来自注册表数据（category: 'Excel 表格' + group: '表格'/'单元格'）与 groupStrategy。
  */
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import { Copy, Layers, Search } from 'lucide-react';
 import { getComponent } from '../../registry';
 import type { ComponentNode, PropSchemaItem, RenderContext } from '../../registry/types';
@@ -38,6 +38,9 @@ function groupOf(item: PropSchemaItem): string {
   return item.group || '内容';
 }
 
+/** 面板级 memo（规格阶段五）：App 因鼠标坐标等无关状态重渲染时，属性子树不跟着重渲染 */
+export const NodePropertiesMemo = memo(NodeProperties);
+
 export function PropertyPanel() {
   const mode = useEditorStore(selectMode);
   const node = useEditorStore(selectPrimarySelected);
@@ -61,7 +64,7 @@ export function PropertyPanel() {
         {selectedCount > 1 ? (
           <MultiSelectPanel />
         ) : node ? (
-          <NodeProperties node={node} mode={mode} />
+          <NodePropertiesMemo node={node} mode={mode} />
         ) : mode === 'document' ? (
           <PagePropertyPanel />
         ) : (
@@ -88,7 +91,11 @@ const LOCKED_ITEM: PropSchemaItem = {
   defaultValue: false,
 };
 
+/** 面板级 memo + 渲染计数（计数只为自检："画布鼠标移动导致 App 重渲染时，属性子树不该跟着重渲染"） */
+let nodePropsRenders = 0;
+
 function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' | 'web' }) {
+  nodePropsRenders += 1;
   const def = getComponent(node.type);
   const updateProps = useEditorStore((s) => s.updateProps);
   const updateFrame = useEditorStore((s) => s.updateFrame);
@@ -215,7 +222,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
   const filtered = query.trim().length > 0;
 
   return (
-    <div className="px-2.5 py-1.5" data-props-panel="1">
+    <div className="px-2.5 py-1.5" data-props-panel="1" data-props-renders={nodePropsRenders}>
       {/* ── 顶部固定区 ── */}
       <div className="mb-1 flex items-center gap-1.5">
         <def.icon className="h-4 w-4 text-primary" />
@@ -313,8 +320,8 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
         {sections.length === 0 && (
           <p className="px-1 text-2xs text-gray-400">该组件没有匹配的属性（可在组件定义里补 propSchema）。</p>
         )}
-        {sections.map(([group, items]) => {
-          // 规格 §8.3：画布上选中单元格时「单元格」组**必须**展开（压过手动折叠状态）
+        {sections.map(([group, items], idx) => {
+          // 规格 §8.1：分组之间画细分隔线（第一个分组不画）
           const open =
             filtered ||
             (group === '单元格' && cellGroupOpen) ||
@@ -325,6 +332,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
               name={group}
               count={items.length}
               open={open}
+              divider={idx > 0}
               hint={hintFor(def.category, group, GROUP_HINTS)}
               onToggle={() => setToggled((s) => ({ ...s, [group]: !open }))}
             >

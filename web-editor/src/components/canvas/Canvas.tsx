@@ -16,6 +16,7 @@ import { Ruler } from './Ruler';
 const RULER_H = 18;
 import { WebCanvas } from './WebCanvas';
 import { useCanvasInteraction } from './useCanvasInteraction';
+import { useCellEdit } from './useCellEdit';
 
 /** 量出内容真实高度（未缩放），把外壳高度同步缩小后的大小 */
 function useScaledBox(zoom: number, deps: unknown[]) {
@@ -157,6 +158,8 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     JSON.stringify(selectedIds),
   ]);
   const viewportRef = useRef<HTMLDivElement>(null);
+  /** 双击画布单元格就地改字（输入框挂在缩放层里，坐标按 zoom 折算；见 useCellEdit） */
+  const { onDoubleClickCapture, editor: cellEditor } = useCellEdit(zoom, ref);
   /** 平移画布（PS 式手抓工具）：按住空格 + 拖拽，或中键拖拽；偏移存 store.ui.pan，**不夹边界** */
   const pan = useEditorStore((s) => s.ui.pan) ?? { x: 0, y: 0 };
   const setPan = useEditorStore((s) => s.setPan);
@@ -378,6 +381,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
               ref={ref}
               className="print-reset"
               style={{ width: contentW, transform: `scale(${zoom})`, transformOrigin: 'top left' }}
+              onDoubleClickCapture={onDoubleClickCapture}
             >
               {mode === 'document' ? (
                 <PaperCanvas
@@ -412,6 +416,8 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
                   it={it}
                 />
               )}
+              {/* 双击单元格的就地输入框（挂在缩放层里，跟着纸张一起缩放/平移） */}
+              {cellEditor}
             </div>
           </div>
         </div>

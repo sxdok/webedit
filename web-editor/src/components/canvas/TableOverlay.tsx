@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useEditorStore } from '../../store/editorStore';
+import { findNode, getForest } from '../../store/treeUtils';
 import { mmToPx } from '../../utils/units';
 
 interface Rect {
@@ -24,9 +25,11 @@ interface Geo {
   cells: Rect[];
   /** 每列右边界（最后一列除外）→ 手柄位置 */
   borders: { x: number; top: number; height: number }[];
+  /** 每条行边界（最后一行除外）→ 行高手柄位置（B8：行高是整表一个值，拖任一条都改全表） */
+  rowBars: { y: number; x: number; width: number; rowIndex: number; rowHeightPx: number }[];
 }
 
-const EMPTY: Geo = { key: '', cells: [], borders: [] };
+const EMPTY: Geo = { key: '', cells: [], borders: [], rowBars: [] };
 
 function measure(host: HTMLElement, nodeId: string | null, selected: string[], zoom: number): Geo {
   const box = host.parentElement;
@@ -64,10 +67,23 @@ function measure(host: HTMLElement, nodeId: string | null, selected: string[], z
   const rects = [...firstRow.cells].map((c) => c.getBoundingClientRect());
   const borders = rects.slice(0, -1).map((r) => ({ x: (r.right - boxRect.left) / z, top, height }));
 
+  // 行边界：每一行的下边（最后一行不画 —— 它的高度由"表格总高"决定，拖它没有意义）
+  const rowRects = [...table.rows].map((r) => r.getBoundingClientRect());
+  const left = (tableRect.left - boxRect.left) / z;
+  const width = tableRect.width / z;
+  const rowBars = rowRects.slice(0, -1).map((r, i) => ({
+    y: (r.bottom - boxRect.top) / z,
+    x: left,
+    width,
+    rowIndex: i,
+    rowHeightPx: r.height / z,
+  }));
+
   return {
-    key: `${nodeId ?? ''}#${selected.join('|')}#${Math.round(z * 100)}#${borders.map((b) => Math.round(b.x)).join(',')}#${Math.round(top)},${Math.round(height)}`,
+    key: `${nodeId ?? ''}#${selected.join('|')}#${Math.round(z * 100)}#${borders.map((b) => Math.round(b.x)).join(',')}#${Math.round(top)},${Math.round(height)}#${rowBars.map((b) => Math.round(b.y)).join(',')}`,
     cells,
     borders,
+    rowBars,
   };
 }
 
@@ -77,6 +93,7 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
   const updateProps = useEditorStore((s) => s.updateProps);
   const [geo, setGeo] = useState<Geo>(EMPTY);
   const [dragging, setDragging] = useState<number | null>(null);
+  const [rowDrag, setRowDrag] = useState(false);
 
   const selected = tableCells && tableCells.nodeId === nodeId ? tableCells.cells : [];
   const selectedKey = selected.join('|');
@@ -153,6 +170,35 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
 
   const showHandles = !!nodeId && geo.borders.length > 0;
 
+  /* ── 行高拖拽（B8）──
+     `props.rowHeight` 是**整表一个值**（纯数字按 mm），所以拖任意一条行边界都改全表行高；
+     没有设过行高时用"量到的当前行高"当起点，拖一下就落成一个显式值。 */
+  const startRowDrag = (e: React.PointerEvent, startPx: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!nodeId) return;
+    const live = useEditorStore.getState();
+    const node = findNode(getForest(live.doc), nodeId);
+    const raw = String(node?.props.rowHeight ?? '').trim();
+    const startMm = /^\d+(\.\d+)?$/.test(raw) ? Number(raw) : startPx / mmToPx(1);
+    const startY = e.clientY;
+    setRowDrag(true);
+    const onMove = (ev: PointerEvent) => {
+      const dMm = (ev.clientY - startY) / (zoom || 1) / mmToPx(1);
+      const next = Math.min(Math.max(Math.round((startMm + dMm) * 10) / 10, 4), 60);
+      updateProps(nodeId, { rowHeight: String(next) });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      cleanupRef.current = null;
+      setRowDrag(false);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    cleanupRef.current = onUp;
+  };
+
   return (
     <div ref={hostRef} data-table-overlay="1" className="no-print pointer-events-none absolute inset-0 z-20">
       {geo.cells.map((c, i) => (
@@ -187,6 +233,28 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
               height: b.height,
               cursor: 'col-resize',
               background: dragging === i ? 'rgba(22,119,255,.35)' : 'transparent',
+            }}
+          />
+        ))}
+
+      {/* 行高手柄（B8）：每条行边界一个，拖任意一条都改**整表**行高（props.rowHeight，mm） */}
+      {showHandles &&
+        geo.rowBars.map((b) => (
+          <div
+            key={`row-${b.rowIndex}`}
+            data-row-handle="1"
+            data-row-index={b.rowIndex}
+            title="拖动调整行高（整表统一，单位 mm）"
+            onPointerDown={(e) => startRowDrag(e, b.rowHeightPx)}
+            className="pointer-events-auto absolute"
+            style={{
+              left: b.x - 26,
+              top: b.y - 3,
+              width: 24,
+              height: 6,
+              borderRadius: 3,
+              background: rowDrag ? '#1677ff' : 'rgba(22,119,255,.55)',
+              cursor: 'ns-resize',
             }}
           />
         ))}
