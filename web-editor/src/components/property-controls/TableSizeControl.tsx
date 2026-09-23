@@ -209,6 +209,24 @@ export function TableSizeControl({ nodeId }: ControlProps) {
   const rowsSelected = range ? range.r1 - range.r0 + 1 : 0;
   const colsSelected = range ? range.c1 - range.c0 + 1 : 0;
 
+  /* ── 清空内容（保留行列）：清空是不可逆的批量操作，走**两次点击确认**（不用 window.confirm：
+     阻塞式弹窗在无头自检里会卡住页面）。第一次点只"待确认"，3 秒内不点就自动取消。 ── */
+  const [pending, setPending] = useState<'' | 'clear' | 'row' | 'col'>('');
+  const arm = (what: 'clear' | 'row' | 'col', run: () => void) => {
+    if (pending === what) {
+      setPending('');
+      run();
+      return;
+    }
+    setPending(what);
+    window.setTimeout(() => setPending((p) => (p === what ? '' : p)), 3000);
+  };
+  const clearContent = () => {
+    if (!nodeId) return;
+    const next = rows.map((r) => r.map(() => ''));
+    write(next, parseCellStyles(node?.props.cellStyles));
+  };
+
   return (
     <div className="space-y-1" data-table-size="1">
       <div className="flex items-center gap-1">
@@ -255,14 +273,37 @@ export function TableSizeControl({ nodeId }: ControlProps) {
         <button type="button" data-table-ins-row="1" className={btn} disabled={!range} onClick={insertRowsAt} title="在选中行上方插入">
           插入行
         </button>
-        <button type="button" data-table-del-row="1" className={btn} disabled={!range || dim.rows - rowsSelected < 1} onClick={deleteRowsAt}>
-          删除行
+        {/* 删除会丢内容 → 两次点击确认（第一次只"待确认"，标签变红提示再点一次） */}
+        <button
+          type="button"
+          data-table-del-row="1"
+          className={pending === 'row' ? `${btn} border-red-400 text-red-500` : btn}
+          disabled={!range || dim.rows - rowsSelected < 1}
+          onClick={() => arm('row', deleteRowsAt)}
+        >
+          {pending === 'row' ? '再点一次删除行' : '删除行'}
         </button>
         <button type="button" data-table-ins-col="1" className={btn} disabled={!range} onClick={insertColsAt} title="在选中列左侧插入">
           插入列
         </button>
-        <button type="button" data-table-del-col="1" className={btn} disabled={!range || dim.cols - colsSelected < 1} onClick={deleteColsAt}>
-          删除列
+        <button
+          type="button"
+          data-table-del-col="1"
+          className={pending === 'col' ? `${btn} border-red-400 text-red-500` : btn}
+          disabled={!range || dim.cols - colsSelected < 1}
+          onClick={() => arm('col', deleteColsAt)}
+        >
+          {pending === 'col' ? '再点一次删除列' : '删除列'}
+        </button>
+        <button
+          type="button"
+          data-table-clear-content="1"
+          className={pending === 'clear' ? `${btn} border-red-400 text-red-500` : btn}
+          disabled={!dim.rows}
+          title="清空所有单元格的文字（行列数与格式保留）"
+          onClick={() => arm('clear', clearContent)}
+        >
+          {pending === 'clear' ? '再点一次清空' : '清空内容'}
         </button>
         <button type="button" className={`${btn} ml-auto`} title="按内容重算各列宽度（整表操作）" onClick={autofit}>
           列宽自适应

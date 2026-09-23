@@ -1537,11 +1537,21 @@ async function interactionChecks(): Promise<Result[]> {
 
       // ★插入后选区会**跟着原内容下移**（Excel 语义 / 用户要求），所以要删掉刚插的那一行，
       //   得先显式选回插入行（第 2 行），否则删掉的是原内容行。
+      //   ★删除走**两次点击确认**（第一次只待确认），所以要点两下。
       S().selectTableCells(curId, ['1,0']);
       await wait(160);
-      (document.querySelector('[data-table-del-row="1"]') as HTMLButtonElement | null)?.click();
-      await wait(300);
+      const delRowBtn = document.querySelector('[data-table-del-row="1"]') as HTMLButtonElement | null;
+      delRowBtn?.click();
+      await wait(80);
+      const armedLabel = delRowBtn?.textContent ?? '';
+      delRowBtn?.click();
+      await wait(320);
       const afterDelRow = dataLines();
+      add(
+        '删除行需两次点击确认（第一次只待确认，标签变为「再点一次」）',
+        armedLabel.includes('再点一次'),
+        `第一次点击后按钮文字=「${armedLabel.trim()}」`,
+      );
       add(
         'Excel：在选中行处「删除行」（删掉该整行，内容回到原样）',
         afterDelRow.length === beforeRow.length && afterDelRow.every((l, i) => i < beforeRow.length && l === beforeRow[i]),
@@ -1568,8 +1578,12 @@ async function interactionChecks(): Promise<Result[]> {
         `每行 ${colsBefore[0]} → ${colsAfter[0]} 列；格式键 1,0 → 1,1=${shiftedStyle}；新格字重=${movedCell ? getComputedStyle(movedCell).fontWeight : '?'}`,
       );
 
-      (document.querySelector('[data-table-del-col="1"]') as HTMLButtonElement | null)?.click();
-      await wait(300);
+      // 删除列也要**点两下**（第一次只待确认）
+      const delColBtn = document.querySelector('[data-table-del-col="1"]') as HTMLButtonElement | null;
+      delColBtn?.click();
+      await wait(80);
+      delColBtn?.click();
+      await wait(320);
       const colsBack = dataLines().map((l) => l.split('|').length);
       add('Excel：删除列后回到原列数', colsBack[0] === colsBefore[0], `每行 ${colsAfter[0]} → ${colsBack[0]} 列`);
 
@@ -2018,6 +2032,37 @@ async function interactionChecks(): Promise<Result[]> {
     S().clearAll();
     S().setMode('document');
     await wait(120);
+  }
+
+  /* ── 清空内容（保结构）：两次点击确认后所有格变空、行列数与格式保留 ── */
+  {
+    S().setMode('document');
+    S().clearAll();
+    const tClear = S().addComponent('table');
+    if (tClear) {
+      S().updateProps(tClear, { data: 'A | B\nC | D', headerRow: true, cellStyles: { B2: { background: '#fff2cc' } } });
+      await wait(320);
+      S().selectComponent([tClear]);
+      S().selectTableCells(tClear, ['0,0']);
+      await wait(220);
+      const clearBtn = document.querySelector('[data-table-clear-content="1"]') as HTMLButtonElement | null;
+      clearBtn?.click();
+      await wait(100);
+      const clearArmed = (clearBtn?.textContent ?? '').includes('再点一次');
+      clearBtn?.click();
+      await wait(360);
+      const props = (S().doc.document.components.find((n) => n.id === tClear)?.props ?? {}) as Record<string, unknown>;
+      const data = String(props.data ?? '');
+      const cells = document.querySelectorAll(`[data-node-id="${tClear}"] td, [data-node-id="${tClear}"] th`);
+      const emptyCells = [...cells].filter((c) => (c.textContent ?? '').trim() === '').length;
+      add(
+        '清空内容：两次点击确认后所有格变空（行列数与单元格格式保留）',
+        clearArmed && data.includes('|') && emptyCells === cells.length && !!props.cellStyles,
+        `第一次点击待确认=${clearArmed}；data=「${data.replace(/\n/g, ' ⏎ ')}」；空格 ${emptyCells}/${cells.length}；格式保留=${!!props.cellStyles}`,
+      );
+    } else {
+      add('清空内容：两次点击确认后所有格变空（行列数与单元格格式保留）', false, 'addComponent(table) 失败');
+    }
   }
 
   /* ── 容器组件的 children 走**第三个参数**（规格 §3.1 / §8.1）──
