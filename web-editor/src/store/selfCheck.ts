@@ -2020,5 +2020,31 @@ async function interactionChecks(): Promise<Result[]> {
     await wait(120);
   }
 
+  /* ── 外部组件契约：type 必须以 live 开头（规格 §7.2 / 验收 5）──
+     没有这道闸，一个外部 .js 就能把内置组件顶掉（register 里本来就"允许覆盖同名"）。 */
+  {
+    const builtinBefore = getComponent('table');
+    const kit = (window as unknown as { EditorKit?: { register: (d: unknown) => void } }).EditorKit;
+    kit?.register({
+      type: 'table',
+      label: '（自检）试图覆盖内置表格',
+      category: '通用',
+      supportedModes: ['document'],
+      icon: () => null,
+      defaultProps: {},
+      propSchema: [],
+      render: () => null,
+    });
+    await wait(80);
+    const builtinAfter = getComponent('table');
+    add(
+      '外部组件 type 必须 live 前缀（拒绝非 live 注册，内置组件不被顶掉）',
+      !!kit && builtinAfter === builtinBefore && builtinAfter?.label === '表格',
+      kit
+        ? `试图注册 type=table → 注册表里 table 仍是「${builtinAfter?.label ?? '(没了)'}」、定义对象未被替换=${builtinAfter === builtinBefore}`
+        : '未找到 window.EditorKit（外部组件通道未启用）',
+    );
+  }
+
   return out;
 }

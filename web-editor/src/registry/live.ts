@@ -130,6 +130,15 @@ function installKit(React: typeof import('react')): void {
         log.error('live', '组件定义不合法（需要 type 与 render 函数）', { keys: Object.keys(def ?? {}) });
         return;
       }
+      /**
+       * ★外部组件 type 必须 `live` 开头（规格 §7.2 / 验收 5）。
+       *   下面那句 unregisterComponent(def.type) 是"允许覆盖同名"用的 —— 不设前缀，
+       *   一个外部 .js 就能把内置组件（比如 table）顶掉，而且没有任何提示。
+       */
+      if (!def.type.startsWith('live')) {
+        log.error('live', `外部组件 type 必须以 live 开头（已拒绝注册）：${def.type}`, { label: def.label });
+        return;
+      }
       // 允许覆盖同名：先卸载再注册，这样"改完重载"能生效
       unregisterComponent(def.type);
       const normalized: ComponentDefinition = {
