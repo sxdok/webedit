@@ -63,26 +63,13 @@ export function MenuBar() {
   const selectedIds = () => S().doc.selectedIds;
   const allIds = () => flatten(forest).map((f) => f.node.id);
 
-  /* ── HTML → 编辑器（B13 的 UI 入口：`?load=` 是同一套逻辑的 URL 版）── */
-  const showImportResult = (src: string, r: { mode: string; stats: { top: number; total: number; typed: number; guessed: number; skipped: number }; warnings: string[] }, title2: string): void => {
-    setNotice(
-      `已把 HTML 载入编辑器：${src}\n` +
-        `文档标题：${title2}\n` +
-        `识别模式：${r.mode === 'document' ? '文档模式' : 'Web 模式'}\n` +
-        `顶层组件 ${r.stats.top} 个 / 含子节点共 ${r.stats.total} 个\n` +
-        `（按 data-node-type 精确识别 ${r.stats.typed} 个、按标签识别 ${r.stats.guessed} 个、跳过 ${r.stats.skipped} 个）` +
-        (r.warnings.length ? `\n\n提示：\n${r.warnings.slice(0, 8).map((w) => `· ${w}`).join('\n')}` : ''),
-    );
-  };
+  /* ── HTML / JSON → 编辑器 ──
+     B13 的 UI 入口。**与"把文件拖进窗口"共用 `utils/importDocument`**（`?load=` 也是同一套逻辑的 URL 版），
+     这样菜单、拖拽、URL 三条入口的结果文案与统计口径永远一致。 */
   const importHtmlText = (html: string, src: string, baseUrl?: string): void => {
-    void import('../../utils/htmlImport').then((m) => {
-      const { doc, result } = m.importHtmlToDocument(html, {
-        title: src.split(/[\\/]/).pop()?.replace(/\.html?$/i, ''),
-        baseUrl,
-      });
-      S().loadDocument(doc);
-      log.info('load', 'HTML 已载入编辑器', { 来源: src, 模式: result.mode, 节点: result.stats });
-      showImportResult(src, result, doc.title);
+    void import('../../utils/importDocument').then(async (m) => {
+      const r = await m.importHtmlIntoEditor(html, src, baseUrl);
+      setNotice(`已把 HTML 载入编辑器：${src}\n${r.detail}`);
     });
   };
   const openHtmlFile = async (): Promise<void> => {
@@ -114,9 +101,11 @@ export function MenuBar() {
       key: 'open',
       label: '打开（JSON）',
       onClick: async () => {
-        const text = await pickTextFile();
+        const text = await pickTextFile('.json,application/json');
         if (text == null) return;
-        if (!S().importJSON(text)) window.alert('导入失败：不是有效的编辑器 JSON。');
+        // 与拖拽同一份逻辑：失败也走结果提示框（说清"缺什么"），不弹 window.alert
+        const r = (await import('../../utils/importDocument')).importJsonIntoEditor(text, '（本地文件）');
+        setNotice(`${r.summary}\n\n${r.detail}`);
       },
     },
     { key: 'open-html', label: '打开 HTML（导入成组件）…', onClick: () => void openHtmlFile() },

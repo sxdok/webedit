@@ -55,6 +55,12 @@ npm run typecheck  # 只做类型检查
 打开 `http://127.0.0.1:5179/?check=1` 会跑一遍**数据层自检**：结果写入 `document.title`、
 打印到 console，并渲染成右下角浮层（便于无头截图核对）。
 
+> ⚠ **无头跑自检要用"真实时间"等它跑完**：自检靠一串 `setTimeout` 链（每段 200~260ms）+ 异步交互检查，
+> 全程约 2.5 分钟。用 `msedge --headless --dump-dom --virtual-time-budget=…` 取标题会**在第一段
+> `finish()` 就 dump**（那时只有 17 条，标题看着却是「17/17 全部通过」，很容易误判）。
+> 可靠做法：`node logs/cdp-eval.mjs "http://127.0.0.1:5179/?check=1" logs/probe-selfcheck.js`
+> （两个脚本都在 `logs/` 下、已 gitignore；轮询到标题稳定再返回，输出 `title` + 失败清单）。
+
 ---
 
 ## 二、目录结构（当前实际文件）
@@ -88,15 +94,17 @@ web-editor/
    │   ├─ editorStore.ts            ★中央状态（zustand + persist）：双模式数据、全部 action、历史、导入导出
    │   ├─ treeUtils.ts              ★树纯函数 + getForest/setForest 两模式统一入口
    │   ├─ history.ts                历史栈（上限 50）+ 300ms 防抖合并闸门
-   │   ├─ selfCheck.ts              `?check=1` 自检（52 条：数据/渲染/真实指针交互/分页与页码/打印/导出/热加载）
+   │   ├─ selfCheck.ts              `?check=1` 自检（274 条：数据/渲染/真实指针交互/分页与页码/打印/导入导出/热加载）
    │   └─ demo.ts                   示例文档（`?demo=1`）
    ├─ utils/
    │   ├─ units.ts / id.ts / download.ts
+   │   ├─ importDocument.ts            ★**导入的统一实现**（菜单「打开 HTML/JSON」与"把文件拖进窗口"共用一份逻辑）
    │   ├─ logger.ts                 分级日志 + 500 条环形缓冲 + 尾部落盘
    │   ├─ diagnostics.ts            诊断报告 / 状态快照
    │   └─ export/                   docExport.ts（HTML）、docx.ts（真 .docx）、reactExport.ts（React/TSX）
    └─ components/
-       ├─ layout/                   MenuBar / ToolBar / StatusBar / ModeSwitcher / useShortcuts
+       ├─ layout/                   MenuBar / ToolBar / StatusBar / ModeSwitcher / useShortcuts /
+       │                            ★DropToImport（把 .html/.json 拖进窗口即导入）/ ★NoticeBar（全局提示条：导入结果 + 大文档未落盘）
        ├─ panels/                   ComponentPanel / PropertyPanel / PagePropertyPanel / CanvasPropertyPanel /
        │                            ComponentTree / DiagnosticsPanel
        ├─ canvas/                   Canvas（分派 + 缩放外壳 + 标尺）/ PaperCanvas（多页分页）/ WebCanvas /
@@ -191,13 +199,31 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
    · 两种情况都派发 `editor:persist-overflow`，并记一笔供诊断/自检读取（`lastPersistOverflow()`）。
 2. `partialize` 里**当前页的 doc 不再存第二份**（当前页槽位放占位空壳，恢复时由最新的 `doc` 覆盖）——
    payload 直接砍半（7MB 文档从 ~14MB → ~7MB），单页文档是最常见情形。
-3. `components/layout/PersistOverflowNotice.tsx`（新）：底部提示条（`[data-persist-overflow]`）——
+3. `components/layout/NoticeBar.tsx`（新，全局提示条）：底部提示条（`[data-persist-overflow]`）——
    「约 X MB，超过浏览器本地存储上限，**没有自动保存**（文档还在，编辑不受影响）；要留住改动请用
-   **文件 → 导出 JSON** 存到磁盘」+ 关闭按钮。
+   **文件 → 导出 JSON** 存到磁盘」+ 关闭按钮。同一根提示条也承接**导入结果**（见下节）。
 
 **结论与用法**：打开大文档**不再报错**，内存里照常编辑导出；localStorage 保持上一次成功保存的内容不变（不会被写坏）。
 大文档（内嵌图片）的正路是**文件**（导出 JSON / HTML / .docx / PDF），不是浏览器自动保存。
 想让自动保存也装得下，就把图片换成外链或先压小（MCP 的 `asset.embed` 单文件上限 20MB，建议先压图再说）。
+
+### 把导出的东西读回来：多条入口、一份逻辑（2026-09-24 补「导出的 html 没有地方导回打开」）
+
+| 入口 | 操作 | 格式 | 说明 |
+| --- | --- | --- | --- |
+| 菜单 | 文件 → **打开 HTML（导入成组件）…** | `.html/.htm` | 弹文件选择框 |
+| 菜单 | 文件 → **打开（JSON）** | `.json` | 编辑器「保存（导出 JSON）」的存档 |
+| 菜单 | 文件 → **从 URL 载入 HTML…** | http(s) / 站内相对路径 | 跨域地址需对方允许 CORS |
+| **拖拽** | 直接把文件**拖进窗口**（任意位置松手） | `.html/.htm/.json` | 松手前给一层「松手导入」提示；拖组件用的是自定义 MIME，不会被误接管 |
+| URL | `?load=<地址或站内路径>` | `.html` | 截图 / 无人值守用 |
+
+- 这些入口共用 `utils/importDocument.ts`（`importHtmlIntoEditor` / `importJsonIntoEditor` / `importFileIntoEditor`），
+  统计口径、提示文案、失败原因**永远一致**，不会两条路两种行为；
+- 导出的 HTML **自带 `data-node-type`**，原样读回能还原组件类型（标题层级 / 列表条目 / 表格数据 / 目录条目都对得上）；
+  外部页面也能导，认不出的标签计进 `skipped` 并在提示里列出来；
+- 结果统一走 `NoticeBar`（`data-notice-bar`）：成功给「顶层 N 个 / 共 N 个组件」+ 识别明细（精确 / 猜的 / 跳过）；
+  失败给**可行动的原因**（如「打开失败：缺少 document 和 web 字段（实际顶层字段：a）」），不是干巴巴一句"导入失败"；
+- 拖拽实现只在 `dataTransfer.types` 含 `Files` 时接管（捕获阶段 `preventDefault`，挡掉浏览器"直接打开那个文件、把编辑中的文档顶掉"的默认行为）。
 
 ## 五、打印 / 导出
 
@@ -651,7 +677,7 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 | 三 | Canvas 分派 + PaperCanvas 分页预览 + WebCanvas 拖拽/缩放/旋转/吸附/辅助线/框选/多选 | ✅ 完成（含离屏测量分页、拖动排序插入指示线、容器落点高亮） |
 | 四 | 组件库（Word 常用 + PPT 专用 + Excel 表格 + 布局分页 + 通用 + Web 控件/容器） | ✅ 完成（**44 个内置** + 3 个外部插件；7 个分类，见「十二」） |
 | 五 | 组件树拖拽、导出 HTML/Word/React、快捷键、持久化、日志诊断、组件热加载 | ✅ 完成 |
-| 六 | 验收标准 1–10 逐条复核 | ✅ 完成（见「十一」；自检已从当年 52 条增长到 **271 条**，见「十四」） |
+| 六 | 验收标准 1–10 逐条复核 | ✅ 完成（见「十一」；自检已从当年 52 条增长到 **274 条**，见「十四」） |
 | 七+ | 后续各轮（A4 组件合入、Qt Designer 属性编辑器、Excel 式表格、容器裁剪、画布分页、新建文档、两份全组件示例、本工作区插件开发 Skill…） | ✅ 见「十、验证记录」逐轮条目与「十三」「十四」 |
 
 
@@ -781,7 +807,7 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 | Markdown 源码视图（文档 ↔ Markdown） | — | ✅ 已合入（单向：文档 → Markdown，只读弹窗 + 复制/下载；反向导入不在范围；见「十四」B10） |
 | `?load=` 载入任意已有 HTML 文档 | — | ✅ 已合入（`?load=<url\|路径>`；本工程导出的 HTML 因带 `data-node-type` 可原样读回，常见结构 HTML 也能导入；见「十四」B13） |
 | 富文本工具条（层级/字体/段落/表格/列表） | `richtext` 组件自带工具条；块级属性走属性面板 | ⚠ 实现方式不同，无独立工具条 |
-| 组件层自检 | `?check=1` **271 条**（A4 为 37 条） | ✅ 本工程覆盖更广 |
+| 组件层自检 | `?check=1` **274 条**（A4 为 37 条） | ✅ 本工程覆盖更广 |
 
 ### 3. 反向：本工程有、A4 没有的
 
@@ -818,7 +844,7 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 | 三 | `PropertyDrawer`（通用 / 专有 / 状态三抽屉）+ `groupStrategy.ts` + 多选面板 | ✅ **完成**：三抽屉可折叠（断言 3/3 默认展开、上下边距在通用抽屉）；`groupStrategy.ts` 按类别给分组顺序与专属文案（Word / PPT / Excel 表格 / Web 控件 / Web 容器 五套 + 兜底）；`MultiSelectPanel`（位置尺寸批量、对齐、层级、删除）；**可见/锁定**在通用抽屉（锁定是编辑器态 `ui.lockedIds`）；状态抽屉 6 行只读 |
 | 四 | 表格专项 | ✅ **完成**：`cellStyles` 用 **Excel A1 记法 + 范围键**（兼容旧 `"行,列"`；插入/删除行列按 A1 平移）；`cells` 控件含垂直对齐、四边边框+色、**合并/拆分**（colSpan/rowSpan，被覆盖格不渲染）、整行/整列、清除；范围显示 `B2:C3`；行/列数量可改（失焦或回车提交）+ 区域拖选 + 插入/删除行列 + 列宽自适应 + 「清空内容」两次点击确认。**「数据」属性行已删除**（见「十四」C3） |
 | 五 | 行级/面板级 memo、快捷键、面板宽度拖拽、折叠状态持久化 | ⚠ **大部分完成**：行级 memo ✅（`PropertyRow`）、**折叠状态持久化** ✅（`ui.propClosed` + 断言）、**面板宽度拖拽** ✅（`PanelResizer`，夹 **180–560px**，双击恢复默认 —— 见「十四」C1）；**面板级 memo 与几个快捷键（Tab/Enter/F2/Ctrl+[ ]）当时未做，已列入「十四」B 清单** |
-| 六 | 按验收标准 1–10 自测并修复 | ✅ **完成**（见「十一」；并持续以 `?check=1` 回归，现 **271 条**） |
+| 六 | 按验收标准 1–10 自测并修复 | ✅ **完成**（见「十一」；并持续以 `?check=1` 回归，现 **274 条**） |
 
 ### 与规格的差距 → 现状
 
@@ -866,7 +892,7 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 | 可用组件（按模式） | 文档模式 **43** / Web 模式 **45**（含外部插件） |
 | 属性控件 | **22 种**（各自一个文件；`IMPLEMENTED_CONTROLS`：B12 新增 `tableSort`、行高修正新增 `tableRowHeights`、图片改成"一行一张图"新增 `imageRows`；`image`（地址 + 选文件 + 缩略图）仍在，供外部插件/MCP 的 schema 用） |
 | 分类 | **7 类**：通用 / 布局分页 / Word 常用 / Excel 表格 / PPT 专用 / Web 控件 / Web 容器 |
-| 自检 | `?check=1` **271 条**（每次实现都会补断言，数字随之下涨） |
+| 自检 | `?check=1` **274 条**（每次实现都会补断言，数字随之下涨） |
 | 形态 | 双模式 + **画布分页（每页一份独立文档）** + 两份"全组件示例" + MCP 桥接 |
 
 ### C. 已按用户确认并入规格的 3 条调整
@@ -900,4 +926,4 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 
 > 每个 B 项的实现都会同步：① 补/改 `?check=1` 断言；② 更新本表状态；③ `tsc -b` + `vite build` 0 错。
 >
-> **B1–B16 的验收断言**（都在 `src/store/selfCheck.ts` 的「B 清单」段，`?check=1` 共 271 条）：B1 用 `data-props-renders` 渲染计数探针 —— 在画布上移动鼠标（外层确实重渲染，光标读数跟着变）后面板渲染计数必须**不动**；B2 依次验证 `Tab`/`Shift+Tab`（含末尾循环）、`Ctrl+]`/`Ctrl+[` 层级、`Enter` 进子节点再回父容器；B3 双击标签出现 `data-page-rename-input`，输入并回车后标签与 `doc.title` 同步；B4 断言「表格」组内属性顺序为结构→数据→线条→尺寸→文字，且分组分割线数 = 分组数 − 1；B5 选中 `A1:A2` → `Ctrl+C` → 粘到 `B1` 得到 `A | A / C | C`；B6 断言方向键 / `Shift+方向键` / `Tab` / `Enter` 的落点与焦点，以及双击画布单元格出现 `data-cell-editor`（在缩放层内）后 `Enter` 写回 `props.data`、`Esc` 不写回；B7 拖宽手柄 40px → `props.width` 增加约 10.6mm（并验没有 mm 宽度属性的组件不出手柄）；B8 断言**按行**行高：拖第 1 条边界只第 1 行 +25px 且其它行一点不动、写入 `props.rowHeights["1"]`（`props.rowHeight` 整表默认不被改），再拖第 2 条两条共存、**最后一行也能单独拖**，属性面板「按行行高」列出并逐条清除（清掉后该行回到默认）；B9 缩略图张数 = 卡片数、每张都渲染出真元素、`pointer-events:none`、开关关掉后回到紧凑两列；B10 断言 Markdown 抬头/标题层级/项目符号缩进/表格管道表，以及弹窗出现与关闭；B11 断言「图 1-1 / 表 1-1 / 图 2-1 / 表 2-1」与把 `level=1` 降级后的重排（章前用连续编号「图 1」）；B12 断言数值列升/降序（`10` 不会排到 `2` 前）、排序不改 `props.data`、单元格格式跟着行走、冻结首行只在 Web 模式生成滚动外壳且表头 `position: sticky`；B13 断言导出 HTML 带 `data-node-type`、能原样读回（标题层级/列表条目/表格数据），以及常见结构 HTML 的导入（`<script>` 跳过并计数）；B14 断言组件包导出（3 个外部组件源码）、包自校验，以及**整包拒收**路径穿越 / 内部文件 / 非 `.js` / 空源码 / format 不对 / 空包；B15 断言 `.docx` 的 ZIP 头与 8 个 OOXML 部件、`sectPr`/Heading/表格/编号引用，并把字节 base64 落盘供 python-docx 外部复验；B16 断言填充序列规则（数字/小数/等差/循环/日期/按行/按列 8 条）+ 画布填充柄位置、拖动预览框、一次写回与**只记一条历史**。
+> **B1–B16 的验收断言**（都在 `src/store/selfCheck.ts` 的「B 清单」段，`?check=1` 共 274 条）：B1 用 `data-props-renders` 渲染计数探针 —— 在画布上移动鼠标（外层确实重渲染，光标读数跟着变）后面板渲染计数必须**不动**；B2 依次验证 `Tab`/`Shift+Tab`（含末尾循环）、`Ctrl+]`/`Ctrl+[` 层级、`Enter` 进子节点再回父容器；B3 双击标签出现 `data-page-rename-input`，输入并回车后标签与 `doc.title` 同步；B4 断言「表格」组内属性顺序为结构→数据→线条→尺寸→文字，且分组分割线数 = 分组数 − 1；B5 选中 `A1:A2` → `Ctrl+C` → 粘到 `B1` 得到 `A | A / C | C`；B6 断言方向键 / `Shift+方向键` / `Tab` / `Enter` 的落点与焦点，以及双击画布单元格出现 `data-cell-editor`（在缩放层内）后 `Enter` 写回 `props.data`、`Esc` 不写回；B7 拖宽手柄 40px → `props.width` 增加约 10.6mm（并验没有 mm 宽度属性的组件不出手柄）；B8 断言**按行**行高：拖第 1 条边界只第 1 行 +25px 且其它行一点不动、写入 `props.rowHeights["1"]`（`props.rowHeight` 整表默认不被改），再拖第 2 条两条共存、**最后一行也能单独拖**，属性面板「按行行高」列出并逐条清除（清掉后该行回到默认）；B9 缩略图张数 = 卡片数、每张都渲染出真元素、`pointer-events:none`、开关关掉后回到紧凑两列；B10 断言 Markdown 抬头/标题层级/项目符号缩进/表格管道表，以及弹窗出现与关闭；B11 断言「图 1-1 / 表 1-1 / 图 2-1 / 表 2-1」与把 `level=1` 降级后的重排（章前用连续编号「图 1」）；B12 断言数值列升/降序（`10` 不会排到 `2` 前）、排序不改 `props.data`、单元格格式跟着行走、冻结首行只在 Web 模式生成滚动外壳且表头 `position: sticky`；B13 断言导出 HTML 带 `data-node-type`、能原样读回（标题层级/列表条目/表格数据），以及常见结构 HTML 的导入（`<script>` 跳过并计数）；B14 断言组件包导出（3 个外部组件源码）、包自校验，以及**整包拒收**路径穿越 / 内部文件 / 非 `.js` / 空源码 / format 不对 / 空包；B15 断言 `.docx` 的 ZIP 头与 8 个 OOXML 部件、`sectPr`/Heading/表格/编号引用，并把字节 base64 落盘供 python-docx 外部复验；B16 断言填充序列规则（数字/小数/等差/循环/日期/按行/按列 8 条）+ 画布填充柄位置、拖动预览框、一次写回与**只记一条历史**。

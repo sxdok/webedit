@@ -250,6 +250,11 @@ html[data-theme='monokai'] .bg-emerald-50\/40 { background-color: var(--mk-tint-
 html[data-theme='monokai'] .text-amber-700 { color: var(--mk-warn); }
 html[data-theme='monokai'] .text-emerald-500 { color: var(--mk-ok); }
 html[data-theme='monokai'] .border-emerald-400\/60 { border-color: var(--mk-ok-line); }
+/* 提示条 / 拖拽导入浮层（2026-09-24 加）：深色下也要是"深底浅字" */
+html[data-theme='monokai'] .text-amber-900 { color: var(--mk-warn); }
+html[data-theme='monokai'] .text-emerald-900 { color: var(--mk-ok); }
+html[data-theme='monokai'] .bg-white\/95 { background-color: var(--mk-surface); }
+html[data-theme='monokai'] .hover\:bg-black\/5:hover { background-color: var(--mk-raised); }
 /* hover / disabled 变体 */
 html[data-theme='monokai'] .hover\:bg-gray-50:hover,
 html[data-theme='monokai'] .disabled\:bg-gray-50:disabled { background-color: var(--mk-raised); }

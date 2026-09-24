@@ -33,6 +33,8 @@ import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
 import { routeLive } from '../mcp/liveMethods';
 import { autoStartBridgeFromPrefs, bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
 import { PERSIST_BUDGET, PERSIST_KEY, lastPersistOverflow, shouldPersist } from './persistStorage';
+import { importFileIntoEditor, importJsonIntoEditor } from '../utils/importDocument';
+import { notify } from '../components/layout/NoticeBar';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -1842,12 +1844,26 @@ async function interactionChecks(): Promise<Result[]> {
       offenders.push(...(await auditWhenDark()).map((o) => `${def.type}：${o}`));
     }
 
-    // ② 最容易漏的浮层：首选项 / 新建文档 / Markdown 源码 / 诊断面板
+    // ② 最容易漏的浮层：首选项 / 新建文档 / Markdown 源码 / 诊断面板 / 提示条
+    let noticeOn = false;
     const overlays: [string, () => void][] = [
       ['首选项', () => S().toggleUI('prefsOpen')],
       ['新建文档', () => S().setNewDocOpen(true)],
       ['Markdown 源码', () => S().toggleUI('showMarkdown')],
       ['诊断面板', () => S().toggleUI('showDiagnostics')],
+      [
+        '提示条',
+        () => {
+          if (noticeOn) {
+            (document.querySelector('[data-notice-bar-close="1"]') as HTMLElement | null)?.click();
+            noticeOn = false;
+          } else {
+            // 全局提示条（导入结果 / 落盘超限）也是外壳的一部分，深色下同样得是"深底浅字"
+            notify({ kind: 'warn', title: '暗色审计：提示条', detail: '核对深色下的对比度（标题 + 明细两行）。' });
+            noticeOn = true;
+          }
+        },
+      ],
     ];
     for (const [name, toggle] of overlays) {
       toggle();
@@ -1858,7 +1874,7 @@ async function interactionChecks(): Promise<Result[]> {
     }
 
     add(
-      `暗色模式自动审计：全部 ${scanned} 个组件的属性面板（分组全展开）+ 组件箱 + 4 个浮层，没有浅色底板 / 低对比文字`,
+      `暗色模式自动审计：全部 ${scanned} 个组件的属性面板（分组全展开）+ 组件箱 + ${overlays.length} 个浮层，没有浅色底板 / 低对比文字`,
       scanned > 40 && offenders.length === 0,
       offenders.length
         ? `${offenders.length} 处：${offenders.slice(0, 3).join(' ｜ ')} ｜ ${cssDiag()}`
@@ -2628,6 +2644,81 @@ async function interactionChecks(): Promise<Result[]> {
       );
       // 还原现场：关提示条 + 清空造出来的大文档（否则后面每个断言都在写 10MB 的 payload）
       (document.querySelector('[data-persist-overflow-close="1"]') as HTMLElement | null)?.click();
+      S().clearAll();
+      await wait(320);
+    }
+
+    /* ── ★"导出的东西要能导回来"两条入口都要真的能用（用户 2026-09-24：导出的 html 没有地方导回打开）
+       一条是菜单「文件 → 打开 HTML…／打开（JSON）」，另一条是**把文件拖进窗口**。两条共用 `utils/importDocument`。 ── */
+    {
+      S().setMode('document');
+      S().clearAll();
+      await wait(320);
+      const hid = S().addComponent('heading');
+      if (hid) S().updateProps(hid, { text: '拖拽导入自检标题' });
+      const pid = S().addComponent('paragraph');
+      if (pid) S().updateProps(pid, { text: '拖拽导入自检正文' });
+      await wait(320);
+      const exported = S().exportHTML(); // ← 和「文件 → 导出 HTML」同一个函数
+
+      /** 造一个"拖进来的文件"（Chromium 支持用 DataTransfer 合成拖拽事件） */
+      const dragOf = (file: File): DataTransfer => {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        return dt;
+      };
+      const fire = (type: string, dt: DataTransfer): void => {
+        window.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+      };
+
+      // ① 拖组件（自定义 MIME，不是文件）不该弹出导入提示层
+      const compDt = new DataTransfer();
+      compDt.setData('application/x-editor-component', 'heading');
+      fire('dragover', compDt);
+      await wait(160);
+      const overlayOnComp = document.querySelector('[data-drop-import="1"]');
+
+      // ② 拖文件 → 出现"松手导入"提示层
+      const htmlDt = dragOf(new File([exported], '拖拽自检.html', { type: 'text/html' }));
+      fire('dragover', htmlDt);
+      await wait(200);
+      const overlay = document.querySelector('[data-drop-import="1"]');
+      const overlayText = (overlay?.textContent ?? '').trim();
+      add(
+        '把文件拖进窗口 → 出现「松手导入」提示层；而拖组件（自定义 MIME）不会误触发',
+        !overlayOnComp && !!overlay && overlayText.includes('.html'),
+        `拖组件时提示层=${!!overlayOnComp}；拖 .html 时提示层=${!!overlay}；文案=「${overlayText.slice(0, 40)}」`,
+      );
+
+      // ③ 松手 → 真的读回文档（本工程导出的 HTML 带 data-node-type，能还原组件）
+      fire('drop', htmlDt);
+      await wait(800);
+      const types = S().doc.document.components.map((c) => c.type);
+      const notice = document.querySelector('[data-notice-bar="1"]') as HTMLElement | null;
+      add(
+        '把「导出的 HTML」拖回来 → **直接读回成组件**（标题/正文都在），且提示层收起、结果有提示',
+        types.includes('heading') && types.includes('paragraph') && !document.querySelector('[data-drop-import="1"]') && (notice?.textContent ?? '').includes('已载入 HTML'),
+        `载入后组件=${types.join('+') || '无'}；标题=「${S().doc.title}」；提示条=${(notice?.textContent ?? '').replace(/\s+/g, ' ').slice(0, 48)}`,
+      );
+
+      // ④ 拖不认识的文件 / 打开不是编辑器文档的 JSON：**说清问题**，且不动正在编辑的文档
+      const before = S().doc.document.components.length;
+      const unknown = await importFileIntoEditor(new File(['hello'], 'note.txt', { type: 'text/plain' }));
+      const badJson = importJsonIntoEditor('{"a":1}', 'x.json');
+      const brokenJson = importJsonIntoEditor('{ 不是 json', 'y.json');
+      add(
+        '导错文件时给得出**可行动的原因**（不是编辑器文档 / 不是 JSON），且不会把当前文档弄没',
+        unknown.ok === false &&
+          unknown.summary.includes('不认识的文件') &&
+          badJson.ok === false &&
+          badJson.summary.includes('缺少 document 和 web') &&
+          brokenJson.ok === false &&
+          brokenJson.summary.includes('不是合法 JSON') &&
+          S().doc.document.components.length === before,
+        `${unknown.summary}；${badJson.summary}；${brokenJson.summary}；文档节点 ${before}→${S().doc.document.components.length}`,
+      );
+
+      (document.querySelector('[data-notice-bar-close="1"]') as HTMLElement | null)?.click();
       S().clearAll();
       await wait(320);
     }
