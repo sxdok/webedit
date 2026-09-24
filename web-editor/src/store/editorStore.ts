@@ -86,6 +86,15 @@ export interface UIState {
    *   （超过 3.5MB 预算就跳过并弹提示条）。真正的交付还是走 文件 → 导出。
    */
   autoSave: boolean;
+  /**
+   * **窗口放不下整张纸时自动缩小**（首选项 → 画布；用户 2026-09-24）。
+   *
+   * 默认**开**。文档模式下视口比纸张窄时，`margin:0 auto` 的居中会失效、纸张贴到画布左边缘
+   * （用户看到的"画布位置偏移到 0,0"）—— 打开它就让**预览缩放**跟着视口走，
+   * 纸张始终放得下、始终居中；关掉就回到"贴左 + 横向滚动条"。
+   * 只影响预览：`ui.zoom` 不动，导出/打印与缩放无关。
+   */
+  fitWhenNarrow: boolean;
   /** Markdown 源码视图（B10，视图菜单打开；只读弹窗） */
   showMarkdown: boolean;
   /**
@@ -145,6 +154,7 @@ const initialUI: UIState = {
   prefsOpen: false,
   autoBridge: false,
   autoSave: false,
+  fitWhenNarrow: true,
   showMarkdown: false,
   autoNumber: false,
   registryVersion: 0,

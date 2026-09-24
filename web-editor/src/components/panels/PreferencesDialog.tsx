@@ -94,12 +94,13 @@ function PrefSelect<T extends string>({
 /** 默认值（与 store 里的 initialUI 一致；「恢复默认设置」按这份还原） */
 const DEFAULTS: Pick<
   UIState,
-  'showGrid' | 'showRuler' | 'showGuides' | 'snap' | 'preview' | 'showTree' | 'compPreview' | 'autoNumber' | 'autoBridge' | 'autoSave' | 'theme' | 'leftWidth' | 'rightWidth'
+  'showGrid' | 'showRuler' | 'showGuides' | 'snap' | 'fitWhenNarrow' | 'preview' | 'showTree' | 'compPreview' | 'autoNumber' | 'autoBridge' | 'autoSave' | 'theme' | 'leftWidth' | 'rightWidth'
 > = {
   showGrid: false,
   showRuler: true,
   showGuides: true,
   snap: true,
+  fitWhenNarrow: true,
   preview: false,
   showTree: false,
   compPreview: false,
@@ -191,6 +192,14 @@ export function PreferencesDialog() {
         <PrefSwitch prefKey="showRuler" label="显示标尺" value={ui.showRuler === true} onChange={() => toggleUI('showRuler')} />
         <PrefSwitch prefKey="showGuides" label="显示辅助线" value={ui.showGuides === true} onChange={() => toggleUI('showGuides')} />
         <PrefSwitch prefKey="snap" label="对齐吸附" value={ui.snap === true} onChange={() => toggleUI('snap')} />
+        {/* ★用户 2026-09-24：「浏览器调整尺寸又触发画布位置偏移」= 视口比纸窄时纸张贴到左边缘、不再居中 */}
+        <PrefSwitch
+          prefKey="fitWhenNarrow"
+          label="窗口放不下时自动缩小"
+          hint="文档模式：视口比纸张窄时预览自动缩到放得下（纸张始终居中，不贴左边缘；导出/打印不受影响）"
+          value={ui.fitWhenNarrow !== false}
+          onChange={() => toggleUI('fitWhenNarrow')}
+        />
         <PrefSwitch
           prefKey="preview"
           label="预览模式"

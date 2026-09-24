@@ -1214,7 +1214,7 @@ async function interactionChecks(): Promise<Result[]> {
      无头里改不了浏览器窗口，这里用**改左面板宽度**来改视口宽度 —— 走的是同一条重算路径
      （ResizeObserver + window resize 兜底 + 延迟补算），断言"横向 0 贴纸张左、纵向逐页 0 贴纸张顶"。 */
   {
-    const geom = (): { 横向差: number; 纵向最大差: number; 图层内缩: number; 纸张相对视口左: number } => {
+    const geom = (): { 横向差: number; 纵向最大差: number; 图层内缩: number; 纸张相对视口左: number; 视口宽: number } => {
       const paper = document.querySelector('[data-paper]');
       const layer = document.querySelector('[data-pan-layer]') as HTMLElement | null;
       const vp = document.querySelector('#canvas-viewport');
@@ -1234,10 +1234,11 @@ async function interactionChecks(): Promise<Result[]> {
         纵向最大差: deltas.filter((d) => Number.isFinite(d)).reduce((m, d) => Math.max(m, Math.abs(d)), 0),
         图层内缩: layer?.offsetLeft ?? -1,
         纸张相对视口左: Math.round((pr?.left ?? 0) - (vr?.left ?? 0)),
+        视口宽: vp?.clientWidth ?? 0,
       };
     };
     const before = geom();
-    S().setPanelWidth('left', 430); // 视口变窄 → 居中内缩变小
+    S().setPanelWidth('left', 430); // 视口变窄 → 居中内缩变小（窄到放不下时还会触发"自动缩小"）
     await wait(520);
     const narrow = geom();
     S().setPanelWidth('left', 240); // 再改回来
@@ -1249,9 +1250,56 @@ async function interactionChecks(): Promise<Result[]> {
         Math.abs(back.横向差) <= 2 &&
         narrow.纵向最大差 <= 2 &&
         back.纵向最大差 <= 2 &&
-        narrow.图层内缩 !== before.图层内缩, // 视口真的变了，否则这条断言等于没测
-      `变窄：内缩 ${before.图层内缩}→${narrow.图层内缩}、纸张相对视口左 ${narrow.纸张相对视口左}、横向差 ${narrow.横向差}、纵向最大差 ${narrow.纵向最大差}；` +
-        `改回：内缩 ${back.图层内缩}、横向差 ${back.横向差}、纵向最大差 ${back.纵向最大差}`,
+        // ★"视口真的变了"用视口宽来证（不能用内缩：窄到放不下时会自动缩小，内缩可能不变）
+        narrow.视口宽 !== before.视口宽 &&
+        back.视口宽 === before.视口宽,
+      `变窄：视口 ${before.视口宽}→${narrow.视口宽}、内缩 ${before.图层内缩}→${narrow.图层内缩}、纸张相对视口左 ${narrow.纸张相对视口左}、横向差 ${narrow.横向差}、纵向最大差 ${narrow.纵向最大差}；` +
+        `改回：视口 ${back.视口宽}、内缩 ${back.图层内缩}、横向差 ${back.横向差}、纵向最大差 ${back.纵向最大差}`,
+    );
+  }
+
+  /* ★窗口放不下整张纸 → 预览自动缩小（用户 2026-09-24 选定的形态：纸张始终**居中**，不贴到左边缘）
+     现场：视口比 A4 窄时 `margin:0 auto` 居中失效 → 纸张贴左、右边留一条空滚动区 = "画布位置偏移到 0,0"。 */
+  {
+    const snap = (): { 视口内容宽: number; 纸张可见宽: number; 居中偏差: number; 缩放: string; 横向滚动: boolean } => {
+      const vp = document.querySelector('#canvas-viewport');
+      const paper = document.querySelector('[data-paper]');
+      const vr = vp?.getBoundingClientRect();
+      const pr = paper?.getBoundingClientRect();
+      const 内容宽 = vp?.clientWidth ?? 0;
+      const 纸可见宽 = Math.round(pr?.width ?? 0);
+      const 左余量 = Math.round((pr?.left ?? 0) - (vr?.left ?? 0));
+      return {
+        视口内容宽: 内容宽,
+        纸张可见宽: 纸可见宽,
+        居中偏差: 左余量 - Math.round((内容宽 - 纸可见宽) / 2),
+        缩放: (document.querySelector('[data-zoom-label]')?.textContent ?? '').trim(),
+        横向滚动: (vp?.scrollWidth ?? 0) > 内容宽 + 1,
+      };
+    };
+    S().setMode('document');
+    const narrow0 = snap();
+    // 把左右面板都拉到最宽 → 视口比 A4 窄（走的是和"改窗口尺寸"同一条重算路径）
+    S().setPanelWidth('left', 560);
+    S().setPanelWidth('right', 560);
+    await wait(760);
+    const narrow = snap();
+    S().setPanelWidth('left', 240);
+    S().setPanelWidth('right', 300);
+    await wait(760);
+    const back = snap();
+    const wideEnough = back.视口内容宽 >= 794 + 32; // 够宽时应当回到 100%
+    add(
+      '窗口放不下整张纸时**预览自动缩小**：纸张始终放得下、始终居中（不贴左边缘、没有多余横向滚动区）',
+      narrow.视口内容宽 < narrow0.视口内容宽 && // 视口真的变窄了，否则这条等于没测
+        narrow.纸张可见宽 + 32 <= narrow.视口内容宽 + 1 && // 缩到放得下（两侧还留了 16px 白）
+        Math.abs(narrow.居中偏差) <= 2 &&
+        !narrow.横向滚动 &&
+        narrow.缩放.includes('适应') &&
+        Math.abs(back.居中偏差) <= 2 &&
+        (!wideEnough || back.缩放 === '100%'),
+      `变窄：视口 ${narrow0.视口内容宽}→${narrow.视口内容宽}、缩放 ${narrow0.缩放}→${narrow.缩放}、纸张可见宽 ${narrow.纸张可见宽}、居中偏差 ${narrow.居中偏差}、横向滚动=${narrow.横向滚动}；` +
+        `改回：视口 ${back.视口内容宽}、缩放 ${back.缩放}、纸张可见宽 ${back.纸张可见宽}、居中偏差 ${back.居中偏差}`,
     );
   }
 
@@ -4224,7 +4272,7 @@ async function interactionChecks(): Promise<Result[]> {
     S().toggleUI('prefsOpen');
     await wait(320);
     const prefKeys = [...document.querySelectorAll('[data-pref]')].map((el) => el.getAttribute('data-pref'));
-    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'autoSave', 'autoBridge', 'theme', 'panelWidths'];
+    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'fitWhenNarrow', 'preview', 'autoNumber', 'autoSave', 'autoBridge', 'theme', 'panelWidths'];
     const missingPrefs = wantPrefs.filter((k) => !prefKeys.includes(k));
     add(
       '首选项（视图 → 首选项…）：编辑器各项设置集中在一个弹窗里（组件箱/画布/文档/保存/外观/面板）',

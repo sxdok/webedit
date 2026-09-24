@@ -14,6 +14,8 @@ import { Ruler } from './Ruler';
 
 /** 标尺条的固定厚度（px；**不随缩放变**，与 PS 一致） */
 const RULER_H = 18;
+/** 画布内容两侧留白（窗口放不下整张纸时自动缩到"纸宽 + 这个留白"正好放得下，纸张不贴标尺） */
+const CANVAS_PAD = 16;
 import { WebCanvas } from './WebCanvas';
 import { useCanvasInteraction } from './useCanvasInteraction';
 import { useCellEdit } from './useCellEdit';
@@ -129,13 +131,40 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   const nodes = useEditorStore(selectForest);
   const page = useEditorStore((s) => s.doc.document.page);
   const canvas = useEditorStore((s) => s.doc.web.canvas);
-  const zoom = useEditorStore((s) => s.zoom);
+  const uiZoom = useEditorStore((s) => s.zoom);
   const ui = useEditorStore((s) => s.ui);
   const activePageId = useEditorStore((s) => s.activePageId);
   const selectedIds = useEditorStore((s) => s.doc.selectedIds);
   const selectComponent = useEditorStore((s) => s.selectComponent);
   const toggleSelect = useEditorStore((s) => s.toggleSelect);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  /**
+   * ★两种模式两套浏览方式（用户 2026-09-23）：
+   *   · **文档模式**：回到"滚动条"浏览 —— 视口 `overflow:auto`，滚轮/拖动滚动条看别的页，
+   *     **不再空格/中键平移画布**，标尺固定在视口边缘、刻度跟着滚动量走；
+   *   · **Web 模式**：不变 —— 自由平移（空格/中键/滚轮），画布可以拖出可视区。
+   */
+  const isDoc = mode === 'document';
+
+  /**
+   * ★窗口放不下整张纸时**自动缩小**（用户 2026-09-24：「浏览器调整尺寸时又触发画布位置偏移」）。
+   *
+   * 现场：视口比 A4（794px）窄时 `margin:0 auto` 的居中失效 → 纸张贴到画布左边缘、右侧留一条空滚动区，
+   * 看起来就是"画布偏移到 0,0"。A4 纸张尺寸不能改（那是打印尺寸），能改的只有**预览缩放** ——
+   * 于是让预览缩放跟着视口走：`min(用户缩放, 放得下的缩放)`，放得下就回到用户缩放。
+   *   · **只影响预览**：`ui.zoom` 不动（导出/打印与缩放无关），Ctrl+滚轮/＋− 的语义不变；
+   *   · 两侧留白 `CANVAS_PAD`，纸张永远不贴到标尺上；
+   *   · 可在 首选项 → 画布 →「窗口放不下时自动缩小」关掉（关掉即回到"贴左 + 横向滚动条"）。
+   */
+  const [vpW, setVpW] = useState(0);
+  const paperW = isDoc ? mmToPx(page.width) : canvas.width;
+  const fitZoom = vpW > 0 ? Math.floor(((vpW - CANVAS_PAD * 2) / paperW) * 100) / 100 : 1;
+  const narrowFit = isDoc && ui.fitWhenNarrow !== false && vpW > 0 && paperW + CANVAS_PAD * 2 > vpW;
+  const zoom = narrowFit ? Math.max(0.1, Math.min(uiZoom, fitZoom)) : uiZoom;
+  /** 生效缩放的镜像（`measureSpans` 等回调里要用最新值，不能闭包住旧 zoom） */
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   const canvasElRef = useRef<HTMLDivElement>(null);
   const it = useCanvasInteraction({
@@ -165,13 +194,6 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     mode, // ★实测值按模式归属；换模式即作废（否则 Web 的 1440 会锁死文档模式的 contentW）
   );
   const viewportRef = useRef<HTMLDivElement>(null);
-  /**
-   * ★两种模式两套浏览方式（用户 2026-09-23）：
-   *   · **文档模式**：回到"滚动条"浏览 —— 视口 `overflow:auto`，滚轮/拖动滚动条看别的页，
-   *     **不再空格/中键平移画布**，标尺固定在视口边缘、刻度跟着滚动量走；
-   *   · **Web 模式**：不变 —— 自由平移（空格/中键/滚轮），画布可以拖出可视区。
-   */
-  const isDoc = mode === 'document';
   /**
    * 内容尺寸：文档模式按**实测**（多页时是所有纸张叠起来的总高，标尺才能覆盖全文 ——
    * 以前写死 `page.height`，于是"只渲染了一页的尺寸，其他页不显示"）；
@@ -314,7 +336,8 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     const el = ref.current;
     if (!isDoc || !el) return;
     const base = el.getBoundingClientRect();
-    const z = useEditorStore.getState().zoom || 1;
+    // ★用**生效缩放**（可能是"窗口放不下时自动缩小"后的值），不是 store 里的用户缩放
+    const z = zoomRef.current || 1;
     const next = [...el.querySelectorAll('[data-paper]')].map((p) => {
       const r = p.getBoundingClientRect();
       return { start: Math.round((r.top - base.top) / z), length: Math.round(r.height / z) };
@@ -354,11 +377,14 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     if (!isDoc) return;
     const vp = viewportRef.current;
     const remeasure = (): void => {
+      // 视口宽度也进 state：它是"窗口放不下就自动缩小"的判据（见上面 narrowFit）
+      if (vp) setVpW((prev) => (prev === vp.clientWidth ? prev : vp.clientWidth));
       measureInsets();
       measureSpans();
     };
     const ro = vp ? new ResizeObserver(remeasure) : null;
     if (vp && ro) ro.observe(vp);
+    remeasure();
     let t = 0;
     let raf = 0;
     const onResize = (): void => {
@@ -688,7 +714,13 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           >
             −
           </button>
-          <span className="w-10 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+          <span className="w-10 text-center tabular-nums" data-zoom-label={Math.round(zoom * 100)} title={
+            narrowFit
+              ? `窗口放不下 A4（${Math.round(paperW)}px），预览已自动缩到 ${Math.round(zoom * 100)}%（首选项 → 画布 可关掉；导出/打印不受影响）`
+              : '画布预览缩放'
+          }>
+            {Math.round(zoom * 100)}%{narrowFit ? <span className="text-[9px] text-gray-400">适应</span> : null}
+          </span>
           <button
             type="button"
             className="h-6 w-6 rounded hover:bg-gray-100"
