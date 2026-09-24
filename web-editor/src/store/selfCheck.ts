@@ -32,6 +32,7 @@ import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
 import { routeLive } from '../mcp/liveMethods';
 import { autoStartBridgeFromPrefs, bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
+import { PERSIST_BUDGET, PERSIST_KEY, lastPersistOverflow, shouldPersist } from './persistStorage';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -2590,6 +2591,45 @@ async function interactionChecks(): Promise<Result[]> {
         S().importJSON(backupDoc);
         await wait(200);
       }
+    }
+
+    /* ── ★大文档不能把编辑器写崩（用户 2026-09-24：7.2MB 文档 = 5 张内嵌 base64 图 → localStorage 配额 → 渲染出错）
+       现场调用链：文件 →「打开 JSON」= `importJSON()` → store 更新 → persist 落盘 → QuotaExceededError 冒到渲染路径。 ── */
+    {
+      const big = `data:image/png;base64,${'A'.repeat(1024 * 1024)}`; // 每张 ~1MB，凑出和现场同形的"内嵌图片大文档"
+      S().setMode('document');
+      S().clearAll();
+      for (let i = 0; i < 5; i += 1) {
+        const id = S().addComponent('image');
+        if (id) S().updateProps(id, { src: big });
+      }
+      await wait(520);
+      const before = window.localStorage.getItem(PERSIST_KEY);
+      const json = S().exportJSON();
+      const imported = S().importJSON(json); // ← 与「打开 JSON」同一条代码路径
+      await wait(700);
+      const after = window.localStorage.getItem(PERSIST_KEY);
+      const notice = document.querySelector('[data-persist-overflow="1"]') as HTMLElement | null;
+      add(
+        '大文档（内嵌图片、超过浏览器本地存储预算）**打开不报错**：导入成功、文档完整、localStorage 不被写坏',
+        S().doc.document.components.length === 5 && imported === true && after === before,
+        `节点 ${S().doc.document.components.length} 个；JSON ${(json.length / 1024 / 1024).toFixed(1)}MB；导入=${imported}；localStorage 未变=${after === before}`,
+      );
+      add(
+        '大文档落盘被跳过时**弹提示条**（说清多大 / 为什么 / 用「导出 JSON」存盘），且内嵌图片不进本地存储',
+        !!notice && (notice.textContent ?? '').includes('没有自动保存'),
+        `提示条=${!!notice}；文案=「${(notice?.textContent ?? '').replace(/\s+/g, ' ').slice(0, 56)}」`,
+      );
+      const budget = shouldPersist(2 * 1024 * 1024) === true && shouldPersist(8 * 1024 * 1024) === false;
+      add(
+        `落盘预算：${Math.round(PERSIST_BUDGET / 1024 / 1024 * 10) / 10}MB 以内照常存、超过就跳过（不抛异常）`,
+        budget && (lastPersistOverflow()?.bytes ?? 0) > PERSIST_BUDGET,
+        `2MB→${shouldPersist(2 * 1024 * 1024)}；8MB→${shouldPersist(8 * 1024 * 1024)}；最近一次被拦=${((lastPersistOverflow()?.bytes ?? 0) / 1024 / 1024).toFixed(1)}MB（${lastPersistOverflow()?.kind ?? '—'}）`,
+      );
+      // 还原现场：关提示条 + 清空造出来的大文档（否则后面每个断言都在写 10MB 的 payload）
+      (document.querySelector('[data-persist-overflow-close="1"]') as HTMLElement | null)?.click();
+      S().clearAll();
+      await wait(320);
     }
 
     /* ── 除通用属性（上/下边距，注册表统一补）外，每个组件都必须有自己的配置属性 ── */

@@ -7,7 +7,8 @@
  * 约定：所有会改文档的 action 都走 commit()，连续输入用 MergeGate 合并成一步。
  */
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { PERSIST_KEY, safePersistStorage } from './persistStorage';
 import {
   DEVICE_PRESETS,
   PAGE_SIZES,
@@ -323,6 +324,13 @@ const initialPage: EditorPage = (() => {
   const d = createInitialDocument();
   return { id: d.id, title: d.title, mode: d.mode, doc: d };
 })();
+
+/**
+ * 持久化时**当前页槽位**的 doc 占位。
+ * 当前页的正文与 `doc` 是同一份内容，存两遍只会让 payload 翻倍（7MB 文档 → 14MB，直接撞配额）；
+ * 恢复时 merge 会用最新的 `doc` 覆盖这个槽位，所以这里放个空壳就够（用户 2026-09-24 的配额问题）。
+ */
+const EMPTY_PAGE_DOC: EditorDocument = createInitialDocument();
 
 export const useEditorStore = create<EditorStore>()(
   persist(
@@ -871,14 +879,20 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
       },
     }),
     {
-      name: 'visual-editor-v1',
+      name: PERSIST_KEY,
       version: 1,
+      /** ★配额安全存储：大文档（内嵌 base64 图片）写不下时**跳过并提示**，绝不抛进渲染路径（用户 2026-09-24） */
+      storage: createJSONStorage(() => safePersistStorage),
       partialize: (s) =>
         ({
           doc: s.doc,
           zoom: s.zoom,
           // 分页：持久化时把**当前页**的槽位刷新成最新的 doc（否则切页会回退到旧内容）
-          pages: s.pages.map((p) => (p.id === s.activePageId ? { ...p, title: s.doc.title, mode: s.doc.mode, doc: s.doc } : p)),
+          /**
+           * ★当前页的 doc **不再写第二份**：它是上面 doc 的同一份内容，写两遍等于把 payload 翻倍
+           *   （7MB 文档 → 14MB，直接撞配额）。恢复时 merge 会把当前页槽位换成最新的 doc（见下面 pages 的处理）。
+           */
+          pages: s.pages.map((p) => (p.id === s.activePageId ? { ...p, title: s.doc.title, mode: s.doc.mode, doc: EMPTY_PAGE_DOC } : p)),
           activePageId: s.activePageId,
           // 诊断面板属于临时弹层，不持久化（否则刷新后会自动弹出）
           ui: { ...s.ui, showDiagnostics: false, newDocOpen: false },

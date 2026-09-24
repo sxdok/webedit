@@ -14,6 +14,7 @@ import { ComponentTree } from './components/panels/ComponentTree';
 import { DiagnosticsPanel } from './components/panels/DiagnosticsPanel';
 import { MarkdownDialog } from './components/panels/MarkdownDialog';
 import { NewDocDialog } from './components/layout/NewDocDialog';
+import { PersistOverflowNotice } from './components/layout/PersistOverflowNotice';
 import { PreferencesDialog } from './components/panels/PreferencesDialog';
 import { PropertyPanel } from './components/panels/PropertyPanel';
 import { useEditorStore } from './store/editorStore';
@@ -181,6 +182,9 @@ export default function App() {
 
       {/* 新建文档（文件 → 新建 / Ctrl+N）：先选模式 → 再按模式填参数 */}
       <NewDocDialog />
+
+      {/* ★落盘被跳过/被拒时的提示条（大文档 / 内嵌图片超过 localStorage 配额，用户 2026-09-24） */}
+      <PersistOverflowNotice />
     </div>
   );
 }
