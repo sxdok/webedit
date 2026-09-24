@@ -138,6 +138,11 @@ html[data-theme='monokai'] {
   --mk-danger: #ff6188;
   --mk-warn: #fd971f;
   --mk-ok: #a6e22e;
+  /* ★提示条（浮层）的**不透明**底色：它浮在画布之上，深色下若沿用带透明度的色板
+     （`bg-emerald-50` = lime 12%），压在**A4 白纸**上就会透出白色 → 浅底配浅绿字，对比度掉到 1.5 以下
+     （实测像素：底 #D4EADB / 字 #8BC941）。这两个值 = 12%/14% 色板压在 #272822 上的合成色。 */
+  --mk-notice-ok: #363e23;
+  --mk-notice-warn: #453822;
   /* ★下面这些"具体色值"也做成令牌：画布内容（纸张/设备画布/缩略图）要把整套令牌**还原成浅色**，
      只要有一条规则写死颜色，那道还原就漏一处（见文件后面的「画布内容不跟主题」段）。 */
   --mk-canvasbg: #15160f;
@@ -255,6 +260,12 @@ html[data-theme='monokai'] .text-amber-900 { color: var(--mk-warn); }
 html[data-theme='monokai'] .text-emerald-900 { color: var(--mk-ok); }
 html[data-theme='monokai'] .bg-white\/95 { background-color: var(--mk-surface); }
 html[data-theme='monokai'] .hover\:bg-black\/5:hover { background-color: var(--mk-raised); }
+/* ★提示条是**浮在画布之上**的（可能正压在白纸上），所以底色必须**不透明** ——
+   半透明的 `bg-emerald-50 / bg-amber-50` 在这里会透出纸张的白色（用户 2026-09-24 反馈"放中间"后暴露）。
+   注意：通用暗色审计按 DOM 祖先合成背景，算不到"视觉上压着纸张"这种情况，所以另有一条专项断言盯着它。 */
+html[data-theme='monokai'] [data-notice-panel='1'] { background-color: var(--mk-surface); }
+html[data-theme='monokai'] [data-notice-panel='1'][data-notice-tone='ok'] { background-color: var(--mk-notice-ok); }
+html[data-theme='monokai'] [data-notice-panel='1'][data-notice-tone='warn'] { background-color: var(--mk-notice-warn); }
 /* hover / disabled 变体 */
 html[data-theme='monokai'] .hover\:bg-gray-50:hover,
 html[data-theme='monokai'] .disabled\:bg-gray-50:disabled { background-color: var(--mk-raised); }
@@ -335,6 +346,8 @@ html[data-theme='monokai'] [data-comp-thumb] {
   --mk-tint-emerald-40: rgba(4, 120, 87, 0.08);
   --mk-tint-amber: #fffbeb;
   --mk-tint-amber-40: rgba(180, 83, 9, 0.08);
+  --mk-notice-ok: #ecfdf5;
+  --mk-notice-warn: #fffbeb;
   /* 语义令牌同理（插件若在画布内容里用 .ui-* 类） */
   --ui-bg: #f7f8fa;
   --ui-surface: #ffffff;

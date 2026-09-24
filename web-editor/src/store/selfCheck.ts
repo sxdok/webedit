@@ -34,7 +34,7 @@ import { routeLive } from '../mcp/liveMethods';
 import { autoStartBridgeFromPrefs, bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
 import { PERSIST_BUDGET, PERSIST_KEY, lastPersistOverflow, shouldPersist } from './persistStorage';
 import { importFileIntoEditor, importJsonIntoEditor } from '../utils/importDocument';
-import { notify } from '../components/layout/NoticeBar';
+import { NOTICE_FADE_MS, NOTICE_HOLD_MS, notify } from '../components/layout/NoticeBar';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
 
 interface Result {
@@ -2692,16 +2692,55 @@ async function interactionChecks(): Promise<Result[]> {
 
       // ③ 松手 → 真的读回文档（本工程导出的 HTML 带 data-node-type，能还原组件）
       fire('drop', htmlDt);
-      await wait(800);
+      // 提示条只停留 1 秒就淡出，所以"出现"要轮询抓、"消失"要等够了再看
+      const noticeSnapshot = async (): Promise<{ el: HTMLElement; box: DOMRect; ring: CSSStyleDeclaration } | null> => {
+        const el = document.querySelector('[data-notice-bar="1"]') as HTMLElement | null;
+        if (!el) return null;
+        const panel = (el.firstElementChild ?? el) as HTMLElement;
+        return { el, box: panel.getBoundingClientRect(), ring: getComputedStyle(el) };
+      };
+      let noticeSeen: Awaited<ReturnType<typeof noticeSnapshot>> = null;
+      for (let i = 0; i < 24 && !noticeSeen; i += 1) {
+        await wait(60);
+        const snap = await noticeSnapshot();
+        if (snap && (snap.el.textContent ?? '').includes('已载入 HTML')) noticeSeen = snap;
+      }
       const types = S().doc.document.components.map((c) => c.type);
-      const notice = document.querySelector('[data-notice-bar="1"]') as HTMLElement | null;
       add(
         '把「导出的 HTML」拖回来 → **直接读回成组件**（标题/正文都在），且提示层收起、结果有提示',
-        types.includes('heading') && types.includes('paragraph') && !document.querySelector('[data-drop-import="1"]') && (notice?.textContent ?? '').includes('已载入 HTML'),
-        `载入后组件=${types.join('+') || '无'}；标题=「${S().doc.title}」；提示条=${(notice?.textContent ?? '').replace(/\s+/g, ' ').slice(0, 48)}`,
+        types.includes('heading') &&
+          types.includes('paragraph') &&
+          !document.querySelector('[data-drop-import="1"]') &&
+          !!noticeSeen,
+        `载入后组件=${types.join('+') || '无'}；标题=「${S().doc.title}」；提示条=${(noticeSeen?.el.textContent ?? '未出现').replace(/\s+/g, ' ').slice(0, 48)}`,
       );
 
-      // ④ 拖不认识的文件 / 打开不是编辑器文档的 JSON：**说清问题**，且不动正在编辑的文档
+      /* ④ 提示条本身的姿态（用户 2026-09-24）：**在视口正中**、**鼠标穿透**（不影响文档编辑）、**停留 1 秒后淡出消失** */
+      if (noticeSeen) {
+        const { box, ring } = noticeSeen;
+        const panelStyle = getComputedStyle(noticeSeen.el.firstElementChild as HTMLElement);
+        const cx = box.left + box.width / 2;
+        const cy = box.top + box.height / 2;
+        // ★先取成字符串：`CSSStyleDeclaration` 是**活对象**，提示条一卸载就读不出值（note 会变成空白，
+        //   看着像没测到）。所以判定与文案都用这里的快照。
+        const peOuter = ring.pointerEvents;
+        const pePanel = panelStyle.pointerEvents;
+        const centered = Math.abs(cx - window.innerWidth / 2) <= 2 && Math.abs(cy - window.innerHeight / 2) <= 2;
+        const transparent = peOuter === 'none' && pePanel === 'auto';
+        await wait(NOTICE_HOLD_MS + NOTICE_FADE_MS + 500);
+        const gone = !document.querySelector('[data-notice-bar="1"]');
+        add(
+          '提示条：落在视口**正中**、**鼠标穿透**（不挡画布编辑，只有面板自己收事件）、停留 1 秒后**自动淡出消失**',
+          centered && transparent && gone,
+          `中心=(${Math.round(cx)},${Math.round(cy)}) vs 视口中心=(${Math.round(window.innerWidth / 2)},${Math.round(window.innerHeight / 2)})；` +
+            `外层 pointer-events=${peOuter}、面板=${pePanel}；` +
+            `约 ${(NOTICE_HOLD_MS + NOTICE_FADE_MS) / 1000} 秒后还在=${!gone}`,
+        );
+      } else {
+        add('提示条：落在视口**正中**、**鼠标穿透**（不挡画布编辑，只有面板自己收事件）、停留 1 秒后**自动淡出消失**', false, '提示条没出现，无法核对姿态');
+      }
+
+      // ⑤ 拖不认识的文件 / 打开不是编辑器文档的 JSON：**说清问题**，且不动正在编辑的文档
       const before = S().doc.document.components.length;
       const unknown = await importFileIntoEditor(new File(['hello'], 'note.txt', { type: 'text/plain' }));
       const badJson = importJsonIntoEditor('{"a":1}', 'x.json');
@@ -4340,6 +4379,40 @@ async function interactionChecks(): Promise<Result[]> {
       `缩略图底色亮度 ${lum(tb).toFixed(2)}（>0.7 才算白底）`,
     );
     S().setCompPreview(false);
+
+    /* ★提示条压在**白纸**上也要看得清（用户 2026-09-24 要求"放中间"后暴露）
+       通用暗色审计按 DOM 祖先合成背景，算不到"浮层视觉上压着纸张"这种情况：
+       提示条挂在 App 根下，祖先一路都是深色外壳 → 审计看着"干净"，可实际它正压在白纸上，
+       半透明色板（lime 12%）透出白色 → 实测底 #D4EADB / 字 #8BC941，对比度 1.4。
+       所以这里单独盯：底色必须**不透明**，且与文字对比 ≥ 3。 */
+    {
+      const noticeContrast = async (kind: 'ok' | 'warn'): Promise<{ bg: string; fg: string; cr: number; alpha: number }> => {
+        notify({ kind, title: '暗色下的提示条', detail: '这一条用来核对"浮在白纸上"时的对比度。' });
+        await wait(240);
+        const panel = document.querySelector('[data-notice-panel="1"]') as HTMLElement | null;
+        if (!panel) return { bg: '（没出现）', fg: '（没出现）', cr: 0, alpha: 0 };
+        const cs = getComputedStyle(panel);
+        const fgText = getComputedStyle(panel.querySelector('.font-semibold') as HTMLElement).color;
+        // ★同样先取成字符串：面板一卸载，活对象就读不出值（note 会缺一块，看着像没测到）
+        const bgText = cs.backgroundColor;
+        const bg = parseRGB(bgText);
+        const fg = parseRGB(fgText);
+        const l1 = Math.max(lum(bg), lum(fg));
+        const l2 = Math.min(lum(bg), lum(fg));
+        const cr = (l1 + 0.05) / (l2 + 0.05);
+        (document.querySelector('[data-notice-bar-close="1"]') as HTMLElement | null)?.click();
+        await wait(120);
+        return { bg: bgText, fg: fgText, cr, alpha: bg[3] };
+      };
+      const okTone = await noticeContrast('ok');
+      const warnTone = await noticeContrast('warn');
+      add(
+        '暗色主题：提示条压在**白纸**上也清楚（底色**不透明** + 对比度 ≥ 3，不能沿用半透明色板）',
+        okTone.cr >= 3 && warnTone.cr >= 3 && okTone.alpha === 1 && warnTone.alpha === 1,
+        `成功色：${okTone.bg} on ${okTone.fg} 对比=${okTone.cr.toFixed(2)} 不透明度=${okTone.alpha}；` +
+          `提醒色：${warnTone.bg} on ${warnTone.fg} 对比=${warnTone.cr.toFixed(2)} 不透明度=${warnTone.alpha}`,
+      );
+    }
 
     S().setTheme('light');
     await wait(320);
