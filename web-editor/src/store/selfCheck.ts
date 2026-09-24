@@ -1210,6 +1210,51 @@ async function interactionChecks(): Promise<Result[]> {
   S().setPageProp('numbering', { hideFirstPage: false, frontMatterPages: 0, bodyRestart: false, bodyStartPage: 1 });
   await wait(200);
 
+  /* ★改了"视口宽度"之后，两侧标尺都要重新贴合纸张（用户 2026-09-24：浏览器调整尺寸又触发"画布位置偏移"）
+     无头里改不了浏览器窗口，这里用**改左面板宽度**来改视口宽度 —— 走的是同一条重算路径
+     （ResizeObserver + window resize 兜底 + 延迟补算），断言"横向 0 贴纸张左、纵向逐页 0 贴纸张顶"。 */
+  {
+    const geom = (): { 横向差: number; 纵向最大差: number; 图层内缩: number; 纸张相对视口左: number } => {
+      const paper = document.querySelector('[data-paper]');
+      const layer = document.querySelector('[data-pan-layer]') as HTMLElement | null;
+      const vp = document.querySelector('#canvas-viewport');
+      const ticksH = document.querySelector('[data-ruler-ticks="h"]');
+      const zero = [...(ticksH?.querySelectorAll('span') ?? [])].find((s) => (s.textContent ?? '').trim() === '0mm');
+      const boxH = zero?.closest('div[style*="left"]');
+      const ticksV = document.querySelector('[data-ruler-ticks="v"]');
+      const papers = [...document.querySelectorAll('[data-paper]')];
+      const zerosV = [...(ticksV?.querySelectorAll('span') ?? [])]
+        .filter((s) => (s.textContent ?? '').trim() === '0mm')
+        .map((s) => s.closest('div[style*="top"]')?.getBoundingClientRect().top ?? Number.NaN);
+      const deltas = zerosV.map((z, i) => Math.round(z - (papers[i]?.getBoundingClientRect().top ?? Number.NaN)));
+      const pr = paper?.getBoundingClientRect();
+      const vr = vp?.getBoundingClientRect();
+      return {
+        横向差: Math.round((boxH?.getBoundingClientRect().left ?? Number.NaN) - (pr?.left ?? Number.NaN)),
+        纵向最大差: deltas.filter((d) => Number.isFinite(d)).reduce((m, d) => Math.max(m, Math.abs(d)), 0),
+        图层内缩: layer?.offsetLeft ?? -1,
+        纸张相对视口左: Math.round((pr?.left ?? 0) - (vr?.left ?? 0)),
+      };
+    };
+    const before = geom();
+    S().setPanelWidth('left', 430); // 视口变窄 → 居中内缩变小
+    await wait(520);
+    const narrow = geom();
+    S().setPanelWidth('left', 240); // 再改回来
+    await wait(520);
+    const back = geom();
+    add(
+      '改视口宽度后，横向标尺 0 仍贴纸张左边缘、纵向标尺逐页 0 仍贴每页页顶（画布不偏移）',
+      Math.abs(narrow.横向差) <= 2 &&
+        Math.abs(back.横向差) <= 2 &&
+        narrow.纵向最大差 <= 2 &&
+        back.纵向最大差 <= 2 &&
+        narrow.图层内缩 !== before.图层内缩, // 视口真的变了，否则这条断言等于没测
+      `变窄：内缩 ${before.图层内缩}→${narrow.图层内缩}、纸张相对视口左 ${narrow.纸张相对视口左}、横向差 ${narrow.横向差}、纵向最大差 ${narrow.纵向最大差}；` +
+        `改回：内缩 ${back.图层内缩}、横向差 ${back.横向差}、纵向最大差 ${back.纵向最大差}`,
+    );
+  }
+
   /* ── 分页：分页符 / 上下边距计入高度 / 点空白回页面属性 ── */
   S().setMode('document');
   S().clearAll();

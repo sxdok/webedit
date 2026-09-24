@@ -208,6 +208,11 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
     const layerEl = el.parentElement; // [data-pan-layer]：宽度 = 内容宽 × zoom，auto margin 就是内缩量
     const inset = Math.max(0, Math.round(layerEl?.offsetLeft ?? 0));
     insetRef.current = inset;
+    // ★同时**立刻**把横向刻度的 transform 写掉：刻度的位移平时是滚动时直接改 style（不重渲染），
+    //   只靠 setState 会在"改了尺寸但 state 没变"时漏掉一帧（用户 2026-09-24 反馈的"位置偏移"就属这类）。
+    if (hTickRef.current) {
+      hTickRef.current.style.transform = `translateX(${inset - scrollRef.current.x}px)`;
+    }
     setLeadInset((prev) => (prev === inset ? prev : inset));
   }, [isDoc, ref]);
   const spaceRef = useRef(false);
@@ -302,7 +307,25 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
   /**
    * 量出文档模式下**每一页**的区间（未缩放 px，相对内容顶）：纵向标尺据此逐页从 0 读数。
    * 纸张位置只能实测（分页是"先量全部节点、再切片"算出来的，量完还可能再变一次），所以补一帧 + 一次延迟兜底。
+   * ★提成 callback：**窗口改尺寸**时也要重跑（见下面的 resize 监听）——分页/字体度量一变，
+   *   纵向标尺的逐页 0 就会与纸张错位（用户 2026-09-24 反馈的"改尺寸后画布/标尺位置偏移"）。
    */
+  const measureSpans = useCallback((): void => {
+    const el = ref.current;
+    if (!isDoc || !el) return;
+    const base = el.getBoundingClientRect();
+    const z = useEditorStore.getState().zoom || 1;
+    const next = [...el.querySelectorAll('[data-paper]')].map((p) => {
+      const r = p.getBoundingClientRect();
+      return { start: Math.round((r.top - base.top) / z), length: Math.round(r.height / z) };
+    });
+    setPageSpans((prev) =>
+      prev.length === next.length && prev.every((s, i) => s.start === next[i].start && s.length === next[i].length)
+        ? prev
+        : next,
+    );
+  }, [isDoc, ref]);
+
   useLayoutEffect(() => {
     const el = ref.current;
     if (!isDoc || !el) {
@@ -310,37 +333,64 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
       return;
     }
     measureInsets();
-    const measure = (): void => {
-      const base = el.getBoundingClientRect();
-      const z = useEditorStore.getState().zoom || 1;
-      const next = [...el.querySelectorAll('[data-paper]')].map((p) => {
-        const r = p.getBoundingClientRect();
-        return { start: Math.round((r.top - base.top) / z), length: Math.round(r.height / z) };
-      });
-      setPageSpans((prev) =>
-        prev.length === next.length && prev.every((s, i) => s.start === next[i].start && s.length === next[i].length)
-          ? prev
-          : next,
-      );
-    };
-    measure();
-    const raf = window.requestAnimationFrame(measure);
-    const t = window.setTimeout(measure, 180);
+    measureSpans();
+    const raf = window.requestAnimationFrame(measureSpans);
+    const t = window.setTimeout(measureSpans, 180);
     return () => {
       window.cancelAnimationFrame(raf);
       window.clearTimeout(t);
     };
-  }, [isDoc, ref, zoom, nodes.length, page, activePageId, ui.docPageCount, ui.showRuler, measureInsets]);
+  }, [isDoc, ref, zoom, nodes.length, page, activePageId, ui.docPageCount, ui.showRuler, measureInsets, measureSpans]);
 
-  /** 视口尺寸变了（窗口缩放 / 拖面板分隔线）→ 居中内缩随之变，横向标尺要跟着重算 */
+  /**
+   * 视口尺寸变了 → 重算"居中内缩"（横向标尺的 0）**和逐页区间**（纵向标尺的 0）。
+   *
+   * 三条触发一起挂，缺一个就会出现"某一侧标尺与纸张错位"：
+   *   ① `ResizeObserver` 盯视口本身（拖面板分隔线、窗口改尺寸都会改它的宽）；
+   *   ② `window` 的 `resize` 事件兜底（RO 只报**尺寸**变化，窗口只挪位置/只换栅格时它不响）；
+   *   ③ 尺寸变完再补一次延迟重算 —— 滚动条出现/消失、字体度量落定都会在下一帧才改完布局。
+   */
   useEffect(() => {
     if (!isDoc) return;
     const vp = viewportRef.current;
-    if (!vp) return;
-    const ro = new ResizeObserver(() => measureInsets());
-    ro.observe(vp);
-    return () => ro.disconnect();
-  }, [isDoc, measureInsets]);
+    const remeasure = (): void => {
+      measureInsets();
+      measureSpans();
+    };
+    const ro = vp ? new ResizeObserver(remeasure) : null;
+    if (vp && ro) ro.observe(vp);
+    let t = 0;
+    let raf = 0;
+    const onResize = (): void => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+      raf = window.requestAnimationFrame(remeasure);
+      t = window.setTimeout(remeasure, 200); // 布局/滚动条/字体度量落定后再补一刀
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', onResize);
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+    };
+  }, [isDoc, measureInsets, measureSpans]);
+
+  /** 字体度量落定后也要重算一次（换字体/系统字体首次可用会改变文字高度 → 分页会变） */
+  useEffect(() => {
+    if (!isDoc) return;
+    const fonts = (document as Document & { fonts?: FontFaceSet }).fonts;
+    if (!fonts?.ready) return;
+    let alive = true;
+    void fonts.ready.then(() => {
+      if (!alive) return;
+      measureInsets();
+      measureSpans();
+    });
+    return () => {
+      alive = false;
+    };
+  }, [isDoc, measureInsets, measureSpans]);
 
   /** 适应宽度（只算画布预览的缩放，不动编辑器界面） */
   const fitWidth = () => {
