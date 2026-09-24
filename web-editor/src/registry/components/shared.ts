@@ -28,7 +28,8 @@ const ALIGNS = ['left', 'center', 'right', 'justify'] as const;
 /* ══════════════ 属性片段 ══════════════ */
 
 export function fontFamilyProp(): PropSchemaItem {
-  return { key: 'fontFamily', label: '字体', control: 'font', group: GROUP.typography, defaultValue: '宋体' };
+  // 默认空 = 跟随页面默认字体（页面属性 → 版式 → 默认字体）；下拉清单来自本机可用字体（utils/fonts.ts）
+  return { key: 'fontFamily', label: '字体', control: 'font', group: GROUP.typography, defaultValue: '' };
 }
 
 export function fontSizeProp(defaultValue = 12, max = 72): PropSchemaItem {

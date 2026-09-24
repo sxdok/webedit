@@ -33,6 +33,7 @@ import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
 import { routeLive } from '../mcp/liveMethods';
 import { autoStartBridgeFromPrefs, bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
 import { PERSIST_BUDGET, PERSIST_KEY, lastPersistOverflow, shouldPersist } from './persistStorage';
+import { fontList, systemFontApiAvailable } from '../utils/fonts';
 import { importFileIntoEditor, importJsonIntoEditor } from '../utils/importDocument';
 import { NOTICE_FADE_MS, NOTICE_HOLD_MS, notify } from '../components/layout/NoticeBar';
 import { getLiveTypes, loadRuntimeComponents } from '../registry/live';
@@ -1153,24 +1154,33 @@ async function interactionChecks(): Promise<Result[]> {
   );
 
   /* ── 三段式页码：封面无页码 / 目录罗马数字 / 正文阿拉伯数字（合入自 A4 编辑器）── */
-  const SEC = { hideFirstPage: true, frontMatterPages: 1, bodyStartPage: 1 };
+  /* ★用户 2026-09-24 修：正文页码**默认连续**（页码 = 该页页号，最后一页就是「共 N 页」的 N）；
+     「正文重新从 1 开始」改成显式开关 `bodyRestart`。现场：封面+目录占 2 页的 20 页文档，
+     旧默认（重新计数）最后一页显示第 18 页 —— 与页脚的「共 20 页」对不上。 */
+  const SEC_RESTART = { hideFirstPage: true, frontMatterPages: 1, bodyRestart: true, bodyStartPage: 1 };
+  const SEC = { hideFirstPage: true, frontMatterPages: 1, bodyRestart: false, bodyStartPage: 1 };
   add(
-    '三段式页码计算（封面空 / 目录罗马 / 正文阿拉伯）',
-    pageLabel(1, SEC) === '' &&
-      pageLabel(2, SEC) === 'I' &&
-      pageLabel(3, SEC) === '1' &&
-      pageLabel(4, SEC) === '2' &&
-      pageLabel(1, { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 }) === '1',
-    `封面「${pageLabel(1, SEC)}」/ 第2页「${pageLabel(2, SEC)}」/ 第3页「${pageLabel(3, SEC)}」/ 第4页「${pageLabel(4, SEC)}」`,
+    '三段式页码计算（封面空 / 目录罗马 / 正文阿拉伯，勾「重新从 1 开始」时从 1 计）',
+    pageLabel(1, SEC_RESTART) === '' &&
+      pageLabel(2, SEC_RESTART) === 'I' &&
+      pageLabel(3, SEC_RESTART) === '1' &&
+      pageLabel(4, SEC_RESTART) === '2' &&
+      pageLabel(1, { hideFirstPage: false, frontMatterPages: 0, bodyRestart: false, bodyStartPage: 1 }) === '1',
+    `封面「${pageLabel(1, SEC_RESTART)}」/ 第2页「${pageLabel(2, SEC_RESTART)}」/ 第3页「${pageLabel(3, SEC_RESTART)}」/ 第4页「${pageLabel(4, SEC_RESTART)}」`,
+  );
+  add(
+    '页码连续（默认）：封面+目录占 2 页的 **20 页文档，最后一页就是第 20 页**（与「共 20 页」对得上）',
+    pageLabel(20, SEC) === '20' && pageLabel(3, SEC) === '3' && pageLabel(2, SEC) === 'I' && pageLabel(1, SEC) === '',
+    `默认：封面「${pageLabel(1, SEC)}」/ 第2页「${pageLabel(2, SEC)}」/ 第3页「${pageLabel(3, SEC)}」/ … / 第20页「${pageLabel(20, SEC)}」（重新计数时第20页是「${pageLabel(20, SEC_RESTART)}」）`,
   );
 
-  // 端到端：造多页文档 → 首页页脚整块不渲染、第 2 页 I、第 3 页 1
+  // 端到端：造多页文档 → 首页页脚整块不渲染、第 2 页 I、第 3 页 3（连续）/ 1（重新计数）
   S().clearAll();
   for (let i = 0; i < 12; i++) {
     const pid = S().addComponent('paragraph');
     if (pid) S().updateProps(pid, { html: `三段式页码自检：把内容推到多页的示例文字。`.repeat(12) });
   }
-  S().setPageProp('numbering', SEC);
+  S().setPageProp('numbering', SEC_RESTART);
   await wait(620);
   const papers3 = document.querySelectorAll('[data-paper]');
   const footAt = (i: number) =>
@@ -1183,7 +1193,21 @@ async function interactionChecks(): Promise<Result[]> {
     papers3.length >= 3 && f1 === '' && /第 I 页/.test(f2) && /第 1 页/.test(f3),
     `${papers3.length} 页：首页「${f1}」/ 第2页「${f2}」/ 第3页「${f3}」`,
   );
-  S().setPageProp('numbering', { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 });
+  // 同一份文档、只把「重新从 1 开始」关掉 → 页码变成"跟着页号走"（第 3 页 = 第 3 页）
+  S().setPageProp('numbering', SEC);
+  await wait(520);
+  const papers3b = document.querySelectorAll('[data-paper]');
+  const footAtB = (i: number) =>
+    ((papers3b[i]?.querySelector('.page-foot')?.textContent ?? '') as string).replace(/\s+/g, ' ').trim();
+  const lastIdx = papers3b.length - 1;
+  add(
+    '页码连续（端到端）：同一份文档关掉「重新从 1 开始」→ 第 3 页显示「第 3 页」、**最后一页显示的是「共 N 页」里的 N**',
+    papers3b.length >= 3 &&
+      /第 3 页/.test(footAtB(2)) &&
+      new RegExp(`第 ${papers3b.length} 页 / 共 ${papers3b.length} 页`).test(footAtB(lastIdx)),
+    `${papers3b.length} 页：第3页「${footAtB(2)}」/ 末页「${footAtB(lastIdx)}」`,
+  );
+  S().setPageProp('numbering', { hideFirstPage: false, frontMatterPages: 0, bodyRestart: false, bodyStartPage: 1 });
   await wait(200);
 
   /* ── 分页：分页符 / 上下边距计入高度 / 点空白回页面属性 ── */
@@ -2897,7 +2921,7 @@ async function interactionChecks(): Promise<Result[]> {
 
     /* ── 除通用属性（上/下边距，注册表统一补）外，每个组件都必须有自己的配置属性 ── */
     {
-      const UNIVERSAL = new Set(['marginTop', 'marginBottom']);
+      const UNIVERSAL = new Set(['marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'fontFamily']);
       const audit = getAllComponents()
         .filter((d) => !d.type.startsWith('__')) // 自检探针不算业务组件
         .map((d) => ({ type: d.type, own: d.propSchema.filter((i) => !UNIVERSAL.has(i.key)).length }))
@@ -5060,6 +5084,65 @@ async function interactionChecks(): Promise<Result[]> {
         Math.abs(Number.parseFloat(cs.marginRight) - mmToPx(5)) < 2,
       `面板有 4 项=${['marginTop', 'marginBottom', 'marginLeft', 'marginRight'].every((k) => propKeys.includes(k))}；计算样式 margin-left=${cs?.marginLeft} margin-right=${cs?.marginRight}（期望 ${mmToPx(10).toFixed(1)} / ${mmToPx(5).toFixed(1)}px）`,
     );
+
+    /* ①-b 字体（用户 2026-09-24）：「文档模式显示文字的组件都要支持字体切换，读系统的字体文件使用」 */
+    {
+      // 字体清单：优先系统枚举（queryLocalFonts，要授权），默认走本机探测
+      const fl = fontList();
+      const total = fl.chinese.length + fl.latin.length + fl.mono.length;
+      const api = systemFontApiAvailable();
+      add(
+        '字体清单来自**本机**（Edge/Chrome 可 queryLocalFonts 读系统字体；不支持时按候选表探测已装字体）',
+        fl.chinese.length >= 3 && fl.latin.length >= 3 && total >= 8,
+        `来源=${fl.source === 'system' ? '系统枚举' : '本机探测'}；queryLocalFonts 可用=${api}；中文 ${fl.chinese.length}（${fl.chinese.slice(0, 4).join('/')}…）/ 西文 ${fl.latin.length} / 等宽 ${fl.mono.length} / 合计 ${total}`,
+      );
+
+      // 每个"支持文档模式"的组件都有 fontFamily；Web 专属组件不硬塞
+      const allDefs2 = getAllComponents();
+      const docDefs = allDefs2.filter((d) => d.supportedModes.includes('document'));
+      const noFont = docDefs.filter((d) => !d.propSchema.some((i) => i.key === 'fontFamily'));
+      const webOnlyWithFont = allDefs2.filter((d) => !d.supportedModes.includes('document') && d.propSchema.some((i) => i.key === 'fontFamily'));
+      add(
+        '文档模式**所有**显示文字的组件都能切字体（注册表统一补 fontFamily，Web 专属组件不强加）',
+        docDefs.length > 20 && noFont.length === 0,
+        `文档模式组件 ${docDefs.length} 个，缺 fontFamily 的 ${noFont.length} 个${noFont.length ? `：${noFont.slice(0, 6).map((d) => d.type).join(',')}` : ''}；Web 专属里带字体的 ${webOnlyWithFont.length} 个`,
+      );
+
+      // 选了字体要真的生效：画布上该节点的计算字体 + 面板里能看到这一行 + 导出物带上
+      S().setMode('document');
+      S().clearAll();
+      const fNode = S().addComponent('paragraph');
+      const wantFont = fl.chinese.find((f) => f !== '宋体') ?? fl.chinese[0] ?? '宋体';
+      if (fNode) S().updateProps(fNode, { html: '字体自检段落', fontFamily: wantFont });
+      await wait(520);
+      const fEl = document.querySelector(`[data-node-id="${fNode}"]`) as HTMLElement | null;
+      const computedFont = fEl ? getComputedStyle(fEl).fontFamily : '';
+      const hasRow = [...document.querySelectorAll('[data-prop-key]')].some((el) => el.getAttribute('data-prop-key') === 'fontFamily');
+      const htmlOut = S().exportHTML();
+      add(
+        `切字体真的生效：画布计算字体 = 所选字体、面板有「字体」行、导出的 HTML 也带 font-family`,
+        computedFont.includes(wantFont) && hasRow && htmlOut.includes(wantFont),
+        `选「${wantFont}」→ 计算字体「${computedFont}」；面板有该行=${hasRow}；HTML 含该字体=${htmlOut.includes(wantFont)}`,
+      );
+
+      // .docx 也要带字体（w:rFonts 的 ascii/hAnsi/eastAsia 三处）
+      const dx = buildDocx(S().doc);
+      const dxText = new TextDecoder('utf-8').decode(dx.bytes);
+      const docxHasFont = dxText.includes(`w:eastAsia="${wantFont}"`) || dxText.includes(`w:ascii="${wantFont}"`);
+      add(
+        '导出的 .docx 带上组件字体（`w:rFonts` 的 ascii/hAnsi/eastAsia）',
+        docxHasFont,
+        `docx ${dx.bytes.length} 字节；含「${wantFont}」的 rFonts=${docxHasFont}`,
+      );
+
+      // 字体属性放在「通用属性」抽屉里（所有组件同一个入口，不散落在各组）
+      const drawerText = document.querySelector('[data-drawer-name="通用属性"]')?.textContent ?? '';
+      add(
+        '字体入口在「通用属性」抽屉里（所有组件同一处，不是每个组件各写一遍）',
+        drawerText.includes('字体'),
+        `通用属性抽屉文字：「${drawerText.replace(/\s+/g, ' ').slice(0, 60)}」`,
+      );
+    }
 
     // ② 图片组件：多图（一个组件搞定 2/3/4 张并排）
     S().clearAll();

@@ -145,9 +145,17 @@ const FRONT_MATTER_PAGES: PropSchemaItem = {
   step: 1,
 };
 
+const BODY_RESTART: PropSchemaItem = {
+  key: 'page.numbering.bodyRestart',
+  label: '正文页码重新从 1 开始（默认关 = 连续：页码就是该页的页号，最后一页 = 共 N 页）',
+  control: 'switch',
+  group: '分节页码',
+  defaultValue: false,
+};
+
 const BODY_START_PAGE: PropSchemaItem = {
   key: 'page.numbering.bodyStartPage',
-  label: '正文起始页（正文第一页显示成第几页；{page} 会换成这里算出的页码）',
+  label: '正文起始页（只在打开「重新从 1 开始」时生效：正文第一页显示成第几页）',
   control: 'number',
   group: '分节页码',
   defaultValue: 1,
@@ -424,7 +432,7 @@ export function PagePropertyPanel() {
             保留组件里的分页符）——所以这里不再放"插入分页符"入口，左侧组件面板里拖/点即可。 */}
         {group(
           '分节页码',
-          3,
+          4,
           <>
             <PropertyControl
               item={HIDE_FIRST_PAGE}
@@ -435,6 +443,11 @@ export function PagePropertyPanel() {
               item={FRONT_MATTER_PAGES}
               value={numbering.frontMatterPages}
               onChange={(v) => setNumbering({ frontMatterPages: Number(v) })}
+            />
+            <PropertyControl
+              item={BODY_RESTART}
+              value={numbering.bodyRestart === true}
+              onChange={(v) => setNumbering({ bodyRestart: v === true })}
             />
             <PropertyControl
               item={BODY_START_PAGE}

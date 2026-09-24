@@ -15,14 +15,24 @@ const registry = new Map<string, ComponentDefinition>();
  * 原来只有上下边距，现在补上左右），并去掉各组件原本的四边 `margin`（避免重复）。
  * 由 NodeView 在文档模式下统一应用（见 NodeView.tsx），组件自身不需要改渲染代码；
  * Web 模式用 frame 定位，四边距不参与布局（和上下边距一致）。
+ *
+ * ★字体（用户 2026-09-24）：「文档模式显示文字的组件都要支持字体切换」——
+ *   凡是支持文档模式的组件都统一补一个 `fontFamily`（组件自己声明过的就用自己的），
+ *   默认**空串 = 跟随页面默认字体**（页面属性 → 版式 → 默认字体），
+ *   同样由 NodeView 在文档模式下应用（CSS 继承，组件内部不用改代码）。
  */
 function normalizeSchema(def: ComponentDefinition): ComponentDefinition {
   const schema = def.propSchema ?? [];
   const has = (k: string) => schema.some((i) => i.key === k);
   let next = schema.filter((i) => i.key !== 'margin');
+  const universalFont: typeof next =
+    !has('fontFamily') && def.supportedModes.includes('document')
+      ? [{ key: 'fontFamily', label: '字体', control: 'font', group: '通用属性', defaultValue: '' }]
+      : [];
   if (!has('marginTop')) {
     next = [
       ...next,
+      ...universalFont,
       { key: 'marginTop', label: '上边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
       { key: 'marginBottom', label: '下边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
       { key: 'marginLeft', label: '左边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
@@ -32,9 +42,12 @@ function normalizeSchema(def: ComponentDefinition): ComponentDefinition {
     // 组件自己声明了上下边距（如 heading/divider）：按同样口径补左右
     next = [
       ...next,
+      ...universalFont,
       { key: 'marginLeft', label: '左边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
       { key: 'marginRight', label: '右边距(mm)', control: 'unit', group: '尺寸', defaultValue: 0, unit: 'mm', min: 0, max: 100 },
     ];
+  } else {
+    next = [...next, ...universalFont];
   }
   const defaultProps = { marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0, ...def.defaultProps };
   return { ...def, propSchema: next, defaultProps };

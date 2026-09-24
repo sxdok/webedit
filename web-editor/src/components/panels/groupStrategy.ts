@@ -46,13 +46,16 @@ export const PAGE_GROUP_HINTS: Record<string, string> = {
   纸张: '纸张尺寸与方向，宽高单位 mm；A4 为默认。',
   页边距: '版心四边留白，按 上 / 右 / 下 / 左 的顺序，单位 mm。',
   版式: '纸张底色、默认字体字号与正文行距。',
-  分节页码: '三段式页码：封面不显示 → 目录用罗马数字 → 正文从指定页号起用阿拉伯数字。',
+  分节页码: '三段式页码：封面不显示 → 目录用罗马数字 → 正文用阿拉伯数字（默认**连续**，页码 = 该页页号，最后一页就是「共 N 页」的 N；想让正文重新从 1 开始再打开那个开关）。',
   页眉: '页眉区域：左/中/右三段文字 + 距页顶、字号、颜色、分隔线。',
   页脚: '页脚区域：左/中/右三段文字 + 距页底、字号、颜色、分隔线。',
 };
 
-/** 通用属性（注册表统一补的**四边边距**）不参与专有属性分组，单独渲染在「通用属性」抽屉 */
-export const UNIVERSAL_KEYS = new Set(['marginTop', 'marginBottom', 'marginLeft', 'marginRight']);
+/**
+ * 通用属性（注册表统一补的**四边边距**与**字体**）不参与专有属性分组，单独渲染在「通用属性」抽屉。
+ * ★字体（2026-09-24）：文档模式下"会显示文字"的组件统一支持切换字体，默认空 = 跟随页面默认字体。
+ */
+export const UNIVERSAL_KEYS = new Set(['fontFamily', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight']);
 
 export const CATEGORY_STRATEGY: Record<string, CategoryStrategy> = {
   'Word 常用': {

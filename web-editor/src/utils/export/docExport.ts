@@ -20,6 +20,7 @@ import {
 } from '../../registry/types';
 import { mmToPx, ptToPx } from '../units';
 import { asNumber, asString } from '../id';
+import { fontStack } from '../fonts';
 
 /** 组件内用到的 Tailwind 工具类 → 等价 CSS（导出物自包含，不依赖 Tailwind） */
 const UTIL: Record<string, string> = {
@@ -65,6 +66,8 @@ function renderNode(n: ComponentNode, ctx: RenderContext, mode: EditorMode): Rea
   const mb = asNumber(n.props.marginBottom, 0);
   const ml = asNumber(n.props.marginLeft, 0);
   const mr = asNumber(n.props.marginRight, 0);
+  // ★组件自己选了字体就带上（文档模式所有组件都有这个属性）；空 = 跟随页面默认字体（外层已设）
+  const fontFamily = asString(n.props.fontFamily, '');
   const style: React.CSSProperties =
     mode === 'document'
       ? {
@@ -73,6 +76,7 @@ function renderNode(n: ComponentNode, ctx: RenderContext, mode: EditorMode): Rea
           // 左右边距（2026-09-23 新增）：与画布一致，导出物也按 mm 生效
           marginLeft: ml ? mmToPx(ml) : undefined,
           marginRight: mr ? mmToPx(mr) : undefined,
+          fontFamily: fontFamily ? fontStack(fontFamily) : undefined,
         }
       : n.frame
         ? {

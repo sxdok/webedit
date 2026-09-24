@@ -74,18 +74,28 @@ export interface DocumentPageConfig {
 /* ══════════════ 三段式页码 ══════════════ */
 
 export interface PageNumberingConfig {
-  /** 首页（封面）不显示页码 */
+  /** 首页（封面）不显示页码（**只影响这一页显不显示**，不改别的页的页码） */
   hideFirstPage: boolean;
   /** 封面之后、按罗马数字编号的页数（目录节） */
   frontMatterPages: number;
-  /** 正文节从第几页开始计数 */
+  /**
+   * 正文页码是否**重新计数**（用户 2026-09-24 加的开关）。
+   *
+   *   · 关（默认）= **连续**：页码就是该页的物理页号，所以 20 页的文档最后一页正好是
+   *     「第 20 页 / 共 20 页」，与 `{total}` 对得上。
+   *     （用户反馈的正是这里：以前默认从 `bodyStartPage` 起重新计数，而封面+目录占掉 2 页，
+   *      于是 20 页的文档最后一页显示成第 18 页。）
+   *   · 开：正文第一页显示成 `bodyStartPage`（想"正文从 1 开始"就打开它）。
+   */
+  bodyRestart: boolean;
+  /** `bodyRestart` 打开时，正文第一页显示成第几页 */
   bodyStartPage: number;
 }
 
-/** 读取页码分节配置（兼容旧文档：老数据没有这个字段） */
+/** 读取页码分节配置（兼容旧文档：老数据没有这些字段） */
 export function pageNumbering(page: DocumentPageConfig): PageNumberingConfig {
   const raw = (page as unknown as Record<string, unknown>).numbering as Partial<PageNumberingConfig> | undefined;
-  return { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1, ...(raw ?? {}) };
+  return { hideFirstPage: false, frontMatterPages: 0, bodyRestart: false, bodyStartPage: 1, ...(raw ?? {}) };
 }
 
 const ROMAN_TABLE: [number, string][] = [
@@ -119,10 +129,12 @@ export function toRoman(n: number): string {
 
 /**
  * 物理第 index 页（1 基）应显示的页码文字。返回空串表示该页不显示页码。
- * 规则（与 Word 的分节编号一致）：
- *   ① hideFirstPage 时第 1 页（封面）不显示；
- *   ② 封面之后 frontMatterPages 页用罗马数字（I、II…）；
- *   ③ 其余为正文，从 bodyStartPage 开始按阿拉伯数字连续编号。
+ *
+ * 结构（与 Word 的分节编号一致，且**页码与总页数对得上**）：
+ *   ① `hideFirstPage` 时第 1 页（封面）不显示 —— 只是"这一页不印号码"；
+ *   ② 封面之后 `frontMatterPages` 页（目录节）用罗马数字 I、II…；
+ *   ③ 其余为正文：**默认连续**（页码 = 物理页号，所以 20 页文档最后一页就是 20）；
+ *      勾了「正文页码重新从 1 开始」才从 `bodyStartPage` 起重新计数。
  */
 export function pageLabel(index: number, cfg: PageNumberingConfig): string {
   const front = Math.max(0, Math.floor(cfg.frontMatterPages || 0));
@@ -130,7 +142,8 @@ export function pageLabel(index: number, cfg: PageNumberingConfig): string {
   if (cfg.hideFirstPage && index <= 1) return '';
   const bodyStartIndex = 1 + coverOffset + front;
   if (index >= bodyStartIndex) {
-    const start = Math.max(1, Math.floor(cfg.bodyStartPage || 1));
+    // ★连续（默认）= 页码跟着物理页号走；重新计数才用 bodyStartPage 当起点
+    const start = cfg.bodyRestart ? Math.max(1, Math.floor(cfg.bodyStartPage || 1)) : bodyStartIndex;
     return String(index - bodyStartIndex + start);
   }
   return toRoman(index - coverOffset);
@@ -401,7 +414,7 @@ export function createDefaultPageConfig(): DocumentPageConfig {
       showBorder: true,
       offset: 12.7,
     },
-    numbering: { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 },
+    numbering: { hideFirstPage: false, frontMatterPages: 0, bodyRestart: false, bodyStartPage: 1 },
   };
 }
 

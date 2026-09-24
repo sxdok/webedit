@@ -260,7 +260,9 @@ function tableXml(node: ComponentNode, font: string): string {
 const LIST_TYPES = new Set(['bullets', 'checkList']);
 const ORDERED_TYPES = new Set(['list']);
 
-function blocksOf(node: ComponentNode, font: string, out: string[], warn: string[]): void {
+function blocksOf(node: ComponentNode, pageFont: string, out: string[], warn: string[]): void {
+  // ★组件自己选了字体就优先（文档模式下所有组件都有「字体」属性，空 = 跟随页面默认字体）
+  const font = asString(node.props.fontFamily) || pageFont;
   const text = textOf(node);
   switch (node.type) {
     case 'heading':

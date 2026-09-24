@@ -20,7 +20,8 @@ import {
 import { getComponent } from '../../registry';
 import type { ComponentDefinition } from '../../registry/types';
 import { useEditorStore } from '../../store/editorStore';
-import { asNumber } from '../../utils/id';
+import { asNumber, asString } from '../../utils/id';
+import { fontStack } from '../../utils/fonts';
 import { log } from '../../utils/logger';
 import type { ComponentNode, EditorMode, RenderContext } from '../../registry/types';
 
@@ -133,6 +134,14 @@ function NodeViewInner({
         }
       : {};
 
+  /**
+   * ★字体（用户 2026-09-24）：文档模式下所有"会显示文字"的组件都能切字体（注册表统一补的属性）。
+   * 写在这一层包装节点上 → 组件内部的文字**靠 CSS 继承**跟着变，组件自己不用改渲染代码；
+   * 空值 = 跟随页面默认字体（纸张那层已经设了 `page.defaultFont`）。
+   */
+  const fontFamily = asString(node.props.fontFamily, '');
+  const fontStyle: React.CSSProperties = mode === 'document' && fontFamily ? { fontFamily: fontStack(fontFamily) } : {};
+
   const webChild = mode === 'web' && node.frame;
   const style: React.CSSProperties = webChild
     ? {
@@ -219,7 +228,7 @@ function NodeViewInner({
     <div
       {...extra}
       className={`${chrome} ${webChild ? '' : 'relative'}`}
-      style={{ ...style, ...spacing }}
+      style={{ ...style, ...spacing, ...fontStyle }}
       onMouseEnter={measure ? undefined : () => onHover(node.id)}
       onMouseLeave={measure ? undefined : () => onHover(null)}
       onPointerDown={

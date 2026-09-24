@@ -68,7 +68,7 @@ export function defaultPage(size = 'A4'): Record<string, unknown> {
     showFooter: true,
     header: { left: '', center: '', right: '', fontSize: 10.5, color: '#5b6472', showBorder: true, offset: 12.7 },
     footer: { left: '', center: '第 {page} 页 / 共 {total} 页', right: '', fontSize: 10.5, color: '#5b6472', showBorder: true, offset: 12.7 },
-    numbering: { hideFirstPage: false, frontMatterPages: 0, bodyStartPage: 1 },
+    numbering: { hideFirstPage: false, frontMatterPages: 0, bodyRestart: false, bodyStartPage: 1 },
   };
 }
 
