@@ -184,9 +184,25 @@ export function runSelfCheck(): void {
   S().importJSON(json);
   ok('导出 JSON 再导入完全还原', JSON.stringify(S().doc) === before, `${json.length} 字节`);
 
-  /* ⑨ 持久化（验收 5） */
-  const persisted = !!localStorage.getItem('visual-editor-v1');
-  ok('localStorage 持久化已写入', persisted, persisted ? 'visual-editor-v1' : '未写入');
+  /* ⑨ 持久化（验收 5）——★用户 2026-09-24：**默认不保存"做的文件"**，刷新就是全新文档；
+        只有「首选项 → 保存 → 保存到浏览器」打开时才把正文写进 localStorage。 */
+  {
+    const raw = localStorage.getItem(PERSIST_KEY) ?? '';
+    let shape: { state?: Record<string, unknown> } = {};
+    try {
+      shape = JSON.parse(raw) as { state?: Record<string, unknown> };
+    } catch {
+      /* 解析不了就当空 */
+    }
+    const st = shape.state ?? {};
+    const hasDoc = st.doc != null;
+    const hasUi = st.ui != null;
+    ok(
+      '默认**不保存做的文件**：localStorage 里只有"设置"，没有正文（刷新 → 全新文档）',
+      !hasDoc && hasUi && st.pages == null,
+      `键 ${PERSIST_KEY} 存在=${!!raw}（${raw.length} 字节）；含 doc=${hasDoc}、含 pages=${st.pages != null}、含 ui=${hasUi}；ui.autoSave=${String((st.ui as { autoSave?: unknown } | undefined)?.autoSave)}`,
+    );
+  }
 
   /* ⑩ 未注册组件兜底（验收 10） */
   ok('未注册组件返回 undefined（面板/画布有兜底）', getComponent('__not_registered__') === undefined);
@@ -2610,8 +2626,11 @@ async function interactionChecks(): Promise<Result[]> {
     }
 
     /* ── ★大文档不能把编辑器写崩（用户 2026-09-24：7.2MB 文档 = 5 张内嵌 base64 图 → localStorage 配额 → 渲染出错）
-       现场调用链：文件 →「打开 JSON」= `importJSON()` → store 更新 → persist 落盘 → QuotaExceededError 冒到渲染路径。 ── */
+       现场调用链：文件 →「打开 JSON」= `importJSON()` → store 更新 → persist 落盘 → QuotaExceededError 冒到渲染路径。
+       ★前提：这条链只在「保存到浏览器」打开时才存在（默认关 = 正文根本不落盘），所以这里先显式打开开关再测。 ── */
     {
+      S().toggleUI('autoSave');
+      await wait(120);
       const big = `data:image/png;base64,${'A'.repeat(1024 * 1024)}`; // 每张 ~1MB，凑出和现场同形的"内嵌图片大文档"
       S().setMode('document');
       S().clearAll();
@@ -2642,10 +2661,124 @@ async function interactionChecks(): Promise<Result[]> {
         budget && (lastPersistOverflow()?.bytes ?? 0) > PERSIST_BUDGET,
         `2MB→${shouldPersist(2 * 1024 * 1024)}；8MB→${shouldPersist(8 * 1024 * 1024)}；最近一次被拦=${((lastPersistOverflow()?.bytes ?? 0) / 1024 / 1024).toFixed(1)}MB（${lastPersistOverflow()?.kind ?? '—'}）`,
       );
-      // 还原现场：关提示条 + 清空造出来的大文档（否则后面每个断言都在写 10MB 的 payload）
+      // 还原现场：关提示条 + 清空造出来的大文档 + **把「保存到浏览器」关回默认**（否则后面每个断言都在写 10MB 的 payload）
       (document.querySelector('[data-persist-overflow-close="1"]') as HTMLElement | null)?.click();
       S().clearAll();
-      await wait(320);
+      S().toggleUI('autoSave');
+      await wait(420);
+    }
+
+    /* ── ★「保存到浏览器」开关的端到端行为（用户 2026-09-24：浏览器不要默认保存做的文件，刷新就是全新文档）
+       用 `useEditorStore.persist.rehydrate()` 模拟"刷新"：它做的正是刷新时那件事 —— 从 localStorage 读 + 走 merge。 ── */
+    {
+      /** 直接读存档（zustand persist 的形状是 `{state, version}`），只关心"有没有正文" */
+      const archived = (): Record<string, unknown> => {
+        try {
+          return (JSON.parse(localStorage.getItem(PERSIST_KEY) ?? '{}') as { state?: Record<string, unknown> }).state ?? {};
+        } catch {
+          return {};
+        }
+      };
+      /** 写一份**合成存档**：正文里带可辨认的标题与文字 —— 用来确定性地测"读"这一侧（不受落盘时机影响） */
+      const writeArchive = (title: string, autoSave: boolean): void => {
+        const doc = {
+          ...S().doc,
+          title,
+          document: {
+            ...S().doc.document,
+            components: [{ id: 'archived_node', type: 'paragraph', props: { html: '存档里的正文' }, children: [] }],
+          },
+        };
+        localStorage.setItem(PERSIST_KEY, JSON.stringify({ state: { doc, ui: { ...S().ui, autoSave } }, version: 1 }));
+      };
+
+      // ① 写：默认关 —— 改了文档也不落盘（存档里只有设置）
+      S().setMode('document');
+      S().clearAll();
+      const h1 = S().addComponent('heading');
+      if (h1) S().updateProps(h1, { text: '这条不该被浏览器记住' });
+      await wait(480);
+      const offState = archived();
+      add(
+        '「保存到浏览器」**默认关**：改文档也不落盘（localStorage 里只有"设置"，没有正文）',
+        offState.doc == null && offState.ui != null,
+        `存档字段=${Object.keys(offState).join('/') || '（空）'}；含 doc=${offState.doc != null}`,
+      );
+
+      // ② 读：存档里有正文、但开关是**关**的（老存档连 autoSave 字段都没有）→ 一律不恢复
+      //    先把内存复位成"全新文档"—— 刷新时 `merge(persisted, current)` 里的 current 正是初始状态，
+      //    不这么做就变成"拿当前编辑中的文档去覆盖"，测不出真实刷新行为。
+      S().clearAll();
+      await wait(200);
+      writeArchive('存档里的文档（关）', false);
+      await useEditorStore.persist.rehydrate();
+      await wait(200);
+      const offReload = {
+        title: S().doc.title,
+        nodes: S().doc.document.components.length,
+        hasOldText: S().exportJSON().includes('存档里的正文'),
+      };
+      add(
+        '关着时刷新（rehydrate 走的就是刷新那条路）：**存档里有正文也不认** → 打开的是全新文档',
+        offReload.title !== '存档里的文档（关）' && offReload.nodes === 0 && !offReload.hasOldText,
+        `刷新后标题=「${offReload.title}」节点=${offReload.nodes}；旧正文残留=${offReload.hasOldText}`,
+      );
+
+      // ③ 读：开关打开 → 同一份存档就被认了（正文接着编）
+      S().clearAll();
+      await wait(200);
+      writeArchive('存档里的文档（开）', true);
+      await useEditorStore.persist.rehydrate();
+      await wait(200);
+      const onReload = {
+        title: S().doc.title,
+        nodes: S().doc.document.components.length,
+        hasText: S().exportJSON().includes('存档里的正文'),
+      };
+      add(
+        '「保存到浏览器」打开：刷新后**接着编上次那份**（同一份存档，开关一开就被认）',
+        onReload.title === '存档里的文档（开）' && onReload.nodes >= 1 && onReload.hasText,
+        `刷新后标题=「${onReload.title}」节点=${onReload.nodes}；正文读回=${onReload.hasText}`,
+      );
+
+      // ④ 写：开关打开 → 改动真的写进存档
+      const h2 = S().addComponent('heading');
+      if (h2) S().updateProps(h2, { text: '这份要留住' });
+      await wait(520);
+      const onState = archived();
+      add(
+        '「保存到浏览器」打开：正文**写进 localStorage**（存档里有 doc + pages）',
+        onState.doc != null && onState.pages != null,
+        `存档字段=${Object.keys(onState).join('/')}；doc 标题=「${(onState.doc as { title?: string } | undefined)?.title ?? '—'}」`,
+      );
+
+      // ⑤ 关掉开关：已存的正文**立刻清掉**（只留设置）—— 读这一侧的行为已由 ② 证明（关着时一律不认正文）
+      S().toggleUI('autoSave');
+      await wait(480);
+      const offAgain = archived();
+      add(
+        '关掉「保存到浏览器」：已存正文**立刻清掉**（存档只剩设置），配合 ② 即"再刷新仍是全新文档"',
+        offAgain.doc == null && offAgain.ui != null,
+        `关掉后存档字段=${Object.keys(offAgain).join('/')}；含 doc=${offAgain.doc != null}`,
+      );
+
+      // ⑥ 首选项里这一项要**看得懂**：默认关、有说明文字、只读行说清"存在哪"
+      S().toggleUI('prefsOpen');
+      await wait(360);
+      const saveRow = document.querySelector('[data-pref="autoSave"]') as HTMLElement | null;
+      const saveHint = (saveRow?.querySelector('[data-pref-hint="1"]')?.textContent ?? '').trim();
+      const saveInfo = (document.querySelector('[data-save-status="1"]')?.textContent ?? '').trim();
+      const saveDefaultOff = saveRow?.getAttribute('data-pref-value') === '0';
+      S().toggleUI('prefsOpen');
+      await wait(240);
+      add(
+        '首选项 → 保存：开关**默认关**，且写清了"关 = 刷新后是全新文档"与存档位置',
+        saveDefaultOff && saveHint.includes('刷新后是全新文档') && saveInfo.includes(PERSIST_KEY),
+        `开关默认=${saveDefaultOff ? '关' : '开'}；说明=「${saveHint}」；存储行=「${saveInfo}」`,
+      );
+
+      S().clearAll();
+      await wait(240);
     }
 
     /* ── ★"导出的东西要能导回来"两条入口都要真的能用（用户 2026-09-24：导出的 html 没有地方导回打开）
@@ -4022,10 +4155,10 @@ async function interactionChecks(): Promise<Result[]> {
     S().toggleUI('prefsOpen');
     await wait(320);
     const prefKeys = [...document.querySelectorAll('[data-pref]')].map((el) => el.getAttribute('data-pref'));
-    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'autoBridge', 'theme', 'panelWidths'];
+    const wantPrefs = ['compPreview', 'showTree', 'reloadLive', 'showGrid', 'showRuler', 'showGuides', 'snap', 'preview', 'autoNumber', 'autoSave', 'autoBridge', 'theme', 'panelWidths'];
     const missingPrefs = wantPrefs.filter((k) => !prefKeys.includes(k));
     add(
-      '首选项（视图 → 首选项…）：编辑器各项设置集中在一个弹窗里（组件箱/画布/文档/外观/面板）',
+      '首选项（视图 → 首选项…）：编辑器各项设置集中在一个弹窗里（组件箱/画布/文档/保存/外观/面板）',
       missingPrefs.length === 0 &&
         !!document.querySelector('[data-pref="compPreview"] [data-switch]') &&
         !!document.querySelector('[data-pref-select="theme"]') &&

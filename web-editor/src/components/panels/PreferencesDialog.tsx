@@ -9,6 +9,7 @@
 import { useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useEditorStore, type UIState } from '../../store/editorStore';
+import { PERSIST_KEY } from '../../store/persistStorage';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { useBridgeSummary } from '../../mcp/bridgeClient';
 import { Modal } from '../ui/Modal';
@@ -46,7 +47,7 @@ function PrefSwitch({
     <div className="flex items-center gap-2 py-1" data-pref={prefKey} data-pref-value={value ? '1' : '0'}>
       <span className="min-w-0 flex-1 text-[12.5px] text-gray-700">
         {label}
-        {hint && <span className="ml-1.5 text-2xs text-gray-400">{hint}</span>}
+        {hint && <span className="ml-1.5 text-2xs text-gray-400" data-pref-hint="1">{hint}</span>}
       </span>
       <SwitchControl item={FAKE_ITEM} value={value} onChange={(v) => onChange(v === true)} />
     </div>
@@ -93,7 +94,7 @@ function PrefSelect<T extends string>({
 /** 默认值（与 store 里的 initialUI 一致；「恢复默认设置」按这份还原） */
 const DEFAULTS: Pick<
   UIState,
-  'showGrid' | 'showRuler' | 'showGuides' | 'snap' | 'preview' | 'showTree' | 'compPreview' | 'autoNumber' | 'autoBridge' | 'theme' | 'leftWidth' | 'rightWidth'
+  'showGrid' | 'showRuler' | 'showGuides' | 'snap' | 'preview' | 'showTree' | 'compPreview' | 'autoNumber' | 'autoBridge' | 'autoSave' | 'theme' | 'leftWidth' | 'rightWidth'
 > = {
   showGrid: false,
   showRuler: true,
@@ -104,6 +105,7 @@ const DEFAULTS: Pick<
   compPreview: false,
   autoNumber: false,
   autoBridge: false,
+  autoSave: false,
   theme: 'light',
   leftWidth: 240,
   rightWidth: 300,
@@ -123,6 +125,15 @@ export function PreferencesDialog() {
   const bridge = useBridgeSummary();
 
   const close = useMemo(() => () => toggleUI('prefsOpen'), [toggleUI]);
+  /** 当前存档大小（只读展示；随手一读 localStorage，不订阅任何东西） */
+  const savedSize = (() => {
+    try {
+      const raw = window.localStorage.getItem(PERSIST_KEY) ?? '';
+      return raw.length >= 1024 ? `${Math.round(raw.length / 1024)}KB` : `${raw.length} 字节`;
+    } catch {
+      return '读不到';
+    }
+  })();
   const restore = (): void => {
     setState((s) => ({
       ui: { ...s.ui, ...DEFAULTS, propClosed: { groups: {}, drawers: {} } },
@@ -197,6 +208,27 @@ export function PreferencesDialog() {
           value={ui.autoNumber === true}
           onChange={() => toggleUI('autoNumber')}
         />
+      </Section>
+
+      {/* ★保存到浏览器（用户 2026-09-24：「浏览器不要默认保存做的文件，刷新一下就应该打开一个全新的文档」） */}
+      <Section title="保存" hint="做的文件要不要留在浏览器里">
+        <PrefSwitch
+          prefKey="autoSave"
+          label="保存到浏览器"
+          hint="关 = 刷新后是全新文档（默认）；开 = 刷新后接着编上次那份"
+          value={ui.autoSave === true}
+          onChange={() => toggleUI('autoSave')}
+        />
+        {/* 只读信息行：存档落在哪、现在多大、上限多少（都是可核对的实数，不是"大概"） */}
+        <div className="flex items-center gap-2 py-1" data-pref="saveStatus" data-pref-value={ui.autoSave === true ? 'on' : 'off'}>
+          <span className="w-32 shrink-0 text-[12px] text-gray-600">存储位置</span>
+          <span className="min-w-0 flex-1 truncate text-2xs text-gray-400" data-save-status="1">
+            {`localStorage['${PERSIST_KEY}']（约 5MB 上限）· ${
+              ui.autoSave === true ? `已存 ${savedSize}，随编辑自动写入` : '当前只存设置，正文不写入'
+            }`}
+          </span>
+          <span className="flex-none text-2xs text-gray-400">交付请用 文件 → 导出</span>
+        </div>
       </Section>
 
       <Section title="MCP 桥接" hint="把编辑器接到本机的 MCP 服务器（Live 联动）">

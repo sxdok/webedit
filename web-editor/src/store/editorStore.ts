@@ -76,6 +76,16 @@ export interface UIState {
    * 注意：hub **目前没有鉴权**，默认开等于把文档读写暴露给任何能连本机 37650 的进程/网页 —— 所以这个开关交给用户自己决定。
    */
   autoBridge: boolean;
+  /**
+   * **把「做的文件」保存到浏览器本地**（首选项 → 保存；用户 2026-09-24 要求）。
+   *
+   * 默认**关**：刷新页面 = 打开一个全新文档（编辑器只记住"设置"：主题、面板宽度、首选项…）。
+   * 打开后：当前文档与分页写进 `localStorage['visual-editor-v1']`，刷新后接着编上次那份。
+   * 关掉的一刻会把已存的正文一并清掉（只留设置），所以"关"是立即生效的。
+   * ⚠ 浏览器 localStorage 只有约 5MB/源，且内嵌 base64 图片会把它撑爆 —— 见 `store/persistStorage.ts`
+   *   （超过 3.5MB 预算就跳过并弹提示条）。真正的交付还是走 文件 → 导出。
+   */
+  autoSave: boolean;
   /** Markdown 源码视图（B10，视图菜单打开；只读弹窗） */
   showMarkdown: boolean;
   /**
@@ -134,6 +144,7 @@ const initialUI: UIState = {
   compPreview: false,
   prefsOpen: false,
   autoBridge: false,
+  autoSave: false,
   showMarkdown: false,
   autoNumber: false,
   registryVersion: 0,
@@ -883,8 +894,19 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
       version: 1,
       /** ★配额安全存储：大文档（内嵌 base64 图片）写不下时**跳过并提示**，绝不抛进渲染路径（用户 2026-09-24） */
       storage: createJSONStorage(() => safePersistStorage),
-      partialize: (s) =>
-        ({
+      /**
+       * ★写什么进本地存储（用户 2026-09-24 要求：「浏览器不要默认保存做的文件，刷新一下就应该打开一个全新的文档」）
+       *
+       *   · `ui.autoSave` 关（默认）→ **只存设置**（`ui` + `zoom`）：刷新即全新文档，编辑器仍然记住主题/面板宽度/首选项；
+       *   · 开 → 才存 `doc` + `pages` + `activePageId`（正文）。
+       *
+       * 注意：**没有 doc 的存档不需要额外清理逻辑** —— merge 里 `p.doc` 缺失时就沿用 `current.doc`（全新文档），
+       * 所以"关掉开关"的那一次 set 会把旧正文顺势覆盖掉（partialize 的输出就是新 payload）。
+       */
+      partialize: (s) => {
+        const ui = { ...s.ui, showDiagnostics: false, newDocOpen: false };
+        if (s.ui.autoSave !== true) return ({ ui, zoom: s.zoom } as unknown) as EditorStore;
+        return ({
           doc: s.doc,
           zoom: s.zoom,
           // 分页：持久化时把**当前页**的槽位刷新成最新的 doc（否则切页会回退到旧内容）
@@ -895,8 +917,9 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
           pages: s.pages.map((p) => (p.id === s.activePageId ? { ...p, title: s.doc.title, mode: s.doc.mode, doc: EMPTY_PAGE_DOC } : p)),
           activePageId: s.activePageId,
           // 诊断面板属于临时弹层，不持久化（否则刷新后会自动弹出）
-          ui: { ...s.ui, showDiagnostics: false, newDocOpen: false },
-        }) as unknown as EditorStore,
+          ui,
+        } as unknown) as EditorStore;
+      },
       /**
        * ★恢复时**深合并**，而不是默认的顶层浅合并。
        *
@@ -909,7 +932,17 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
        */
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<EditorStore>;
-        const pDoc = p.doc as EditorDocument | undefined;
+        /**
+         * ★默认**不认持久化里的正文**（用户 2026-09-24：刷新就该是全新文档）。
+         *
+         * 只判 `partialize` 写过什么还不够：**老存档**（本功能之前写的、或上一次开关是开的）里带着 doc，
+         * 一读就是"刷新后接着上次编"，与"默认全新文档"矛盾。所以这里以持久化里的 `ui.autoSave` 为准 ——
+         * 没有这个字段（老存档）也当作关。
+         */
+        const autoSave = (p.ui as Partial<UIState> | undefined)?.autoSave === true;
+        const pDoc = autoSave ? (p.doc as EditorDocument | undefined) : undefined;
+        const pPages: EditorPage[] = autoSave && Array.isArray(p.pages) ? (p.pages as EditorPage[]) : [];
+        const pActiveId = autoSave ? p.activePageId : undefined;
         return {
           ...current,
           ...p,
@@ -934,15 +967,14 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
              以持久化的 `doc`（每次改动都会写）为准覆盖它。 */
           pages: (() => {
             const live = (pDoc ? normalizeDoc({ ...current.doc, ...pDoc }) : current.doc) as EditorDocument;
-            const stored = Array.isArray(p.pages) ? (p.pages as EditorPage[]) : [];
-            if (!stored.length) return [{ id: live.id, title: live.title, mode: live.mode, doc: live }];
-            const activeId = typeof p.activePageId === 'string' && p.activePageId ? p.activePageId : stored[0].id;
-            return stored.map((pg) => (pg.id === activeId ? { ...pg, title: live.title, mode: live.mode, doc: live } : pg));
+            if (!pPages.length) return [{ id: live.id, title: live.title, mode: live.mode, doc: live }];
+            const activeId = typeof pActiveId === 'string' && pActiveId ? pActiveId : pPages[0].id;
+            return pPages.map((pg) => (pg.id === activeId ? { ...pg, title: live.title, mode: live.mode, doc: live } : pg));
           })(),
           activePageId:
-            typeof p.activePageId === 'string' && p.activePageId && (p.pages ?? []).some((pg) => pg.id === p.activePageId)
-              ? p.activePageId
-              : ((p.pages ?? [])[0]?.id ?? current.activePageId),
+            typeof pActiveId === 'string' && pActiveId && pPages.some((pg) => pg.id === pActiveId)
+              ? pActiveId
+              : (pPages[0]?.id ?? current.activePageId),
           // ★关键：旧数据缺的新字段一律回落到默认值
           ui: { ...initialUI, ...(p.ui ?? {}), showDiagnostics: false, newDocOpen: false },
           // 撤销栈不持久化（partialize 里也没存）；这里显式清空，避免将来加字段时
