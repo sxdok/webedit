@@ -458,10 +458,90 @@ async function testMcp(dev) {
   ok('全程没碰用户的活文档目录 editor-mcp/workspace', before.n === after.n && before.newest === after.newest, `前 ${before.n} 个文件/最新 ${new Date(before.newest).toISOString()}；后 ${after.n} 个/最新 ${new Date(after.newest).toISOString()}`);
 }
 
+/* ═══════════ G MCP 单文件打包 ═══════════ */
+async function testMcpBundle() {
+  G('G MCP 单文件打包（分发版唯一可靠形态）');
+  const { bundleMcp } = await import('./bundle-mcp.mjs');
+  const { createMcpSupervisor, mcpRequest, parseRpcBody } = await import('../src/mcpSupervisor.js');
+  const { createLogger } = await import('../src/logger.js');
+  const logger = createLogger({ logDir: join(tmp, 'logs') });
+
+  const iso = join(tmp, 'bundle-iso');
+  const outfile = join(iso, 'editor-mcp.bundle.mjs');
+  let built;
+  try {
+    built = await bundleMcp({ outfile, quiet: true });
+  } catch (e) {
+    ok('把 editor-mcp 打成单文件（esbuild bundle）', false, `打包失败：${e instanceof Error ? e.message : String(e)}`);
+    return;
+  }
+  ok('把 editor-mcp 打成单文件（esbuild bundle）', existsSync(outfile) && built.bytes > 500 * 1024, `${(built.bytes / 1024 / 1024).toFixed(1)} MB 单文件（入口是已编译的 editor-mcp/dist/index.js）`);
+
+  // ★真正要证明的是"自包含"：把它单独放进一个**没有 node_modules 的隔离目录**里，用文件重定向收输出
+  const siblings = readdirSync(iso).filter((f) => f !== 'editor-mcp.bundle.mjs');
+  const listProc = await new Promise((resolve) => {
+    const outFile = join(tmp, 'bundle-list.out');
+    const errFile = join(tmp, 'bundle-list.err');
+    const fdOut = openSync(outFile, 'w');
+    const fdErr = openSync(errFile, 'w');
+    const c = spawn(process.execPath, [outfile, '--list'], { cwd: iso, stdio: ['ignore', fdOut, fdErr] });
+    c.on('exit', (code) => {
+      closeSync(fdOut);
+      closeSync(fdErr);
+      resolve({ code, out: readFileSync(outFile, 'utf8'), err: readFileSync(errFile, 'utf8') });
+    });
+    c.on('error', (e) => {
+      closeSync(fdOut);
+      closeSync(fdErr);
+      resolve({ code: -1, out: '', err: e.message });
+    });
+  });
+  let manifest = null;
+  try {
+    manifest = JSON.parse(listProc.out);
+  } catch {
+    manifest = null;
+  }
+  ok('单文件在"旁边没有 node_modules"的隔离目录里能独立跑（不依赖 DSH 的 pnpm store）', listProc.code === 0 && siblings.length === 0 && (manifest?.tools?.length ?? 0) > 100, `隔离目录里只有 ${siblings.length + 1} 个文件；exit=${listProc.code}；--list 报出 tools=${manifest?.tools?.length ?? '解析失败'} resources=${manifest?.resources?.length ?? '?'} prompts=${manifest?.prompts?.length ?? '?'}`);
+
+  // 再用真监管器把它当 MCP 拉起来，走一遍 initialize + tools/list —— 证明"打包后的文件真能对外服务"
+  const freePort = async () => {
+    const s = createHttpServer(() => {});
+    await new Promise((r) => s.listen(0, '127.0.0.1', r));
+    const p = s.address().port;
+    await new Promise((r) => s.close(r));
+    return p;
+  };
+  const sup = createMcpSupervisor({
+    nodeBin: process.execPath,
+    nodeEnv: {},
+    mcpEntry: outfile,
+    mcpRoot: iso,
+    host: '127.0.0.1',
+    port: await freePort(),
+    bridgePort: await freePort(),
+    workspace: join(tmp, 'bundle-workspace'),
+    readyTimeoutMs: 20000,
+    logger,
+  });
+  const st = await sup.start();
+  const init = await mcpRequest(st.url, {
+    timeoutMs: 10000,
+    body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-bundle', version: '0.1.0' } } },
+  });
+  const sid = init.sessionId;
+  await mcpRequest(st.url, { timeoutMs: 8000, sessionId: sid, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
+  const tools = await mcpRequest(st.url, { timeoutMs: 15000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+  const names = (parseRpcBody(tools.body)?.result?.tools ?? []).map((t) => t.name);
+  ok('打包后的单文件作为 MCP 对外服务：就绪 + tools/list 返回真实工具名', st.state === 'ready' && names.length > 100 && names.every((n) => typeof n === 'string' && n.length > 0), `state=${st.state} 工具数=${names.length} 例：${names.slice(0, 3).join(', ')}`);
+  await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
+  await sup.stop();
+}
+
 /* ═══════════ F 静态检查 ═══════════ */
 async function testStatic() {
   G('F 语法与安全基线（静态检查）');
-  const files = ['main.js', 'preload.cjs', 'src/paths.js', 'src/logger.js', 'src/secureConfig.js', 'src/mcpSupervisor.js', 'src/updater.js', 'src/components.js', 'server/webServer.js', 'scripts/embed-key.mjs'];
+  const files = ['main.js', 'preload.cjs', 'src/paths.js', 'src/logger.js', 'src/secureConfig.js', 'src/mcpSupervisor.js', 'src/updater.js', 'src/components.js', 'server/webServer.js', 'scripts/embed-key.mjs', 'scripts/bundle-mcp.mjs'];
   // ★stderr 重定向到**文件**而不是管道：受限沙箱里管道 stdio 会被拒（EPERM）
   const errFile = join(tmp, 'node-check.err');
   const parse = (file) =>
@@ -496,7 +576,8 @@ async function testStatic() {
   ok('preload 只暴露 window.desktop，不把 ipcRenderer 原样透出', /exposeInMainWorld\('desktop'/.test(preload) && !/exposeInMainWorld\([^)]*ipcRenderer/.test(preload), 'contextBridge.exposeInMainWorld("desktop", api)');
   ok('preload 没有暴露 fs / child_process 之类 Node 能力', !/require\(['"](node:)?(fs|child_process|net|http)['"]\)/.test(preload), 'preload 只 require("electron")');
   const pkg = JSON.parse(text('package.json'));
-  ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp')), pkg.build.extraResources.map((r) => r.to).join(', '));
+  ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('web-editor')), pkg.build.extraResources.map((r) => r.to).join(', '));
+  ok('不再把 editor-mcp/node_modules 打进包（它是符号链接拼的，装不进安装包），改为单文件 bundle', !pkg.build.extraResources.some((r) => String(r.to).includes('node_modules')) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle')) && /bundle:mcp/.test(pkg.scripts?.dist ?? ''), `extraResources 有 editor-mcp-bundle=${pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle'))}；dist 脚本先打包=${pkg.scripts?.dist}`);
   ok('加密配置与密钥都在打包清单里（开箱即用）', existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.js')) && existsSync(join(APP_DIR, 'config', 'config.key')), 'config/{app-config.enc, buildKey.js, config.key}');
 }
 
@@ -518,6 +599,7 @@ try {
   }
 }
 await testStatic();
+await testMcpBundle();
 
 for (const c of cleanups) {
   try {

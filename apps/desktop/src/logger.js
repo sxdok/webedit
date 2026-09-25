@@ -11,24 +11,28 @@ import { join } from 'node:path';
 const RING_MAX = 500;
 const LEVELS = ['debug', 'info', 'warn', 'error'];
 
-export function createLogger({ logDir, fileName = 'desktop', ringMax = RING_MAX } = {}) {
+export function createLogger({ logDir, fileName = 'desktop', ringMax = RING_MAX, minLevel = 'debug' } = {}) {
   const ring = [];
   let currentFile = null;
   const listeners = new Set();
+  let minIdx = Math.max(0, LEVELS.indexOf(String(minLevel)));
 
   const day = () => new Date().toISOString().slice(0, 10);
   const fileFor = (d) => join(logDir, `${fileName}-${d}.log`);
 
   function write(level, msg, extra) {
     const line = `${new Date().toISOString()} [${String(level).toUpperCase().padEnd(5)}] ${msg}${extra === undefined ? '' : ` ${safeJson(extra)}`}`;
+    // 环形缓冲**不过滤**：`tail()` 被用来判断"桥接中转是否被占"这类事实，过滤掉 debug（子进程 stderr）会看不出来
     ring.push(line);
     if (ring.length > ringMax) ring.splice(0, ring.length - ringMax);
-    try {
-      mkdirSync(logDir, { recursive: true });
-      currentFile = fileFor(day());
-      appendFileSync(currentFile, line + '\n', 'utf8');
-    } catch {
-      /* 日志写不进去（磁盘满/权限）不能反过来把应用弄崩 */
+    if (LEVELS.indexOf(String(level)) >= minIdx) {
+      try {
+        mkdirSync(logDir, { recursive: true });
+        currentFile = fileFor(day());
+        appendFileSync(currentFile, line + '\n', 'utf8');
+      } catch {
+        /* 日志写不进去（磁盘满/权限）不能反过来把应用弄崩 */
+      }
     }
     for (const fn of listeners) {
       try {
@@ -42,6 +46,14 @@ export function createLogger({ logDir, fileName = 'desktop', ringMax = RING_MAX 
 
   const api = {
     logDir,
+    /** 当前生效的最低落盘级别（配置里的 logging.level；环形缓冲不受它影响） */
+    level: () => LEVELS[minIdx] ?? 'debug',
+    /** 配置载入后按 logging.level 调整落盘级别（日志器在配置之前就得存在，所以只能后调） */
+    setLevel: (lv) => {
+      const i = LEVELS.indexOf(String(lv));
+      if (i >= 0) minIdx = i;
+      return LEVELS[minIdx];
+    },
     file: () => currentFile ?? fileFor(day()),
     lines: () => ring.slice(),
     tail: (n = 100) => ring.slice(-n),

@@ -24,7 +24,9 @@
 | `src/logger.js` | 主进程日志（按天落盘 + 内存环形缓冲） |
 | `config/` | 加密配置、密钥、构建期密钥（见下） |
 | `scripts/embed-key.mjs` | 一键「生成密钥 → 加密配置 → 嵌入密钥 → 验证」 |
-| `scripts/verify-desktop.mjs` | **无界面验证**（65 项，见下） |
+| `scripts/verify-desktop.mjs` | **无界面验证**（69 项，见下） |
+| `scripts/bundle-mcp.mjs` | 把 `editor-mcp` 打成**自包含单文件**（分发版唯一可靠形态，见「打包」一节） |
+| `dist-mcp/` | 上面那个脚本的产物（`editor-mcp.bundle.mjs`，约 2.4MB，已 gitignore） |
 
 ## 加密配置（更新地址等都在里面）
 
@@ -37,6 +39,19 @@ config/buildKey.js               ← 构建期兜底密钥（找不到 config.ke
 
 加密/解密由**独立工具** [`tools/secure-config`](../../tools/secure-config/) 完成，本目录**不复制任何 crypto 代码**，
 只 `import()` 它的 `decryptConfig()`。要单独升级/搬走这个工具，直接动那一个文件即可。
+
+配置项（都在 `app-config.example.json` 里，注释见 `src/secureConfig.js` 的 `DEFAULT_CONFIG`）：
+
+| 键 | 作用 |
+| --- | --- |
+| `server.port` / `server.host` | 内置静态服务器（`0` = 自动挑空闲端口） |
+| `server.openBrowser` | 额外用系统浏览器打开一份（默认 `false`：只用应用窗口） |
+| `mcp.enabled` / `mcp.transport` / `mcp.httpPort` / `mcp.bridgePort` | MCP 是否随应用启动、监听端口、Live 桥接端口 |
+| `mcp.autoRestart` / `mcp.readyTimeoutMs` / `mcp.allowWrite` | 崩溃是否退避重启、就绪等待上限、写开关（透传 `EDITOR_MCP_ALLOW_WRITE`） |
+| `update.*` | 更新接口（见下节） |
+| `logging.level` / `logging.keepDays` | 主进程**落盘**日志的最低级别（环形缓冲不受影响，否则诊断信息会丢） |
+
+取值非法时**不会让应用起不来**：`src/secureConfig.js` 会把问题逐条列出来、按默认值兜底启动，并在窗口出来后弹一次。
 
 ```bash
 # 改更新地址（或端口等）的标准流程
@@ -85,13 +100,19 @@ npm install          # 会下载 Electron（约 200MB）
 npm start            # 跑（读仓库里的 web-editor/dist 与 editor-mcp/dist）
 npm run dev          # 同上（显式开发模式，日志里会标 dev）
 npm run check        # 以 ?check=1 启动：界面右下角跑数据层/渲染层自检
-npm run verify       # 无界面验证（65 项，不需要 Electron）
+npm run verify       # 无界面验证（69 项，不需要 Electron）
 npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 ```
 
+> 网络慢/`spawn EPERM` 的两个坑（本机实测）：
+> ① npm 的 postinstall 要 spawn 子进程，**在受限沙箱里会 EPERM**（`npm error code EPERM / syscall spawn`）——
+> 换普通终端或在放宽的沙箱里跑；另外管道会给"看起来成功"的退出码，**别只看管道的 `$LASTEXITCODE`**。
+> ② Electron 的二进制从 GitHub 下，慢的时候可以走镜像（只是构建期便利，可用环境变量覆盖）：
+> `$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'`。
+
 `npm run build` 相关：桌面版**不构建前端**，它加载 `web-editor/dist`。改了前端要先去 `web-editor` 跑 `npm run build`。
 
-## 验证（`npm run verify`，65 项）
+## 验证（`npm run verify`，69 项）
 
 跑一次就知道"哪一层坏了"，全部只写临时目录：
 
@@ -110,9 +131,13 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
   （MCP 照常就绪、工具表照常返回，只在日志与「查看 MCP 状态」里说明"Live 通道会连到那个旧实例上"）；
   并比对用户的 `editor-mcp/workspace` 前后快照，证明验证过程**没碰活文档**。
 * **F 静态检查**：全部新文件 `node --check`；`contextIsolation/nodeIntegration/sandbox` 三项基线；
-  外链协议白名单；preload 只暴露 `window.desktop`；`extraResources` 齐全。
+  外链协议白名单；preload 只暴露 `window.desktop`；`extraResources` 齐全且**不含**
+  `editor-mcp/node_modules`（那东西装不进安装包，见 G）。
+* **G MCP 单文件打包**：esbuild 把 `editor-mcp` 打成 **2.4 MB 单文件**；把它单独放进一个
+  **没有 node_modules 的隔离目录**里跑 `--list`（exit 0，108 工具 / 23 资源 / 12 提示词），
+  再用真监管器把它当 MCP 拉起来做 `tools/list`（108 个真实工具名）—— 证明打包后的文件**自包含、能对外服务**。
 
-> 受限沙箱里 **E 段会 SKIP**：`mcpSupervisor` 要捕获子进程的管道输出，沙箱禁止创建命名管道（`spawn EPERM`）。
+> 受限沙箱里 **E / G 段会 SKIP**：`mcpSupervisor` 要捕获子进程的管道输出，沙箱禁止创建命名管道（`spawn EPERM`）。
 > 想跑全量就用放宽的文件沙箱执行 `node scripts/verify-desktop.mjs`。
 
 ## 打包（electron-builder）
@@ -120,16 +145,24 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 `package.json` 的 `build` 字段已经写好：
 
 * `files`：只有外壳代码进 `asar`；
-* `extraResources`：`web-editor/dist`、`web-editor/public/组件`、`editor-mcp/dist` + `node_modules`、
+* `extraResources`：`web-editor/dist`、`web-editor/public/组件`、**`dist-mcp/editor-mcp.bundle.mjs`**、
   `tools/secure-config`、`config/app-config.enc` 都放在 **asar 外面**的 `resources/` 下 ——
   子进程要从磁盘跑（asar 里的文件没法 spawn），而且配置文件要能现场替换。
 * `win.target`：`nsis`（可选安装目录）+ `portable`（免安装单文件）。
+* `npm run dist` 会**先跑 `bundle:mcp`** 再打包，避免打进一个旧的单文件。
 
 ```bash
-npm run dist        # 产物在 apps/desktop/release/
+npm run bundle:mcp   # 只打 MCP 单文件 → dist-mcp/editor-mcp.bundle.mjs
+npm run dist         # 产物在 apps/desktop/release/
 ```
+
+**为什么 MCP 必须打单文件**：仓库里的 `editor-mcp/node_modules` 是**符号链接拼的**
+（`chokidar`/`ws`/`zod`/`react`/`react-dom`/`typescript` → `D:\DSHClient\user\server\node_modules\.pnpm\…`），
+拷进安装包要么跟着链接跑到包外、要么拷成空壳，装到别人机器上必然 `ERR_MODULE_NOT_FOUND`。
+打成单文件后 `resources/editor-mcp-bundle/` 里只有一个 `.mjs`，与开发机的 pnpm store 彻底无关。
 
 **尚未做**（后续要跟用户确认的）：
 * 代码签名（没有证书，SmartScreen 会提示"未知发布者"）；
 * 自动安装（`install()` 挂点）；
-* 把 `editor-mcp/node_modules` 用 esbuild 打进单文件（现在整包会大一些，但最稳）。
+* 安装包体积与更新包差量（现在前端 3.3MB + MCP 单文件 2.4MB + Electron 本体）。
+

@@ -101,7 +101,7 @@ async function boot() {
     userDataPath: app.getPath('userData'),
     configDir: argValue('--config-dir'),
   });
-  runtime.log = createLogger({ logDir: runtime.layout.logDir });
+  runtime.log = createLogger({ logDir: runtime.layout.logDir, minLevel: 'debug' });
   const log = runtime.log;
   log.info(`=== 可视化编辑器桌面版启动 v${app.getVersion()}（mode=${runtime.layout.mode}，pid=${process.pid}）===`);
   log.info(`布局：webRoot=${runtime.layout.webRoot} mcpEntry=${runtime.layout.mcpEntry} 日志=${runtime.layout.logDir}`);
@@ -110,6 +110,9 @@ async function boot() {
   // ② 加密配置
   runtime.configResult = await loadAppConfig({ layout: runtime.layout, logger: log });
   runtime.cfg = runtime.configResult.config;
+  // 日志器必须在配置之前就存在（配置可能读失败也要能记日志），所以这里再按 logging.level 调整落盘级别
+  log.setLevel(runtime.cfg.logging.level);
+  log.info(`落盘日志级别：${log.level()}（配置 logging.level；环形缓冲不受影响）`);
   if (runtime.configResult.meta.problems.length) {
     // 配置坏掉不阻塞启动，但要让人知道（无窗口阶段先记日志，窗口出来后弹一次）
     log.error(`配置有 ${runtime.configResult.meta.problems.length} 个问题，已按默认值兜底启动`);
@@ -150,6 +153,11 @@ async function boot() {
 
   // ④ 窗口
   createWindow();
+
+  // 配置里要求"用系统浏览器打开一份"时额外开一份（默认 false：用应用自己的窗口）
+  if (runtime.cfg.server.openBrowser && runtime.web) {
+    void openExternal(runtime.web.url).then((r) => log.info(`按配置 server.openBrowser=true 用系统浏览器打开 ${runtime.web.url}（${r.ok ? '已打开' : `失败：${r.error}`}）`));
+  }
 
   // ⑤ MCP
   if (runtime.cfg.mcp.enabled) {

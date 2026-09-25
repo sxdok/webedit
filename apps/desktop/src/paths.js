@@ -57,7 +57,17 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
   const mcpRoot = isPackaged
     ? pickDir(join(resourcesPath, 'editor-mcp'))
     : pickDir(join(repoRoot, 'editor-mcp'));
-  const mcpEntry = mcpRoot ? join(mcpRoot, 'dist', 'index.js') : null;
+  const mcpDistEntry = mcpRoot ? join(mcpRoot, 'dist', 'index.js') : null;
+  /**
+   * 优先用**单文件打包**出来的 MCP（`scripts/bundle-mcp.mjs`）：
+   * 仓库里的 `editor-mcp/node_modules` 是符号链接拼的（指向 DSH 的 pnpm store），**装不进安装包**；
+   * 单文件 2.4MB、自包含，是分发版唯一可靠形态。没有单文件时才退回 dist 目录（开发者本机）。
+   */
+  const mcpBundle = isPackaged
+    ? pickDir(join(resourcesPath, 'editor-mcp-bundle'))
+    : pickDir(join(APP_DIR, 'dist-mcp'));
+  const mcpBundleEntry = mcpBundle ? join(mcpBundle, 'editor-mcp.bundle.mjs') : null;
+  const mcpEntry = mcpBundleEntry && existsSync(mcpBundleEntry) ? mcpBundleEntry : mcpDistEntry;
 
   // ── 加密配置与密钥：packaged 优先 resources/config（明文文件、可整包替换，不用重新打包）──
   const explicitConfigDir = configDir || env.EDITOR_DESKTOP_CONFIG_DIR || null;
@@ -87,6 +97,8 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
     userComponentsDir: userComponents,
     mcpRoot,
     mcpEntry,
+    /** 单文件 MCP（打包用；不存在时为 null，此时 mcpEntry 指向 dist 目录） */
+    mcpBundleEntry,
     /** MCP 的无头文档目录：分发版用 userData/workspace，绝不写安装目录 */
     mcpWorkspace: isPackaged ? join(dataRoot, 'workspace') : mcpRoot && join(mcpRoot, 'workspace'),
     pluginDir: bundledComponents,

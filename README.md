@@ -5,7 +5,7 @@
 | 目录 | 是什么 |
 |---|---|
 | `web-editor/` | **主产品**：React + TypeScript 可视化编辑器（文档模式 / Web 模式双模，A4 排版 / 导出 HTML·Word·React / 外部热加载组件 / MCP Live 联动） |
-| `editor-mcp/` | **MCP 服务器**：把编辑器接到 MCP 客户端（无头文档读写、组件/插件/资产/导出通道），Live 时通过本机桥接 hub `ws://127.0.0.1:37650/bridge` 与编辑器页面联动 |
+| `editor-mcp/` | **MCP 服务器**：把编辑器接到 MCP 客户端（无头文档读写、组件/插件/资产/导出通道），Live 时通过本机桥接 hub `ws://127.0.0.1:37650/bridge` 与编辑器页面联动。分发版由 `apps/desktop/scripts/bundle-mcp.mjs` 打成**自包含单文件**（108 工具 / 23 资源 / 12 提示词），因为本机这份 `node_modules` 是指向 DSH pnpm store 的符号链接、装不进安装包 |
 | `apps/desktop/` | **桌面分发版**（Electron 外壳）：双击即用 —— 内置静态服务器（`启动编辑器.py` 的 Node 等价物）+ 随应用启动的 MCP（`http://127.0.0.1:37651/mcp`）+ 预留更新接口；配置（含更新地址）用**加密配置文件**保存 |
 | `tools/secure-config/` | **独立的加密配置工具**（零依赖，一个文件）：`keygen` / `encrypt` / `decrypt` / `verify` / `embed-key` / `selftest`。桌面版只 `import()` 它的解密函数，**不复制 crypto 代码** |
 | `.dsh/skills/visual-editor-plugin-dev/` | 本工作区的 Skill：给编辑器新增/修改**组件与插件**的规范与验收清单 |
@@ -52,7 +52,7 @@ npm run dist                # 打 Windows 安装包 + 免安装版（release/）
 | web-editor | `?demo=1` / `?diag=1` / `?prefs=1` / `?spec=1` / `?load=<地址>` / `?theme=monokai` / `?printdebug=1` / `?scroll=N` / `?select=<类型>` | 示例文档 / 诊断面板 / 首选项 / 组件说明清单 / 载入 HTML / 深色主题 / 打印排障 / 滚动定位 / 选中某类组件 |
 | editor-mcp | `npm run smoke`（或 `node scripts/*.mjs`） | 工具面与插件沙箱的冒烟检查（详见 `editor-mcp/README.md`） |
 | tools/secure-config | `node tools/secure-config/secure-config.mjs selftest` | 加密工具自检 **8 项**（往返 / 错密钥 / 篡改密文 / 篡改头部 AAD / 口令模式 / 密钥形状提醒 / 密钥来源优先级 / CLI 三件套） |
-| apps/desktop | `npm run verify` | 桌面分发版无界面验证 **65 项**（布局 / 组件目录落地 / 加密配置 / 更新接口 / 静态服务器 / 真拉起 MCP 并列出工具 / 语法与安全基线；受限沙箱里 E 段会自动 SKIP 并说明原因） |
+| apps/desktop | `npm run verify` | 桌面分发版无界面验证 **69 项**（布局 / 组件目录落地 / 加密配置 / 更新接口 / 静态服务器 / 真拉起 MCP 并列出工具 / **MCP 单文件打包的自包含证明** / 语法与安全基线；受限沙箱里 E·G 段会自动 SKIP 并说明原因） |
 
 
 > ⚠ 无头跑 `?check=1` 要用**真实时间**等它跑完（自检靠一串 `setTimeout` 链 + 异步交互，全程约 2–3 分钟）；

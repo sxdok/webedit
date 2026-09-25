@@ -13,13 +13,14 @@
     "dev": "electron . --dev",
     "check": "electron . --check",
     "verify": "node scripts/verify-desktop.mjs",
+    "bundle:mcp": "node scripts/bundle-mcp.mjs",
     "keygen": "node ../../tools/secure-config/secure-config.mjs keygen --out config/config.key",
     "config:encrypt": "node ../../tools/secure-config/secure-config.mjs encrypt config/app-config.example.json --out config/app-config.enc",
     "config:verify": "node ../../tools/secure-config/secure-config.mjs verify config/app-config.enc",
     "config:decrypt": "node ../../tools/secure-config/secure-config.mjs decrypt config/app-config.enc",
     "embed-key": "node scripts/embed-key.mjs",
-    "dist": "electron-builder --win",
-    "dist:dir": "electron-builder --win --dir"
+    "dist": "npm run bundle:mcp && electron-builder --win",
+    "dist:dir": "npm run bundle:mcp && electron-builder --win --dir"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -52,16 +53,8 @@
         "to": "web-editor/public/组件"
       },
       {
-        "from": "../../editor-mcp/dist",
-        "to": "editor-mcp/dist"
-      },
-      {
-        "from": "../../editor-mcp/node_modules",
-        "to": "editor-mcp/node_modules"
-      },
-      {
-        "from": "../../editor-mcp/package.json",
-        "to": "editor-mcp/package.json"
+        "from": "dist-mcp/editor-mcp.bundle.mjs",
+        "to": "editor-mcp-bundle/editor-mcp.bundle.mjs"
       },
       {
         "from": "../../tools/secure-config",
