@@ -36,7 +36,8 @@ cd E:\可视化编辑器\editor-mcp ; node dist/index.js --stdio
 cd E:\可视化编辑器\apps\desktop
 npm install                 # 首次要下载 Electron（约 200MB）
 npm start                   # 起窗口；MCP 会随应用一起启动
-npm run verify              # 无界面验证（61 项：布局/加密配置/更新接口/静态服务器/真拉起 MCP/静态检查）
+npm run selftest            # 装完自检：真开窗加载页面 + 真连 MCP，写报告后退出（6 项）
+npm run verify              # 无界面验证（69 项：布局/加密配置/更新接口/静态服务器/真拉起 MCP/单文件打包/静态检查）
 npm run dist                # 打 Windows 安装包 + 免安装版（release/）
 ```
 

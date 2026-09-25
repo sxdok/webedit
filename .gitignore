@@ -9,7 +9,10 @@ apps/desktop/release/
 apps/desktop/dist-mcp/
 apps/desktop/.npm-cache/
 apps/desktop/.electron-cache/
+apps/desktop/.electron-builder-cache/
 apps/desktop/.install.log
+apps/desktop/.dist.log
+apps/desktop/.selftest-report.json
 
 # Python 运行时缓存（启动器无需编译，删除后会自动重建）
 __pycache__/

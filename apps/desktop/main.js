@@ -16,6 +16,7 @@
  * 站内导航被限制在本机地址，外链一律交给系统浏览器（`shell.openExternal`，且只放行 http/https）。
  */
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
+import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveLayout } from './src/paths.js';
 import { createLogger } from './src/logger.js';
@@ -28,6 +29,8 @@ import { startWebServer } from './server/webServer.js';
 const argv = process.argv.slice(1);
 const isDev = argv.includes('--dev') || !app.isPackaged;
 const wantCheck = argv.includes('--check') || process.env.EDITOR_DESKTOP_CHECK === '1';
+/** 装完自检：真启动（含真开窗加载页面与真连 MCP），把结论写进报告文件后退出 */
+const wantSelfTest = argv.includes('--selftest');
 
 /** 单实例：第二次点图标就把已有窗口抬起来（否则会出现两个 MCP 抢端口） */
 const gotLock = app.requestSingleInstanceLock();
@@ -49,6 +52,9 @@ const runtime = {
   updater: null,
   quitting: false,
   startupError: null,
+  exitCode: 0,
+  /** 页面加载完成（did-finish-load）的等待句柄，自检用 */
+  pageReady: null,
 };
 const statusListeners = new Set();
 
@@ -189,6 +195,9 @@ async function boot() {
   } else {
     log.warn('配置里 mcp.enabled=false：本次不启动 MCP 服务');
   }
+
+  // ⑦ 装完自检（`--selftest`）：跑完写报告并退出
+  if (wantSelfTest) void runSelfTest();
 }
 
 if (gotLock) {
@@ -218,7 +227,7 @@ if (gotLock) {
     if (runtime.quitting) return;
     runtime.quitting = true;
     e.preventDefault();
-    shutdown().finally(() => app.exit(0));
+    shutdown().finally(() => app.exit(runtime.exitCode ?? 0));
   });
 }
 
@@ -265,6 +274,13 @@ function createWindow() {
   runtime.win.once('ready-to-show', () => runtime.win.show());
   runtime.win.on('closed', () => {
     runtime.win = null;
+  });
+  // 自检要等"页面真的加载完"：这里把 did-finish-load / did-fail-load 都变成可等待的句柄
+  runtime.pageReady = new Promise((resolve) => {
+    const done = (v) => resolve(v);
+    runtime.win.webContents.once('did-finish-load', () => done({ ok: true }));
+    runtime.win.webContents.once('did-fail-load', (_e, code, desc) => done({ ok: false, error: `${code} ${desc}` }));
+    setTimeout(() => done({ ok: false, error: '等待页面加载超时（30s）' }), 30000).unref?.();
   });
 
   // 外链一律交给系统浏览器；应用自身只允许待在本机地址
@@ -313,6 +329,129 @@ function createWindow() {
       });
     }
   });
+}
+
+/* ══════════════════ ⑦ 装完自检（--selftest） ══════════════════ */
+
+/**
+ * "装完自检"：与正常启动**走完全一样的过程**（读加密配置 → 起静态服务器 → 开窗加载页面 →
+ * 拉起 MCP → 真握手 + tools/list），只是最后把结论写成 JSON 报告再退出。
+ *
+ * 为什么要有它：分发版是双击启动的、没有终端；用户说"打不开"时，让他在命令行跑
+ * `可视化编辑器.exe --selftest` 就能拿到一份可发回来的报告，比截图和猜测有用得多。
+ * 退出码：0 = 全通过，1 = 有失败项。
+ */
+async function runSelfTest() {
+  const log = runtime.log;
+  const checks = [];
+  const add = (name, pass, evidence) => {
+    checks.push({ name, pass: Boolean(pass), evidence: evidence === undefined ? null : String(evidence) });
+    log[pass ? 'info' : 'error'](`自检：${pass ? 'PASS' : 'FAIL'} ${name}${evidence === undefined ? '' : ` → ${evidence}`}`);
+  };
+  const report = {
+    runAt: new Date().toISOString(),
+    app: { version: app.getVersion(), electron: process.versions.electron, chrome: process.versions.chrome, node: process.versions.node },
+    mode: runtime.layout?.mode ?? null,
+    userData: runtime.layout?.dataRoot ?? null,
+    config: runtime.configResult
+      ? { source: runtime.configResult.meta.source, keySource: runtime.configResult.meta.keySource, problems: runtime.configResult.meta.problems, warnings: runtime.configResult.meta.warnings, updateBaseUrl: maskUrl(runtime.cfg.update.baseUrl) }
+      : null,
+    checks,
+  };
+
+  // ① 加密配置
+  add('加密配置读取（能解开、无致命问题）', runtime.configResult?.meta.source === 'encrypted' && (runtime.configResult?.meta.problems.length ?? 1) === 0, `来源=${runtime.configResult?.meta.source} 密钥=${runtime.configResult?.meta.keySource} 问题数=${runtime.configResult?.meta.problems.length ?? '?'}`);
+
+  // ② 静态服务器（真的 HTTP 取一次首页）
+  if (runtime.web) {
+    try {
+      const res = await fetch(runtime.web.url);
+      const html = await res.text();
+      add('内置静态服务器返回首页', res.status === 200 && /<div id="root"/.test(html), `HTTP ${res.status} ${res.headers.get('content-type')} 长度=${html.length} ${runtime.web.url}`);
+    } catch (e) {
+      add('内置静态服务器返回首页', false, e instanceof Error ? e.message : String(e));
+    }
+  } else {
+    add('内置静态服务器返回首页', false, runtime.startupError ?? '服务器未启动');
+  }
+
+  // ③ 窗口真的把页面渲染出来了（断言几个稳定的 data-* 标记，而不是"窗口开了就算"）
+  const page = runtime.pageReady ? await runtime.pageReady : { ok: false, error: '窗口未创建' };
+  if (page.ok && runtime.win) {
+    try {
+      const dom = await runtime.win.webContents.executeJavaScript(
+        `(() => ({
+           title: document.title,
+           rootChildren: document.getElementById('root') ? document.getElementById('root').children.length : -1,
+           panelLeft: document.querySelectorAll('[data-panel="left"]').length,
+           panelRight: document.querySelectorAll('[data-panel="right"]').length,
+           leftButtons: document.querySelectorAll('[data-panel="left"] button').length,
+           canvas: document.querySelectorAll('[data-canvas-body]').length,
+           paper: document.querySelectorAll('[data-paper]').length,
+           toolbar: document.querySelectorAll('[data-toolbar]').length,
+           textLen: (document.body.innerText || '').length
+         }))()`,
+      );
+      // ⚠ 一开始我断言的是 `[data-palette]`，结果 0 —— 查源码发现那是**取色板色块**的标记
+      //   （ColorControl.tsx），只有选中带颜色属性的组件时才出现；组件箱的稳定标记是 shell 上的
+      //   `data-panel="left"`（App.tsx）。所以这里改查它，并顺带数一下里面的组件按钮。
+      add('页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）', dom.panelLeft > 0 && dom.panelRight > 0 && dom.canvas > 0 && dom.paper > 0 && dom.toolbar > 0 && dom.leftButtons > 10, `#root 子节点=${dom.rootChildren} 左面板=${dom.panelLeft}（组件按钮 ${dom.leftButtons} 个）右面板=${dom.panelRight} 画布=${dom.canvas} 纸张=${dom.paper} 工具栏=${dom.toolbar} 正文长度=${dom.textLen} 标题=「${dom.title}」`);
+      report.page = dom;
+    } catch (e) {
+      add('页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）', false, e instanceof Error ? e.message : String(e));
+    }
+  } else {
+    add('页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）', false, `页面没加载成功：${page.error}`);
+  }
+
+  // ④ MCP：等它就绪，然后真握手 + 真列工具
+  if (runtime.mcp) {
+    const deadline = Date.now() + (runtime.cfg.mcp.readyTimeoutMs + 5000);
+    let st = runtime.mcp.status();
+    while (st.state !== 'ready' && st.state !== 'failed' && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 400));
+      st = runtime.mcp.status();
+    }
+    add('MCP 服务就绪', st.state === 'ready', `状态=${st.state} pid=${st.pid ?? '(外部进程)'} 地址=${st.url}${st.lastError ? ` 错误：${st.lastError}` : ''}`);
+    if (st.state === 'ready') {
+      const { mcpRequest, parseRpcBody } = await import('./src/mcpSupervisor.js');
+      const init = await mcpRequest(st.url, {
+        timeoutMs: 10000,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'desktop-selftest', version: app.getVersion() } } },
+      });
+      const sid = init.sessionId;
+      await mcpRequest(st.url, { timeoutMs: 8000, sessionId: sid, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
+      const tools = await mcpRequest(st.url, { timeoutMs: 20000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+      const names = (parseRpcBody(tools.body)?.result?.tools ?? []).map((t) => t.name).filter(Boolean);
+      add('外部 AI 客户端能列出工具（tools/list）', names.length > 100, `工具数=${names.length}（例：${names.slice(0, 3).join(', ')}）会话=${String(sid).slice(0, 8)}…`);
+      if (sid) await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
+      report.mcp = { url: st.url, tools: names.length, pid: st.pid, external: st.external, bridgeConflict: log.tail(400).some((l) => l.includes('桥接中转未能启动')) };
+    } else {
+      add('外部 AI 客户端能列出工具（tools/list）', false, 'MCP 没就绪，跳过');
+    }
+  } else {
+    add('MCP 服务就绪', false, '本次未启动 MCP（配置 mcp.enabled=false）');
+  }
+
+  // ⑤ 更新接口只验证"地址可解析、开关状态明确"，**不联网**（自检不该依赖外网）
+  const u = runtime.updater?.status() ?? null;
+  add('更新接口已就绪（不联网检查，只看配置）', runtime.cfg.update.enabled ? /^https?:/i.test(runtime.cfg.update.baseUrl) : true, `开关=${runtime.cfg.update.enabled} 清单地址=${maskUrl(runtime.updater?.manifestUrl() ?? '')} 通道=${runtime.cfg.update.channel}`);
+
+  const failed = checks.filter((c) => !c.pass);
+  report.summary = { total: checks.length, passed: checks.length - failed.length, failed: failed.length, result: failed.length ? 'FAIL' : 'PASS' };
+  const outPath = argValue('--selftest-out') || (runtime.layout?.dataRoot ? `${runtime.layout.dataRoot}\\selftest-report.json` : null);
+  report.reportPath = outPath;
+  try {
+    if (outPath) writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf8');
+  } catch (e) {
+    log.error(`自检报告写不进去：${e instanceof Error ? e.message : String(e)}`);
+  }
+  const line = `自检结果：${report.summary.passed}/${report.summary.total} 通过${failed.length ? ` —— 失败 ${failed.length} 项：${failed.map((f) => f.name).join('；')}` : ' 全部通过'}`;
+  log.info(line);
+  // Electron 在 Windows 上是 GUI 子系统程序，stdout 不一定接到父控制台 → 报告落盘才是可靠通道
+  process.stdout.write(`${line}\n报告：${outPath}\n`);
+  runtime.exitCode = failed.length ? 1 : 0;
+  app.quit();
 }
 
 /* ══════════════════ 菜单 ══════════════════ */

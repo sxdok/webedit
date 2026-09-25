@@ -100,9 +100,32 @@ npm install          # 会下载 Electron（约 200MB）
 npm start            # 跑（读仓库里的 web-editor/dist 与 editor-mcp/dist）
 npm run dev          # 同上（显式开发模式，日志里会标 dev）
 npm run check        # 以 ?check=1 启动：界面右下角跑数据层/渲染层自检
+npm run selftest     # 装完自检：真开窗加载页面 + 真连 MCP，写报告后退出（装到别人机器上排障就靠它）
 npm run verify       # 无界面验证（69 项，不需要 Electron）
 npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 ```
+
+### 装完自检（`--selftest`）
+
+分发版是双击启动的、没有终端；用户说"打不开"时，让他跑一次
+`可视化编辑器.exe --selftest --selftest-out 报告.json`，就能拿到一份可发回来的报告：
+
+```json
+{ "summary": { "total": 6, "passed": 6, "failed": 0, "result": "PASS" },
+  "checks": [ { "name": "页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）", "pass": true,
+                "evidence": "#root 子节点=1 左面板=1（组件按钮 20 个）右面板=1 画布=1 纸张=1 工具栏=1 正文长度=1002 标题=「可视化编辑器 · 文档模式 / Web 模式」" },
+              { "name": "外部 AI 客户端能列出工具（tools/list）", "pass": true,
+                "evidence": "工具数=108（例：doc.create, doc.open, doc.close）" } ] }
+```
+
+它验的 6 件事：加密配置能解开且无致命问题 → 静态服务器 200 → **页面真的渲染出编辑器界面**
+（查 `data-panel="left|right"` / `data-canvas-body` / `data-paper` / `data-toolbar` 这些稳定标记，
+并数组件按钮，不是"窗口开了就算"）→ MCP 就绪 → `initialize` + `tools/list` 拿到 108 个工具 →
+更新接口配置可解析（**不联网**，自检不该依赖外网）。退出码 0/1。
+
+> 踩过的坑：一开始断言的是 `[data-palette]`，结果 0 —— 查源码发现那是**取色板色块**的标记
+> （`ColorControl.tsx`），只有选中带颜色属性的组件时才出现；组件箱的稳定标记是 shell 上的
+> `data-panel="left"`（`App.tsx`）。**断言写错会看起来像产品坏了**，所以证据要写清查的是什么。
 
 > 网络慢/`spawn EPERM` 的两个坑（本机实测）：
 > ① npm 的 postinstall 要 spawn 子进程，**在受限沙箱里会 EPERM**（`npm error code EPERM / syscall spawn`）——
