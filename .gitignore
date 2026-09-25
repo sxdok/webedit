@@ -12,6 +12,8 @@ apps/desktop/.electron-cache/
 apps/desktop/.electron-builder-cache/
 apps/desktop/.install.log
 apps/desktop/.dist.log
+apps/desktop/.dist-debug.log
+apps/desktop/.portable-selftest.json
 apps/desktop/.selftest-report.json
 
 # Python 运行时缓存（启动器无需编译，删除后会自动重建）
