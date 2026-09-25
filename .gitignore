@@ -4,6 +4,11 @@ dist/
 *.tsbuildinfo
 .vite/
 
+# 桌面分发版（apps/desktop）：打包产物与本地下载缓存，都可由 npm run dist 再生
+apps/desktop/release/
+apps/desktop/.npm-cache/
+apps/desktop/.electron-cache/
+
 # Python 运行时缓存（启动器无需编译，删除后会自动重建）
 __pycache__/
 *.pyc

@@ -1,0 +1,33 @@
+{
+  "app": {
+    "title": "可视化编辑器"
+  },
+  "server": {
+    "port": 0,
+    "host": "127.0.0.1",
+    "openBrowser": false
+  },
+  "mcp": {
+    "enabled": true,
+    "transport": "http",
+    "host": "127.0.0.1",
+    "httpPort": 37651,
+    "bridgePort": 37650,
+    "autoRestart": true,
+    "readyTimeoutMs": 20000,
+    "allowWrite": true
+  },
+  "update": {
+    "enabled": true,
+    "baseUrl": "https://updates.example.com/visual-editor/",
+    "manifest": "latest.json",
+    "channel": "stable",
+    "allowPrerelease": false,
+    "timeoutMs": 8000,
+    "openMode": "external"
+  },
+  "logging": {
+    "level": "info",
+    "keepDays": 30
+  }
+}

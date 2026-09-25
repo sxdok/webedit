@@ -1,11 +1,13 @@
 # 可视化编辑器（工作区根目录）
 
-本目录是**独立工作区根目录**，现在只有两个应用 + 一个工作区 Skill：
+本目录是**独立工作区根目录**，现在是三个应用 + 一个工具 + 一个工作区 Skill：
 
 | 目录 | 是什么 |
 |---|---|
 | `web-editor/` | **主产品**：React + TypeScript 可视化编辑器（文档模式 / Web 模式双模，A4 排版 / 导出 HTML·Word·React / 外部热加载组件 / MCP Live 联动） |
 | `editor-mcp/` | **MCP 服务器**：把编辑器接到 MCP 客户端（无头文档读写、组件/插件/资产/导出通道），Live 时通过本机桥接 hub `ws://127.0.0.1:37650/bridge` 与编辑器页面联动 |
+| `apps/desktop/` | **桌面分发版**（Electron 外壳）：双击即用 —— 内置静态服务器（`启动编辑器.py` 的 Node 等价物）+ 随应用启动的 MCP（`http://127.0.0.1:37651/mcp`）+ 预留更新接口；配置（含更新地址）用**加密配置文件**保存 |
+| `tools/secure-config/` | **独立的加密配置工具**（零依赖，一个文件）：`keygen` / `encrypt` / `decrypt` / `verify` / `embed-key` / `selftest`。桌面版只 `import()` 它的解密函数，**不复制 crypto 代码** |
 | `.dsh/skills/visual-editor-plugin-dev/` | 本工作区的 Skill：给编辑器新增/修改**组件与插件**的规范与验收清单 |
 
 > 目录里没有数据库、也没有服务端：数据只有三层（浏览器 `localStorage` 的设置/日志/取色板、磁盘上的导出文件、
@@ -28,13 +30,30 @@ cd E:\可视化编辑器\web-editor ; npm run build
 cd E:\可视化编辑器\editor-mcp ; node dist/index.js --stdio
 ```
 
+**apps/desktop（桌面分发版，Electron）**
+
+```powershell
+cd E:\可视化编辑器\apps\desktop
+npm install                 # 首次要下载 Electron（约 200MB）
+npm start                   # 起窗口；MCP 会随应用一起启动
+npm run verify              # 无界面验证（61 项：布局/加密配置/更新接口/静态服务器/真拉起 MCP/静态检查）
+npm run dist                # 打 Windows 安装包 + 免安装版（release/）
+```
+
+**改更新地址（不用改代码、不用重新打包前端）**：编辑 `apps/desktop/config/app-config.example.json` 里的
+`update.baseUrl` → `node apps/desktop/scripts/embed-key.mjs` → 重新打包；现场换服务器则直接替换安装目录里
+`resources/config/app-config.enc`。详见 `apps/desktop/README.md`。
+
 ## 自检 / 测试怎么跑
 
 | 对象 | 入口 | 说明 |
 |---|---|---|
-| web-editor | `http://127.0.0.1:5179/?check=1` | **282 条端到端断言**（数据层 / 渲染 / 真实指针交互 / 分页与页码 / 打印 / 导入导出 / 热加载 / 暗色审计 / 验收项），报告渲染在页面左下角、同时写进 `document.title` |
+| web-editor | `http://127.0.0.1:5179/?check=1` | **294 条端到端断言**（数据层 / 渲染 / 真实指针交互 / 分页与页码 / 打印 / 导入导出 / 热加载 / 暗色审计 / 验收项），报告渲染在页面左下角、同时写进 `document.title` |
 | web-editor | `?demo=1` / `?diag=1` / `?prefs=1` / `?spec=1` / `?load=<地址>` / `?theme=monokai` / `?printdebug=1` / `?scroll=N` / `?select=<类型>` | 示例文档 / 诊断面板 / 首选项 / 组件说明清单 / 载入 HTML / 深色主题 / 打印排障 / 滚动定位 / 选中某类组件 |
 | editor-mcp | `npm run smoke`（或 `node scripts/*.mjs`） | 工具面与插件沙箱的冒烟检查（详见 `editor-mcp/README.md`） |
+| tools/secure-config | `node tools/secure-config/secure-config.mjs selftest` | 加密工具自检 **8 项**（往返 / 错密钥 / 篡改密文 / 篡改头部 AAD / 口令模式 / 密钥形状提醒 / 密钥来源优先级 / CLI 三件套） |
+| apps/desktop | `npm run verify` | 桌面分发版无界面验证 **65 项**（布局 / 组件目录落地 / 加密配置 / 更新接口 / 静态服务器 / 真拉起 MCP 并列出工具 / 语法与安全基线；受限沙箱里 E 段会自动 SKIP 并说明原因） |
+
 
 > ⚠ 无头跑 `?check=1` 要用**真实时间**等它跑完（自检靠一串 `setTimeout` 链 + 异步交互，全程约 2–3 分钟）；
 > 用 `--dump-dom --virtual-time-budget` 取标题会**在第一段 `finish()` 就 dump**，那时只有 17 条却显示「17/17 全部通过」。
@@ -60,6 +79,9 @@ cd E:\可视化编辑器\editor-mcp ; node dist/index.js --stdio
 **清理（2026-09-24，用户要求「确认一下有没有牵连和用处，没有就删了」）**：
 逐项核对后删除下面 5 项 —— 核对方法是**全仓检索引用**（两个应用的源码/脚本/配置、工作区 Skill、DSH 配置）
 + 确认没有活进程在用（A4 编辑器端口 8080 无监听）+ 确认 MCP 的工作区是 `editor-mcp/workspace`（不是根 `docs/`）：
+
+> 注：下表的 `tools/` 指的是**当时被删掉的那个旧 `tools/`**（一次性脚本与打印验证工具）。
+> 现在仓库里的 `tools/secure-config/` 是 2026-09-25 新建的加密配置工具，与它无关、也没有继承关系。
 
 | 已删 | 规模 | 为什么要删（核对结论） |
 |---|---|---|

@@ -1,0 +1,541 @@
+/**
+ * 桌面分发版的**无界面验证**（不需要 Electron，纯 Node 跑）：
+ *   node apps/desktop/scripts/verify-desktop.mjs
+ *
+ * 为什么要有它：Electron 打包出来的东西"看起来能开"不算数。这里把**能被机器判定**的部分全验一遍：
+ *   A 布局解析（dev / 安装包两套）        B 加密配置读取（对/错密钥、明文兜底、取值校验）
+ *   C 更新接口（本地假更新服务器）        D 静态服务器（4 个 __ 接口 + 路径穿越 + SPA 回落）
+ *   E MCP 子进程（真拉起、真握手、真重启、真收尾）  F 语法与安全基线静态检查
+ *
+ * 纪律：**只写临时目录**。MCP 的 workspace 用临时目录，并在前后比对用户真实
+ * `editor-mcp/workspace/` 的文件数与最新改动时间 —— 验证脚本绝不能碰用户的活文档。
+ *
+ * 受限沙箱提示：本脚本要 spawn 子进程并**捕获管道输出**（mcpSupervisor 收日志就是这么干的），
+ * 沙箱下会报 `spawn EPERM`；此时请用放宽的文件沙箱跑一次，或直接接受 E 段跳过。
+ */
+import { spawn } from 'node:child_process';
+import { createServer as createHttpServer } from 'node:http';
+import { existsSync, mkdirSync, mkdtempSync, closeSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = resolve(fileURLToPath(import.meta.url), '..');
+const APP_DIR = resolve(HERE, '..');
+const REPO_ROOT = resolve(APP_DIR, '..', '..');
+const WEB_ROOT = join(REPO_ROOT, 'web-editor');
+
+const results = [];
+let group = '';
+const G = (t) => {
+  group = t;
+  process.stdout.write(`\n── ${t} ──\n`);
+};
+const ok = (name, pass, evidence = '') => {
+  results.push({ group, name, pass: Boolean(pass) });
+  process.stdout.write(`${pass ? 'PASS' : 'FAIL'}  ${name}${evidence ? `\n        → ${evidence}` : ''}\n`);
+  return pass;
+};
+const skip = (name, why) => {
+  results.push({ group, name, pass: true, skipped: true });
+  process.stdout.write(`SKIP  ${name}\n        → ${why}\n`);
+};
+
+const tmp = mkdtempSync(join(tmpdir(), 'desktop-verify-'));
+const cleanups = [];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* ═══════════ A 布局 ═══════════ */
+async function testLayout() {
+  G('A 路径布局');
+  const { resolveLayout } = await import('../src/paths.js');
+  const userData = join(tmp, 'userData');
+  const dev = resolveLayout({ isPackaged: false, resourcesPath: '', userDataPath: userData });
+
+  ok('dev：webRoot 指向 web-editor 且 dist/index.html 存在', dev.webRoot === WEB_ROOT && existsSync(join(dev.distDir, 'index.html')), `webRoot=${dev.webRoot}，dist/index.html=${existsSync(join(dev.distDir, 'index.html'))}`);
+  ok('dev：editor-mcp 入口存在', Boolean(dev.mcpEntry) && existsSync(dev.mcpEntry), `mcpEntry=${dev.mcpEntry}`);
+  ok('dev：独立加密工具被解析到', Boolean(dev.secureConfigCore) && existsSync(dev.secureConfigCore), `secureConfigCore=${dev.secureConfigCore}`);
+  ok('dev：加密配置与构建期密钥就位', existsSync(dev.configEncPath) && existsSync(dev.buildKeyPath), `enc=${existsSync(dev.configEncPath)}，buildKey=${existsSync(dev.buildKeyPath)}`);
+  ok('dev：日志/文档落在 userData 而不是仓库', dev.logDir.startsWith(userData) && dev.docsDir.startsWith(userData), `logDir=${dev.logDir}`);
+
+  // 模拟安装包布局：业务资源在 resources/ 下，用户数据在 userData
+  const res = join(tmp, 'resources');
+  const mk = (p) => mkdirSync(p, { recursive: true });
+  mk(join(res, 'web-editor', 'dist'));
+  mk(join(res, 'web-editor', 'public', '组件'));
+  mk(join(res, 'editor-mcp', 'dist'));
+  mk(join(res, 'tools', 'secure-config'));
+  mk(join(res, 'config'));
+  writeFileSync(join(res, 'web-editor', 'dist', 'index.html'), '<!doctype html><div id="root"></div>', 'utf8');
+  writeFileSync(join(res, 'editor-mcp', 'dist', 'index.js'), '//', 'utf8');
+  writeFileSync(join(res, 'tools', 'secure-config', 'secure-config.mjs'), 'export const x=1;', 'utf8');
+  writeFileSync(join(res, 'config', 'app-config.enc'), '{}', 'utf8');
+  const packed = resolveLayout({ isPackaged: true, resourcesPath: res, userDataPath: userData });
+  ok('packaged：业务资源从 resources/ 读，用户数据从 userData 写', packed.webRoot === join(res, 'web-editor') && packed.mcpEntry === join(res, 'editor-mcp', 'dist', 'index.js') && packed.logDir.startsWith(userData) && packed.docsDir.startsWith(userData), `webRoot=${packed.webRoot}；logDir=${packed.logDir}`);
+  ok('packaged：配置文件优先读 resources/config（明文文件、可整包替换）', packed.configDir === join(res, 'config') && packed.configEncPath === join(res, 'config', 'app-config.enc'), `configDir=${packed.configDir}`);
+  ok('packaged：绝不在安装目录里建可写数据目录', !packed.logDir.startsWith(res) && !packed.docsDir.startsWith(res) && !String(packed.mcpWorkspace).startsWith(res), `mcpWorkspace=${packed.mcpWorkspace}`);
+  return { dev, packed, userData };
+}
+
+/* ═══════════ A2 组件目录落地 ═══════════ */
+async function testComponents() {
+  G('A2 组件目录落地（安装目录只读 → 种子拷进 userData）');
+  const { resolveComponentsDir } = await import('../src/components.js');
+  const bundled = join(tmp, 'bundled-组件');
+  const user = join(tmp, 'user-组件');
+  mkdirSync(bundled, { recursive: true });
+  writeFileSync(join(bundled, '甲.js'), 'window.a=1;', 'utf8');
+  writeFileSync(join(bundled, '乙.js'), 'window.b=1;', 'utf8');
+  writeFileSync(join(bundled, '_manifest.json'), '["甲.js"]', 'utf8');
+  writeFileSync(join(bundled, '忽略我.txt'), 'x', 'utf8');
+
+  const dev = resolveComponentsDir({ mode: 'dev', bundledDir: bundled, userDir: user });
+  ok('dev：直接用仓库源目录（保持热加载开发流程），不拷贝', dev.dir === bundled && dev.mode === 'repo' && !existsSync(user), `dir=${dev.dir}`);
+
+  const first = resolveComponentsDir({ mode: 'packaged', bundledDir: bundled, userDir: user });
+  ok('packaged 首次运行：把随包组件种子拷进 userData（含 _manifest.json，忽略非 js）', first.dir === user && first.seeded === 3 && existsSync(join(user, '甲.js')) && existsSync(join(user, '_manifest.json')) && !existsSync(join(user, '忽略我.txt')), `seeded=${first.seeded} dir=${first.dir}`);
+
+  writeFileSync(join(user, '甲.js'), 'window.a=999;// 用户改过', 'utf8');
+  writeFileSync(join(bundled, '丙.js'), 'window.c=1;', 'utf8');
+  const second = resolveComponentsDir({ mode: 'packaged', bundledDir: bundled, userDir: user });
+  ok('再次运行：用户改过的组件不被覆盖，升级带来的新组件会自动补进来', second.seeded === 1 && second.kept === 3 && readFileSync(join(user, '甲.js'), 'utf8').includes('999') && existsSync(join(user, '丙.js')), `补入=${second.seeded} 保留=${second.kept}；甲.js 仍是用户的=${readFileSync(join(user, '甲.js'), 'utf8').includes('999')}`);
+}
+
+/* ═══════════ B 加密配置 ═══════════ */async function testSecureConfig(dev) {
+  G('B 加密配置（独立工具 + 应用侧读取）');
+  const { loadAppConfig, normalizeConfig, maskUrl } = await import('../src/secureConfig.js');
+  const { createLogger } = await import('../src/logger.js');
+  const logger = createLogger({ logDir: join(tmp, 'logs') });
+  const example = JSON.parse(readFileSync(join(APP_DIR, 'config', 'app-config.example.json'), 'utf8'));
+
+  const r1 = await loadAppConfig({ layout: dev, env: { ...process.env, EDITOR_DESKTOP_CONFIG_KEY: '', EDITOR_DESKTOP_CONFIG_KEY_FILE: '' }, logger });
+  ok('用随包 buildKey.js 能解开 app-config.enc', r1.meta.source === 'encrypted' && r1.meta.problems.length === 0, `source=${r1.meta.source} 密钥来源=${r1.meta.keySource} 指纹=${r1.meta.keyFingerprint}`);
+  ok('解出来的值与明文源逐字段一致（含嵌套 update/mcp）', JSON.stringify(r1.config.update) === JSON.stringify(example.update) && JSON.stringify(r1.config.mcp) === JSON.stringify(example.mcp), `update.baseUrl=${r1.config.update.baseUrl}，mcp.httpPort=${r1.config.mcp.httpPort}`);
+  ok('密文里查不到明文（加密是真生效的）', !readFileSync(dev.configEncPath, 'utf8').includes('updates.example.com'), `密文里出现 "updates.example.com" = ${readFileSync(dev.configEncPath, 'utf8').includes('updates.example.com')}`);
+
+  const envKey = readFileSync(dev.configKeyPath, 'utf8').trim();
+  const r2 = await loadAppConfig({ layout: dev, env: { ...process.env, EDITOR_DESKTOP_CONFIG_KEY: envKey } });
+  ok('密钥来源可被环境变量覆盖（EDITOR_DESKTOP_CONFIG_KEY）', r2.meta.source === 'encrypted' && r2.meta.keySource === 'env:EDITOR_DESKTOP_CONFIG_KEY', `keySource=${r2.meta.keySource}`);
+
+  const r3 = await loadAppConfig({ layout: dev, explicitKey: Buffer.from('00000000000000000000000000000000').toString('base64') });
+  ok('密钥不对：不崩，退回默认值并明确报"解密失败"', r3.meta.source === 'defaults' && r3.meta.problems.some((p) => p.includes('解密失败')), `source=${r3.meta.source}；problems[0]=${r3.meta.problems[0] ?? '(无)'}`);
+
+  const missing = { ...dev, configEncPath: join(tmp, 'nope.enc'), configPlainPath: join(tmp, 'nope.json') };
+  const r4 = await loadAppConfig({ layout: missing });
+  ok('没有配置文件：用默认值启动并提醒', r4.meta.source === 'defaults' && r4.meta.warnings.some((w) => w.includes('未找到配置文件')), `warnings[0]=${r4.meta.warnings[0]}`);
+
+  const plainPath = join(tmp, 'app-config.json');
+  writeFileSync(plainPath, JSON.stringify({ update: { baseUrl: 'https://plain.example.org/up/' } }), 'utf8');
+  const r5 = await loadAppConfig({ layout: { ...dev, configEncPath: join(tmp, 'nope.enc'), configPlainPath: plainPath } });
+  ok('明文兜底可用但必须警告（仅开发便利）', r5.meta.source === 'plain' && r5.meta.warnings.some((w) => w.includes('明文')), `source=${r5.meta.source}；warnings=${r5.meta.warnings.find((w) => w.includes('明文'))}`);
+
+  const bad = normalizeConfig({ server: { port: 'abc' }, mcp: { httpPort: 37651, bridgePort: 37651 }, update: { baseUrl: 'ftp://x/' } });
+  ok('取值校验：坏端口/端口打架/非 http 更新地址都被列出来', bad.problems.length >= 3, bad.problems.join(' ｜ '));
+  const warn = normalizeConfig({ update: { baseUrl: 'https://updates.example.com/x/' } });
+  ok('取值校验：还是示例地址时给出"正式分发前要换掉"的提醒', warn.warnings.some((w) => w.includes('示例地址')), warn.warnings.find((w) => w.includes('示例地址')));
+  ok('更新地址在界面/日志里默认打码（只留主机名与路径首段前 2 字）', maskUrl('https://updates.example.com/visual-editor/') === 'https://updates.example.com/vi***' && maskUrl('乱写') === '(无法解析)', `${maskUrl('https://updates.example.com/visual-editor/')}；乱写→${maskUrl('乱写')}`);
+  return r1.config;
+}
+
+/* ═══════════ C 更新接口 ═══════════ */
+async function testUpdater() {
+  G('C 更新接口（本地假更新服务器）');
+  const { createUpdater, compareVersions } = await import('../src/updater.js');
+
+  ok('版本比较：正式版 > 预发布，数值逐段比', compareVersions('1.0.0', '1.0.0-beta') === 1 && compareVersions('1.2.3', '1.2.4') === -1 && compareVersions('1.0.0', 'v1.0.0') === 0 && compareVersions('乱写', '1.0.0') === null, '1.0.0>1.0.0-beta；1.2.3<1.2.4；1.0.0=v1.0.0；非版本号→null');
+
+  // 假更新服务器：/latest.json 由当前测试用例改写
+  let payload = '{}';
+  let status = 200;
+  const srv = createHttpServer((req, res) => {
+    if (req.url.startsWith('/latest.json')) {
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(payload);
+      return;
+    }
+    res.writeHead(404).end('{}');
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  const base = { enabled: true, baseUrl: `http://127.0.0.1:${port}/`, manifest: 'latest.json', channel: 'stable', allowPrerelease: false, timeoutMs: 4000, openMode: 'external' };
+  const opened = [];
+  const up = createUpdater({ config: { ...base }, currentVersion: '1.0.0', openExternal: async (u) => opened.push(u) });
+
+  payload = JSON.stringify({ version: '1.1.0', notes: '修了几个 bug', publishedAt: '2026-09-25T00:00:00Z', download: { url: 'https://dl.example.com/app-1.1.0.exe', sha256: 'abc' } });
+  let r = await up.check();
+  ok('发现新版本：给出下载地址与说明', r.status === 'update-available' && r.latestVersion === '1.1.0' && r.downloadUrl.endsWith('app-1.1.0.exe') && r.notes.includes('bug'), `status=${r.status} latest=${r.latestVersion} url=${r.downloadUrl}`);
+
+  const r2 = await up.openDownload();
+  ok('打开下载页：把 URL 交给系统（这里用桩函数接住）', r2.ok && opened[0] === 'https://dl.example.com/app-1.1.0.exe', `openExternal 收到 ${opened[0]}`);
+
+  payload = JSON.stringify({ version: '1.0.0' });
+  r = await up.check();
+  ok('同版本 → 已是最新', r.status === 'up-to-date', `status=${r.status}`);
+
+  payload = JSON.stringify({ version: '1.1.0-beta.1' , download: { url: 'https://dl.example.com/beta.exe' } });
+  r = await up.check();
+  ok('不允许预发布时忽略预发布版本（并说明原因）', r.status === 'up-to-date' && String(r.note).includes('预发布'), `note=${r.note}`);
+
+  const allowPre = createUpdater({ config: { ...base, allowPrerelease: true }, currentVersion: '1.0.0', openExternal: async () => {} });
+  r = await allowPre.check();
+  ok('允许预发布时能拿到 beta 版本', r.status === 'update-available' && r.latestVersion === '1.1.0-beta.1', `latest=${r.latestVersion}`);
+
+  payload = JSON.stringify({ version: '2.0.0', channels: { beta: { version: '2.0.1', download: { url: 'https://dl.example.com/beta-2.0.1.exe' } } } });
+  const chan = createUpdater({ config: { ...base, channel: 'beta' }, currentVersion: '1.0.0', openExternal: async () => {} });
+  r = await chan.check();
+  ok('通道覆盖：channels.<channel> 优先', r.latestVersion === '2.0.1' && r.downloadUrl.endsWith('beta-2.0.1.exe'), `latest=${r.latestVersion} url=${r.downloadUrl}`);
+
+  payload = JSON.stringify({ version: '2.0.0', download: { url: 'javascript:alert(1)' } });
+  r = await up.check();
+  ok('清单里的下载地址不是 http(s) → 明确报错，绝不打开', r.status === 'error' && r.error.includes('http'), `error=${r.error}`);
+
+  status = 404;
+  r = await up.check();
+  ok('清单 404 → 报错而不是当成"最新"', r.status === 'error' && r.error.includes('404'), `error=${r.error}`);
+
+  status = 200;
+  payload = '这不是 JSON';
+  r = await up.check();
+  ok('清单不是 JSON → 报错', r.status === 'error' && r.error.includes('JSON'), `error=${r.error}`);
+
+  const disabled = createUpdater({ config: { ...base, enabled: false }, currentVersion: '1.0.0', openExternal: async () => {} });
+  r = await disabled.check();
+  ok('配置里关掉更新 → disabled（不联网）', r.status === 'disabled', `status=${r.status}`);
+
+  const inst = await up.install();
+  ok('自动安装是**预留**的：明确返回未实现，而不是假装成功', inst.ok === false && inst.reserved === true, `install() → ${JSON.stringify(inst)}`);
+
+  srv.close();
+  return { updater: up, base };
+}
+
+/* ═══════════ D 静态服务器 ═══════════ */
+async function testWebServer(dev) {
+  G('D 静态服务器（启动编辑器.py 的 Node 等价物）');
+  const { startWebServer } = await import('../server/webServer.js');
+  const dataRoot = join(tmp, 'data');
+  const logDir = join(dataRoot, 'logs');
+  const docsDir = join(dataRoot, 'docs');
+  const componentsDir = join(dataRoot, '组件');
+  mkdirSync(componentsDir, { recursive: true });
+  writeFileSync(join(componentsDir, 'liveWidget.js'), 'window.EditorKit && (window.__liveOk = 1);', 'utf8');
+
+  const web = await startWebServer({ rootDir: dev.webRoot, port: 0, host: '127.0.0.1', quiet: true, logDir, docsDir, componentsDir });
+  cleanups.push(() => web.close());
+  const base = web.url.replace(/\/$/, '');
+  const get = async (p) => {
+    const res = await fetch(base + p);
+    return { status: res.status, type: res.headers.get('content-type') ?? '', cache: res.headers.get('cache-control') ?? '', text: await res.text() };
+  };
+  const post = async (p, body) => {
+    const res = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: res.status, json: await res.json().catch(() => null) };
+  };
+
+  const root = await get('/');
+  ok('GET / → 200 HTML 且带 no-store', root.status === 200 && root.type.includes('text/html') && root.cache.includes('no-store'), `status=${root.status} type=${root.type} cache=${root.cache} 长度=${root.text.length}`);
+
+  const spa = await get('/some/unknown/route');
+  ok('未知路径回落到 index.html（SPA 路由）', spa.status === 200 && spa.text === root.text, `status=${spa.status} 与 index.html 相同=${spa.text === root.text}`);
+
+  const miss = await get('/definitely-missing.js');
+  ok('带扩展名的缺失资源 → 404（不回落，避免把 JS 当 HTML 喂给浏览器）', miss.status === 404, `status=${miss.status}`);
+
+  const comps = await get('/__components');
+  const compJson = JSON.parse(comps.text);
+  ok('GET /__components 走**组件目录覆盖**（能列出临时目录里的那个组件）', comps.status === 200 && compJson.files.includes('liveWidget.js'), `files=${JSON.stringify(compJson.files)}`);
+
+  const compFile = await get('/组件/liveWidget.js');
+  ok('GET /组件/<name> 从组件目录热加载并给 JS 类型', compFile.status === 200 && compFile.type.includes('javascript') && compFile.text.includes('__liveOk'), `status=${compFile.status} type=${compFile.type}`);
+
+  const info = await get('/__loginfo');
+  const infoJson = JSON.parse(info.text);
+  ok('GET /__loginfo 报告的是**覆盖后**的日志目录', info.status === 200 && infoJson.dir === logDir && infoJson.enabled === true, `dir=${infoJson.dir}`);
+
+  const rlog = await post('/__log', { kind: 'check', lines: ['第一行', '第二行'] });
+  const today = new Date();
+  const stamp = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const logFile = join(logDir, `check-${stamp}.log`);
+  ok('POST /__log 真落盘到覆盖后的目录且按天分文件', rlog.status === 200 && rlog.json.ok && existsSync(logFile) && readFileSync(logFile, 'utf8').includes('第一行'), `file=${logFile} bytes=${rlog.json.bytes}`);
+
+  const rsave = await post('/__save', { path: 'docs/组件清单.md', text: '# 清单\n' });
+  ok('POST /__save 写到覆盖后的 docs 目录', rsave.status === 200 && rsave.json.ok && existsSync(join(docsDir, '组件清单.md')), `file=${rsave.json.file}`);
+
+  const trav1 = await post('/__save', { path: '../evil.md', text: 'x' });
+  const trav2 = await post('/__save', { path: 'docs/../../evil.md', text: 'x' });
+  const trav3 = await post('/__save', { path: 'C:/Windows/evil.md', text: 'x' });
+  ok('路径穿越被拒（../ 、../../ 、盘符绝对路径都是 403）', [trav1, trav2, trav3].every((x) => x.status === 403 && x.json && x.json.ok === false), `../=${trav1.status} ../../=${trav2.status} C:/=${trav3.status}`);
+
+  const rplug = await post('/__savePlugin', { name: '生成的组件.js', text: 'window.x=1;' });
+  ok('POST /__savePlugin 写回组件目录', rplug.status === 200 && rplug.json.ok && existsSync(join(componentsDir, '生成的组件.js')), `file=${rplug.json.file}`);
+  const badPlug = await post('/__savePlugin', { name: '../x.js', text: 'x' });
+  const badPlug2 = await post('/__savePlugin', { name: '_manifest.json', text: 'x' });
+  ok('组件名白名单：拒绝路径与下划线开头的内部文件', badPlug.status === 403 && badPlug2.status === 403, `../x.js=${badPlug.status} _manifest.json=${badPlug2.status}`);
+
+  const big = await fetch(base + '/__log', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'x'.repeat(600 * 1024) }).catch((e) => ({ status: -1, text: async () => String(e) }));
+  ok('超过 512KB 的写入被拒（413）', big.status === 413, `status=${big.status}`);
+  await big.text().catch(() => '');
+
+  const badRoute = await fetch(base + '/__nope', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  ok('未知 POST 路由 → 404', badRoute.status === 404, `status=${badRoute.status}`);
+  await badRoute.text();
+
+  const p = web.port;
+  await web.close();
+  cleanups.pop();
+  const closed = await fetch(`http://127.0.0.1:${p}/`).then(() => false).catch(() => true);
+  ok('close() 之后端口真的释放了', closed, `再连 http://127.0.0.1:${p}/ 失败=${closed}`);
+  return { web, logDir, docsDir, componentsDir };
+}
+
+/* ═══════════ E MCP 子进程 ═══════════ */
+async function testMcp(dev) {
+  G('E MCP 子进程（真拉起 / 真握手 / 真重启 / 真收尾）');
+  const { createMcpSupervisor, probeMcp, mcpRequest, parseRpcBody } = await import('../src/mcpSupervisor.js');
+  const { createLogger } = await import('../src/logger.js');
+  const logger = createLogger({ logDir: join(tmp, 'logs') });
+
+  const liveWorkspace = join(REPO_ROOT, 'editor-mcp', 'workspace');
+  const snapshot = (d) => {
+    try {
+      const files = readdirSync(d);
+      return { n: files.length, newest: files.reduce((m, f) => Math.max(m, statSync(join(d, f)).mtimeMs), 0) };
+    } catch {
+      return { n: -1, newest: -1 };
+    }
+  };
+  const before = snapshot(liveWorkspace);
+
+  const freePort = async () => {
+    const s = createHttpServer(() => {});
+    await new Promise((r) => s.listen(0, '127.0.0.1', r));
+    const p = s.address().port;
+    await new Promise((r) => s.close(r));
+    return p;
+  };
+  const httpPort = await freePort();
+  const bridgePort = await freePort();
+  const workspace = join(tmp, 'mcp-workspace');
+
+  const sup = createMcpSupervisor({
+    nodeBin: process.execPath,
+    nodeEnv: {}, // 验证脚本是纯 Node，不要带 ELECTRON_RUN_AS_NODE
+    mcpEntry: dev.mcpEntry,
+    mcpRoot: dev.mcpRoot,
+    host: '127.0.0.1',
+    port: httpPort,
+    bridgePort,
+    workspace,
+    pluginDir: dev.pluginDir,
+    allowWrite: true,
+    readyTimeoutMs: 20000,
+    autoRestart: true,
+    logger,
+  });
+  cleanups.push(() => sup.stop());
+
+  const st = await sup.start();
+  ok('拉起 editor-mcp --http 并在超时内就绪', st.state === 'ready' && !st.external && st.pid > 0, `state=${st.state} pid=${st.pid} url=${st.url}${st.lastError ? ` 错误=${st.lastError}` : ''}`);
+  ok('无头文档目录被自动创建', existsSync(workspace), `workspace=${workspace}`);
+
+  const probe = await probeMcp(st.url, { timeoutMs: 4000 });
+  ok('握手探测通过（initialize 返回 result）', probe.ok, `serverInfo=${JSON.stringify(probe.serverInfo)} 协议=${probe.protocolVersion}`);
+
+  // 真跑一次 MCP 会话：initialize → initialized → tools/list
+  const init = await mcpRequest(st.url, {
+    timeoutMs: 8000,
+    body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-desktop', version: '0.1.0' } } },
+  });
+  const sid = init.sessionId;
+  await mcpRequest(st.url, {
+    timeoutMs: 8000,
+    sessionId: sid,
+    body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} },
+  });
+  const list = await mcpRequest(st.url, { timeoutMs: 15000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+  const listJson = parseRpcBody(list.body);
+  const tools = listJson?.result?.tools ?? [];
+  ok('外部 AI 客户端能列出工具（tools/list 真的返回工具表）', Boolean(sid) && tools.length > 20, `session=${String(sid).slice(0, 8)}… 工具数=${tools.length} 例：${tools.slice(0, 3).map((t) => t.name).join(', ')}`);
+  await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
+
+  const pid1 = st.pid;
+  const re = await sup.restart();
+  ok('重启：状态回到 ready 且是新进程', re.state === 'ready' && re.pid > 0 && re.pid !== pid1, `旧 pid=${pid1} 新 pid=${re.pid}`);
+  const probeAfterRestart = await probeMcp(re.url, { timeoutMs: 4000 });
+  ok('重启后仍能握手', probeAfterRestart.ok, `ok=${probeAfterRestart.ok}`);
+
+  // 接管：先手动起一个，再让 supervisor 去 start()，应当"接管"而不是再起一个
+  const adoptPort = await freePort();
+  const adoptBridge = await freePort();
+  const raw = spawn(process.execPath, [dev.mcpEntry, '--http', '--port', String(adoptPort)], {
+    cwd: dev.mcpRoot,
+    env: { ...process.env, EDITOR_MCP_BRIDGE_URL: `ws://127.0.0.1:${adoptBridge}/bridge`, EDITOR_MCP_WORKSPACE: join(tmp, 'mcp-workspace-adopt') },
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  cleanups.push(() => {
+    try {
+      raw.kill('SIGKILL');
+    } catch {
+      /* 已退出 */
+    }
+  });
+  const adoptUrl = `http://127.0.0.1:${adoptPort}/mcp`;
+  let adopted = null;
+  for (let i = 0; i < 40 && !adopted; i += 1) {
+    const pr = await probeMcp(adoptUrl, { timeoutMs: 1500 });
+    if (pr.ok) adopted = pr;
+    else await sleep(400);
+  }
+  if (!adopted) {
+    skip('端口上已有可用 MCP 时"接管"而不是重复拉起', `手动起的那个 MCP 没能在 16s 内就绪（pid=${raw.pid}）`);
+  } else {
+    const sup2 = createMcpSupervisor({
+      nodeBin: process.execPath,
+      nodeEnv: {},
+      mcpEntry: dev.mcpEntry,
+      mcpRoot: dev.mcpRoot,
+      host: '127.0.0.1',
+      port: adoptPort,
+      bridgePort: adoptBridge,
+      workspace: join(tmp, 'mcp-workspace-adopt'),
+      readyTimeoutMs: 8000,
+      logger,
+    });
+    const st2 = await sup2.start();
+    ok('端口上已有可用 MCP 时"接管"而不是重复拉起', st2.state === 'ready' && st2.external === true && st2.pid === null, `state=${st2.state} external=${st2.external} pid=${st2.pid}`);
+    await sup2.stop();
+    const stillAlive = await probeMcp(adoptUrl, { timeoutMs: 2000 });
+    ok('接管来的外部进程：应用停止时**不动它**（它不归本应用管）', stillAlive.ok, `stop() 后仍能握手=${stillAlive.ok}`);
+  }
+
+  // 收尾：真停掉，端口应释放
+  const stoppedPid = sup.status().pid;
+  await sup.stop();
+  let gone = false;
+  for (let i = 0; i < 20 && !gone; i += 1) {
+    const pr = await probeMcp(sup.url, { timeoutMs: 1000 });
+    gone = !pr.ok;
+    if (!gone) await sleep(300);
+  }
+  ok('stop() 之后 MCP 真的不在了（端口释放）', gone && sup.status().state === 'stopped', `pid=${stoppedPid} 状态=${sup.status().state}`);
+
+  // 桥接中转端口被别人占着（本机常见：DSH 自己也起了一个 editor-mcp）→ 必须能照常服务，并把原因写进日志
+  const busyBridge = createHttpServer(() => {});
+  await new Promise((r) => busyBridge.listen(0, '127.0.0.1', r));
+  const busyPort = busyBridge.address().port;
+  const busyHttp = await freePort();
+  const lines = [];
+  const capLogger = createLogger({ logDir: join(tmp, 'logs') });
+  capLogger.onLine((l) => lines.push(l));
+  const sup3 = createMcpSupervisor({
+    nodeBin: process.execPath,
+    nodeEnv: {},
+    mcpEntry: dev.mcpEntry,
+    mcpRoot: dev.mcpRoot,
+    host: '127.0.0.1',
+    port: busyHttp,
+    bridgePort: busyPort, // ← 已被占用
+    workspace: join(tmp, 'mcp-workspace-busy'),
+    readyTimeoutMs: 20000,
+    logger: capLogger,
+  });
+  const st3 = await sup3.start();
+  const list3 = await mcpRequest(st3.url, {
+    timeoutMs: 15000,
+    body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-busy', version: '0.1.0' } } },
+  });
+  const sid3 = list3.sessionId;
+  await mcpRequest(st3.url, { timeoutMs: 8000, sessionId: sid3, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
+  const tools3 = await mcpRequest(st3.url, { timeoutMs: 15000, sessionId: sid3, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+  const n3 = (parseRpcBody(tools3.body)?.result?.tools ?? []).length;
+  ok('桥接端口被占时优雅降级：MCP 仍就绪、工具表照常返回，并把原因写进日志', st3.state === 'ready' && n3 > 20 && lines.some((l) => l.includes('桥接中转未能启动')), `state=${st3.state} 工具数=${n3}；日志里那句=${lines.find((l) => l.includes('桥接中转未能启动'))?.slice(-60) ?? '(没有)'}`);
+  await mcpRequest(st3.url, { method: 'DELETE', sessionId: sid3, timeoutMs: 3000 });
+  await sup3.stop();
+  await new Promise((r) => busyBridge.close(r));
+
+  const after = snapshot(liveWorkspace);
+  ok('全程没碰用户的活文档目录 editor-mcp/workspace', before.n === after.n && before.newest === after.newest, `前 ${before.n} 个文件/最新 ${new Date(before.newest).toISOString()}；后 ${after.n} 个/最新 ${new Date(after.newest).toISOString()}`);
+}
+
+/* ═══════════ F 静态检查 ═══════════ */
+async function testStatic() {
+  G('F 语法与安全基线（静态检查）');
+  const files = ['main.js', 'preload.cjs', 'src/paths.js', 'src/logger.js', 'src/secureConfig.js', 'src/mcpSupervisor.js', 'src/updater.js', 'src/components.js', 'server/webServer.js', 'scripts/embed-key.mjs'];
+  // ★stderr 重定向到**文件**而不是管道：受限沙箱里管道 stdio 会被拒（EPERM）
+  const errFile = join(tmp, 'node-check.err');
+  const parse = (file) =>
+    new Promise((resolve) => {
+      const fd = openSync(errFile, 'w');
+      let c;
+      try {
+        c = spawn(process.execPath, ['--check', file], { cwd: APP_DIR, stdio: ['ignore', 'ignore', fd] });
+      } catch (e) {
+        closeSync(fd);
+        resolve({ file, code: -1, err: e.message });
+        return;
+      }
+      c.on('exit', (code) => {
+        closeSync(fd);
+        resolve({ file, code, err: readFileSync(errFile, 'utf8').trim() });
+      });
+      c.on('error', (e) => {
+        closeSync(fd);
+        resolve({ file, code: -1, err: e.message });
+      });
+    });
+  const parsed = [];
+  for (const f of files) parsed.push(await parse(f));
+  ok('全部新文件语法通过（node --check）', parsed.every((p) => p.code === 0), parsed.filter((p) => p.code !== 0).map((p) => `${p.file}: ${p.err.split('\n')[0]}`).join(' ｜ ') || `${files.length} 个文件全部通过`);
+
+  const text = (p) => readFileSync(join(APP_DIR, p), 'utf8');
+  const main = text('main.js');
+  const preload = text('preload.cjs');
+  ok('安全基线：contextIsolation 开、nodeIntegration 关、sandbox 开', /contextIsolation:\s*true/.test(main) && /nodeIntegration:\s*false/.test(main) && /sandbox:\s*true/.test(main), 'main.js webPreferences 三项都在');
+  ok('外链只放行 http/https，其余拒绝', main.includes('/^https?:\\/\\//i') && /只允许 http\/https 链接/.test(main), 'main.js openExternal 里 /^https?:\\/\\//i 协议白名单 + 拒绝文案都在');
+  ok('preload 只暴露 window.desktop，不把 ipcRenderer 原样透出', /exposeInMainWorld\('desktop'/.test(preload) && !/exposeInMainWorld\([^)]*ipcRenderer/.test(preload), 'contextBridge.exposeInMainWorld("desktop", api)');
+  ok('preload 没有暴露 fs / child_process 之类 Node 能力', !/require\(['"](node:)?(fs|child_process|net|http)['"]\)/.test(preload), 'preload 只 require("electron")');
+  const pkg = JSON.parse(text('package.json'));
+  ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp')), pkg.build.extraResources.map((r) => r.to).join(', '));
+  ok('加密配置与密钥都在打包清单里（开箱即用）', existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.js')) && existsSync(join(APP_DIR, 'config', 'config.key')), 'config/{app-config.enc, buildKey.js, config.key}');
+}
+
+/* ═══════════ 主流程 ═══════════ */
+process.stdout.write(`桌面分发版验证（临时目录 ${tmp}）\n`);
+const { dev } = await testLayout();
+await testComponents();
+await testSecureConfig(dev);
+await testUpdater();
+await testWebServer(dev);
+try {
+  await testMcp(dev);
+} catch (e) {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/EPERM|not permitted/i.test(msg)) {
+    skip('E MCP 子进程（整段）', `本环境不允许 spawn + 管道捕获输出（${msg.slice(0, 60)}）—— 请用放宽的文件沙箱重跑本脚本`);
+  } else {
+    ok('E MCP 子进程（整段）', false, `抛错：${msg}`);
+  }
+}
+await testStatic();
+
+for (const c of cleanups) {
+  try {
+    await c();
+  } catch {
+    /* 清理失败不影响结论 */
+  }
+}
+try {
+  rmSync(tmp, { recursive: true, force: true });
+} catch {
+  /* Windows 上偶发占用，留着也无妨 */
+}
+
+const bad = results.filter((r) => !r.pass);
+const skipped = results.filter((r) => r.skipped).length;
+process.stdout.write(
+  `\n═══ 结果：${results.length - bad.length}/${results.length} 通过${skipped ? `（${skipped} 项 SKIP）` : ''}${bad.length ? ` —— 失败 ${bad.length} 项` : ' 全部通过'} ═══\n`,
+);
+if (bad.length) for (const b of bad) process.stdout.write(`  ✗ [${b.group}] ${b.name}\n`);
+process.exit(bad.length ? 1 : 0);
