@@ -6,7 +6,7 @@
 |---|---|
 | `web-editor/` | **主产品**：React + TypeScript 可视化编辑器（文档模式 / Web 模式双模，A4 排版 / 导出 HTML·Word·React / 外部热加载组件 / MCP Live 联动） |
 | `editor-mcp/` | **MCP 服务器**：把编辑器接到 MCP 客户端（无头文档读写、组件/插件/资产/导出通道），Live 时通过本机桥接 hub `ws://127.0.0.1:37650/bridge` 与编辑器页面联动。分发版由 `apps/desktop/scripts/bundle-mcp.mjs` 打成**自包含单文件**（108 工具 / 23 资源 / 12 提示词），因为本机这份 `node_modules` 是指向 DSH pnpm store 的符号链接、装不进安装包 |
-| `apps/desktop/` | **桌面分发版**（Electron 外壳）：双击即用 —— 内置静态服务器（`启动编辑器.py` 的 Node 等价物）+ 随应用启动的 MCP（`http://127.0.0.1:37651/mcp`）+ 预留更新接口；配置（含更新地址）用**加密配置文件**保存 |
+| `apps/desktop/` | **桌面分发版**（Electron 外壳）：双击即用 —— 内置静态服务器（`启动编辑器.py` 的 Node 等价物）+ 随应用启动的 MCP（`http://127.0.0.1:37651/mcp`）+ 预留更新接口；配置（含更新地址）用**加密配置文件**保存。窗口是**无边框 + 标题栏覆盖**（只有一条菜单：文件/编辑/视图/页面/工具/帮助，系统的 − □ × 与网页融为一体），参考图 `apps/desktop/docs/界面-单层菜单.png` |
 | `tools/secure-config/` | **独立的加密配置工具**（零依赖，一个文件）：`keygen` / `encrypt` / `decrypt` / `verify` / `embed-key` / `selftest`。桌面版只 `import()` 它的解密函数，**不复制 crypto 代码** |
 | `.dsh/skills/visual-editor-plugin-dev/` | 本工作区的 Skill：给编辑器新增/修改**组件与插件**的规范与验收清单 |
 
@@ -36,7 +36,7 @@ cd E:\可视化编辑器\editor-mcp ; node dist/index.js --stdio
 cd E:\可视化编辑器\apps\desktop
 npm install                 # 首次要下载 Electron（约 200MB）
 npm start                   # 起窗口；MCP 会随应用一起启动
-npm run selftest            # 装完自检：真开窗加载页面 + 真连 MCP，写报告后退出（6 项）
+npm run selftest            # 装完自检：真开窗加载页面 + 真连 MCP + 界面契约，写报告后退出（9 项）
 npm run verify              # 无界面验证（75 项：布局/加密配置/更新接口/静态服务器/真拉起 MCP/单文件打包/静态检查）
 npm run dist                # 打 Windows 安装包 + 免安装版（release/）
 ```

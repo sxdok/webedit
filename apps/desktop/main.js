@@ -40,6 +40,9 @@ if (!gotLock) {
 
 app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling');
 
+/** 无边框窗口顶部「标题栏覆盖层」的高度 = 网页菜单栏那一行的高度（36px）；两边必须一致，否则按钮会错位 */
+const TITLEBAR_HEIGHT = 36;
+
 /** @type {any} 全局运行时状态（窗口/服务/监管器/更新器） */
 const runtime = {
   layout: null,
@@ -53,6 +56,11 @@ const runtime = {
   quitting: false,
   startupError: null,
   exitCode: 0,
+  /**
+   * 系统窗口按钮（最小化/最大化/关闭）的配色。首帧只能是浅色默认值 —— 主题存在网页的 localStorage 里，
+   * 主进程读不到；网页一加载就会按真实主题同步一次（`desktop:set-titlebar`），所以这里只影响极短的一瞬。
+   */
+  titleBar: { color: '#ffffff', symbolColor: '#374151' },
   /** 页面加载完成（did-finish-load）的等待句柄，自检用 */
   pageReady: null,
 };
@@ -211,7 +219,7 @@ if (gotLock) {
 
   app.whenReady().then(() => {
     registerIpc();
-    buildMenu();
+    installWindowChrome();
     boot().catch((e) => {
       runtime.startupError = e instanceof Error ? e.message : String(e);
       runtime.log?.error(`启动失败：${runtime.startupError}`);
@@ -251,15 +259,26 @@ async function shutdown() {
 
 function createWindow() {
   const url = runtime.web ? runtime.web.url + (wantCheck ? '?check=1' : '') : null;
+  /**
+   * 窗口外观：**无边框 + 标题栏覆盖**（Windows 上叫 WCO），让边框与网页连成一体：
+   *   · `titleBarStyle: 'hidden'` —— 不画原生标题栏（连带原生菜单栏也不画）；
+   *   · `titleBarOverlay`        —— 系统的最小化/最大化/关闭按钮以覆盖层画在**网页右上角**，
+   *     颜色由网页按当前主题告诉我们（`desktop:set-titlebar`，见 web-editor/src/utils/desktopChrome.ts）；
+   *   · 网页侧把菜单栏那一行声明成拖拽区（`-webkit-app-region: drag`）并给按钮留位。
+   * 这样只有**一层**菜单：网页自己的「文件/编辑/视图/页面/桌面/帮助」。
+   */
+  const barColor = runtime.titleBar.color;
   runtime.win = new BrowserWindow({
     width: 1440,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     show: false,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: barColor,
     title: runtime.cfg?.app?.title ?? '可视化编辑器',
-    autoHideMenuBar: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: barColor, symbolColor: runtime.titleBar.symbolColor, height: TITLEBAR_HEIGHT },
     webPreferences: {
       // ★必须用 fileURLToPath：直接拿 URL.pathname 在 Windows 上会变成 `/E:/…`（多一个斜杠）
       preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
@@ -380,23 +399,59 @@ async function runSelfTest() {
   if (page.ok && runtime.win) {
     try {
       const dom = await runtime.win.webContents.executeJavaScript(
-        `(() => ({
-           title: document.title,
-           rootChildren: document.getElementById('root') ? document.getElementById('root').children.length : -1,
-           panelLeft: document.querySelectorAll('[data-panel="left"]').length,
-           panelRight: document.querySelectorAll('[data-panel="right"]').length,
-           leftButtons: document.querySelectorAll('[data-panel="left"] button').length,
-           canvas: document.querySelectorAll('[data-canvas-body]').length,
-           paper: document.querySelectorAll('[data-paper]').length,
-           toolbar: document.querySelectorAll('[data-toolbar]').length,
-           textLen: (document.body.innerText || '').length
-         }))()`,
+        `(() => {
+           const bar = document.querySelector('[data-menubar]');
+           const title = bar ? bar.querySelector('span.truncate') : null;
+           const btn = document.querySelector('[data-menu]');
+           const cs = bar ? getComputedStyle(bar) : null;
+           return {
+             title: document.title,
+             rootChildren: document.getElementById('root') ? document.getElementById('root').children.length : -1,
+             panelLeft: document.querySelectorAll('[data-panel="left"]').length,
+             panelRight: document.querySelectorAll('[data-panel="right"]').length,
+             leftButtons: document.querySelectorAll('[data-panel="left"] button').length,
+             canvas: document.querySelectorAll('[data-canvas-body]').length,
+             paper: document.querySelectorAll('[data-paper]').length,
+             toolbar: document.querySelectorAll('[data-toolbar]').length,
+             textLen: (document.body.innerText || '').length,
+             desktopAttr: document.documentElement.getAttribute('data-desktop'),
+             menubarCount: document.querySelectorAll('[data-menubar]').length,
+             gapVar: document.documentElement.style.getPropertyValue('--titlebar-gap'),
+             menubarPadRight: cs ? cs.paddingRight : null,
+             menubarRegion: cs ? cs.getPropertyValue('-webkit-app-region') : null,
+             menuBtnRegion: btn ? getComputedStyle(btn).getPropertyValue('-webkit-app-region') : null,
+             titleRightGap: title ? Math.round(window.innerWidth - title.getBoundingClientRect().right) : -1,
+             menus: [...document.querySelectorAll('[data-menu]')].map((el) => el.getAttribute('data-menu')),
+           };
+         })()`,
       );
       // ⚠ 一开始我断言的是 `[data-palette]`，结果 0 —— 查源码发现那是**取色板色块**的标记
       //   （ColorControl.tsx），只有选中带颜色属性的组件时才出现；组件箱的稳定标记是 shell 上的
       //   `data-panel="left"`（App.tsx）。所以这里改查它，并顺带数一下里面的组件按钮。
       add('页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）', dom.panelLeft > 0 && dom.panelRight > 0 && dom.canvas > 0 && dom.paper > 0 && dom.toolbar > 0 && dom.leftButtons > 10, `#root 子节点=${dom.rootChildren} 左面板=${dom.panelLeft}（组件按钮 ${dom.leftButtons} 个）右面板=${dom.panelRight} 画布=${dom.canvas} 纸张=${dom.paper} 工具栏=${dom.toolbar} 正文长度=${dom.textLen} 标题=「${dom.title}」`);
       report.page = dom;
+
+      /**
+       * 无边框窗口（标题栏覆盖层）的界面契约：**只有一条菜单栏**、菜单栏是拖拽区、菜单按钮不是拖拽区、
+       * 右上角给系统的最小化/最大化/关闭按钮留了位。这几条靠网页截图看不准（系统按钮不在截图里），
+       * 所以用计算样式断言 —— 任何一条坏掉都会表现为"拖不动窗口"或"标题被按钮压住"。
+       */
+      const menus = dom.menus ?? [];
+      add(
+        '界面：只有一条菜单栏，顺序符合惯例（文件/编辑/视图/页面/工具/帮助）',
+        dom.menubarCount === 1 && menus.join('/') === '文件/编辑/视图/页面/工具/帮助',
+        `菜单栏数=${dom.menubarCount}；下拉=${menus.join(' / ')}`,
+      );
+      add(
+        '无边框窗口：菜单栏是拖拽区、菜单按钮不是（否则点不动菜单）',
+        dom.menubarRegion === 'drag' && dom.menuBtnRegion === 'no-drag',
+        `菜单栏 -webkit-app-region=${dom.menubarRegion}；菜单按钮=${dom.menuBtnRegion}；data-desktop=${dom.desktopAttr}`,
+      );
+      add(
+        '无边框窗口：右上角给系统窗口按钮留了位（标题文字不会被压住）',
+        dom.menubarPadRight === '138px' && dom.titleRightGap > 120 && dom.gapVar === '138px',
+        `菜单栏 padding-right=${dom.menubarPadRight}、--titlebar-gap=${dom.gapVar}；标题右侧余量=${dom.titleRightGap}px`,
+      );
     } catch (e) {
       add('页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）', false, e instanceof Error ? e.message : String(e));
     }
@@ -439,6 +494,28 @@ async function runSelfTest() {
 
   const failed = checks.filter((c) => !c.pass);
   report.summary = { total: checks.length, passed: checks.length - failed.length, failed: failed.length, result: failed.length ? 'FAIL' : 'PASS' };
+
+  // 可选截图：`--shot <png>`。用于核对界面本身（只有一层菜单、右上角给系统按钮留位、深浅主题配色），
+  // 这种"看出来的问题"光靠断言盖不住。
+  const shotPath = argValue('--shot');
+  if (shotPath && runtime.win && !runtime.win.isDestroyed()) {
+    try {
+      // 让截图更有信息量：先把「工具」菜单点开（能一次看到菜单项与标题栏覆盖层的关系）
+      const openMenu = argValue('--shot-menu');
+      if (openMenu && openMenu !== 'no') {
+        await runtime.win.webContents.executeJavaScript(
+          `(() => { const b = document.querySelector('[data-menu="${openMenu === 'yes' ? '工具' : openMenu}"]'); if (b) b.click(); return !!b; })()`,
+        );
+        await new Promise((r) => setTimeout(r, 350));
+      }
+      const img = await runtime.win.webContents.capturePage();
+      writeFileSync(shotPath, img.toPNG());
+      log.info(`已截图：${shotPath}（${img.getSize().width}×${img.getSize().height}）`);
+      report.shot = shotPath;
+    } catch (e) {
+      log.warn(`截图失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   const outPath = argValue('--selftest-out') || (runtime.layout?.dataRoot ? `${runtime.layout.dataRoot}\\selftest-report.json` : null);
   report.reportPath = outPath;
   try {
@@ -456,185 +533,29 @@ async function runSelfTest() {
 
 /* ══════════════════ 菜单 ══════════════════ */
 
-function buildMenu() {
-  const template = [
-    {
-      label: '文件',
-      submenu: [
-        { label: '打开数据目录', click: () => openPath(runtime.layout?.dataRoot) },
-        { label: '打开日志目录', click: () => openPath(runtime.layout?.logDir) },
-        { type: 'separator' },
-        { label: '重新加载页面', accelerator: 'CmdOrCtrl+R', click: () => runtime.win?.webContents.reload() },
-        { type: 'separator' },
-        { label: '退出', accelerator: 'CmdOrCtrl+Q', click: () => app.quit() },
-      ],
-    },
-    {
-      label: '工具',
-      submenu: [
-        { label: '检查更新…', click: () => void menuCheckUpdate() },
-        { label: '打开更新下载页', click: () => void menuOpenDownload() },
-        { type: 'separator' },
-        { label: '复制 MCP 地址', click: () => copyMcpUrl() },
-        { label: '查看 MCP 状态', click: () => void showMcpStatus() },
-        { label: '重启 MCP 服务', click: () => void restartMcp() },
-        { type: 'separator' },
-        { label: '查看当前配置（脱敏）', click: () => void showConfig() },
-      ],
-    },
-    {
-      label: '视图',
-      submenu: [
-        { role: 'resetZoom', label: '实际大小' },
-        { role: 'zoomIn', label: '放大' },
-        { role: 'zoomOut', label: '缩小' },
-        { type: 'separator' },
-        { role: 'togglefullscreen', label: '全屏' },
-        { role: 'toggleDevTools', label: '开发者工具' },
-      ],
-    },
-    {
-      label: '帮助',
-      submenu: [
-        { label: `关于 可视化编辑器 ${app.getVersion()}`, click: () => showAbout() },
-        { label: '打开日志目录', click: () => openPath(runtime.layout?.logDir) },
-      ],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
-}
-
-async function menuCheckUpdate() {
-  const win = runtime.win;
-  if (!runtime.updater) return;
-  const r = await runtime.updater.check();
-  publishStatus();
-  const msg = {
-    'update-available': `发现新版本 ${r.latestVersion}`,
-    'up-to-date': `已是最新版本（${r.currentVersion}）`,
-    disabled: '更新检查已在配置里关闭（update.enabled=false）',
-    error: '检查更新失败',
-  }[r.status];
-  const detail = [
-    `当前版本：${r.currentVersion}`,
-    `更新通道：${r.channel}`,
-    `清单地址：${maskUrl(r.manifestUrl)}`,
-    r.latestVersion ? `最新版本：${r.latestVersion}` : null,
-    r.publishedAt ? `发布时间：${r.publishedAt}` : null,
-    r.notes ? `\n更新说明：\n${r.notes}` : null,
-    r.downloadUrl ? `\n下载地址：\n${r.downloadUrl}` : null,
-    r.error ? `\n错误：${r.error}` : null,
-    r.note ? `\n说明：${r.note}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-  const buttons = r.status === 'update-available' ? ['打开下载页', '关闭'] : ['知道了'];
-  const res = await dialog.showMessageBox(win ?? undefined, {
-    type: r.status === 'error' ? 'error' : 'info',
-    title: '检查更新',
-    message: msg,
-    detail,
-    buttons,
-    defaultId: 0,
-    cancelId: buttons.length - 1,
-  });
-  if (r.status === 'update-available' && res.response === 0) await menuOpenDownload();
-}
-
-async function menuOpenDownload() {
-  const r = await runtime.updater?.openDownload();
-  if (!r?.ok) {
-    await dialog.showMessageBox(runtime.win ?? undefined, {
-      type: 'info',
-      title: '打开下载页',
-      message: '现在没有可用的下载地址',
-      detail: `${r?.error ?? ''}\n\n请先点「检查更新…」（更新地址来自加密配置，改地址不用重新打包）。`,
-    });
-  }
-}
-
-function copyMcpUrl() {
-  const url = runtime.mcp?.status().url ?? `http://${runtime.cfg?.mcp?.host ?? '127.0.0.1'}:${runtime.cfg?.mcp?.httpPort ?? 37651}/mcp`;
-  clipboard.writeText(url);
-  runtime.log?.info(`已复制 MCP 地址：${url}`);
-  if (runtime.win) void dialog.showMessageBox(runtime.win, { type: 'info', title: '已复制', message: url, detail: '把它填进支持 Streamable HTTP 的 MCP 客户端即可。' });
-}
-
-async function showMcpStatus() {
-  const st = runtime.mcp?.status();
-  if (!runtime.mcp) {
-    await dialog.showMessageBox(runtime.win ?? undefined, { type: 'info', title: 'MCP 状态', message: '本次未启动 MCP（配置 mcp.enabled=false）' });
-    return;
-  }
-  // 现场再探一次：状态里的 ready 可能是几分钟前的
-  const probe = await probeMcp(st.url, { timeoutMs: 2500 });
-  const bridgeTaken = runtime.log ? runtime.log.tail(400).some((l) => l.includes('桥接中转未能启动')) : false;
-  const detail = [
-    `运行状态：${st.state}${st.external ? '（接管了外部已在跑的进程）' : ''}`,
-    `进程号：${st.pid ?? '(不是本应用拉起的)'}`,
-    `地址：${st.url}`,
-    `桥接中转：${st.bridgeUrl}${bridgeTaken ? `　⚠ 该端口已被别的进程占用：本 MCP 的工具都能用，但编辑器页面的 Live 通道会连到那个实例上` : ''}`,
-    `自动重启次数：${st.restarts}`,
-    `握手探测：${probe.ok ? `通过（${probe.serverInfo?.name ?? '?'} ${probe.serverInfo?.version ?? ''}，协议 ${probe.protocolVersion ?? '?'}）` : `未通过（${probe.error ?? '无响应'}）`}`,
-    st.lastError ? `最近错误：${st.lastError}` : null,
-  ]
-    .filter(Boolean)
-    .join('\n');
-  const res = await dialog.showMessageBox(runtime.win ?? undefined, {
-    type: probe.ok ? 'info' : 'warning',
-    title: 'MCP 状态',
-    message: probe.ok ? 'MCP 服务可用' : 'MCP 服务当前不可用',
-    detail,
-    buttons: ['复制地址', '关闭'],
-    defaultId: 0,
-    cancelId: 1,
-  });
-  if (res.response === 0) copyMcpUrl();
-}
-
-async function restartMcp() {
-  if (!runtime.mcp) return;
-  runtime.log?.info('用户从菜单重启 MCP 服务');
-  const st = await runtime.mcp.restart();
-  publishStatus();
-  await dialog.showMessageBox(runtime.win ?? undefined, {
-    type: st.state === 'ready' ? 'info' : 'error',
-    title: '重启 MCP 服务',
-    message: st.state === 'ready' ? '已重启并就绪' : `重启后仍不可用（${st.state}）`,
-    detail: `${st.url}\n${st.lastError ?? ''}`,
-  });
-}
-
-async function showConfig() {
-  const view = runtime.configResult ? redactConfig(runtime.configResult) : null;
-  if (!view) return;
-  await dialog.showMessageBox(runtime.win ?? undefined, {
-    type: 'info',
-    title: '当前配置（脱敏）',
-    message: `来源：${view.meta.source}　密钥：${view.meta.keySource ?? '(无)'}`,
-    detail:
-      `配置文件：${view.meta.configPath ?? '(无)'}\n` +
-      `更新地址：${view.updateBaseUrlMasked}（清单 ${view.update.manifest}，通道 ${view.update.channel}）\n` +
-      `静态服务器：${view.server.host}:${view.server.port === 0 ? '自动' : view.server.port}\n` +
-      `MCP：${view.mcp.enabled ? `http://${view.mcp.host}:${view.mcp.httpPort}/mcp` : '已关闭'}（桥接 ${view.mcp.bridgePort}）\n` +
-      `密钥指纹：${view.meta.keyFingerprint ?? '(无)'}\n` +
-      (view.meta.problems.length ? `\n问题：\n${view.meta.problems.join('\n')}` : ''),
-  });
-}
-
-function showAbout() {
-  const s = buildStatus();
-  void dialog.showMessageBox(runtime.win ?? undefined, {
-    type: 'info',
-    title: '关于',
-    message: `可视化编辑器 ${s.version}`,
-    detail: [
-      `Electron ${s.electron} / Chromium ${s.chrome} / Node ${s.node}`,
-      `运行模式：${s.mode}${s.dev ? '（开发）' : ''}`,
-      `页面地址：${s.server?.url ?? '(未启动)'}`,
-      `MCP 地址：${s.mcpUrl ?? '(未启动)'}`,
-      `日志目录：${s.logDir}`,
-    ].join('\n'),
+/**
+ * 窗口外观与快捷键。
+ *   · **不设原生菜单**（`Menu.setApplicationMenu(null)`）：菜单只有一条 —— 网页自己的那条
+ *     （文件/编辑/视图/页面/桌面/帮助）。系统的最小化/最大化/关闭按钮由无边框窗口的**覆盖层**提供
+ *     （`titleBarOverlay`），颜色由网页按当前主题通过 `desktop:set-titlebar` 同步。
+ *   · 没有原生菜单就没有它带的加速键，所以**只在开发模式**下补"开发者工具 / 重新加载"两枚；
+ *     生产环境故意不补 —— 文档编辑器里误按 Ctrl+R 会丢掉未保存的内容。
+ */
+function installWindowChrome() {
+  Menu.setApplicationMenu(null);
+  const wc = runtime.win?.webContents;
+  if (!wc || !isDev) return;
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const key = String(input.key ?? '').toLowerCase();
+    const ctrl = input.control || input.meta;
+    if (key === 'f12' || (ctrl && input.shift && key === 'i')) {
+      wc.toggleDevTools();
+      event.preventDefault();
+    } else if (ctrl && input.shift && key === 'r') {
+      wc.reload();
+      event.preventDefault();
+    }
   });
 }
 
@@ -661,6 +582,25 @@ function registerIpc() {
   ipcMain.handle('desktop:mcp-probe', () => (runtime.mcp ? runtime.mcp.probe({ timeoutMs: 2500 }) : null));
   ipcMain.handle('desktop:config', () => (runtime.configResult ? redactConfig(runtime.configResult) : null));
   ipcMain.handle('desktop:open-config-file', () => openPath(runtime.layout?.configDir));
+  /**
+   * 无边框窗口的系统按钮配色：网页按当前主题读菜单栏的实际底色后告诉我们。
+   * 只认 `#rrggbb`（Windows 的 titleBarOverlay 要求不透明色），脏值一律忽略 —— 免得被页面传坏值。
+   */
+  ipcMain.handle('desktop:set-titlebar', (_e, arg) => {
+    const hex = (v) => (/^#[0-9a-f]{6}$/i.test(String(v ?? '')) ? String(v) : null);
+    const color = hex(arg?.color);
+    const symbolColor = hex(arg?.symbolColor);
+    if (!color || !symbolColor) return { ok: false, error: '颜色必须是 #rrggbb' };
+    runtime.titleBar = { color, symbolColor };
+    if (!runtime.win || runtime.win.isDestroyed()) return { ok: false, error: '窗口不存在' };
+    try {
+      runtime.win.setTitleBarOverlay({ color, symbolColor, height: TITLEBAR_HEIGHT });
+      return { ok: true, ...runtime.titleBar };
+    } catch (e) {
+      // 非 Windows / 旧版本没有这个 API：不算致命，窗口照样能用
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
   ipcMain.on('desktop:log', (_e, level, message) => {
     const lv = ['debug', 'info', 'warn', 'error'].includes(String(level)) ? String(level) : 'info';
     runtime.log?.[lv]?.(`[renderer] ${String(message).slice(0, 4000)}`);

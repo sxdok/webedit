@@ -13,8 +13,8 @@
 
 | 路径 | 作用 |
 | --- | --- |
-| `main.js` | Electron 主进程：启动顺序、窗口、菜单、IPC、退出收尾 |
-| `preload.cjs` | 唯一的桥：只暴露 `window.desktop`（看状态 / 查更新 / 开日志目录 / 重启 MCP / 发日志） |
+| `main.js` | Electron 主进程：启动顺序、**无边框窗口（标题栏覆盖层）**、IPC、退出收尾、`--selftest` |
+| `preload.cjs` | 唯一的桥：只暴露 `window.desktop`（看状态 / 查更新 / 开日志目录 / 重启 MCP / 同步窗口按钮配色 / 发日志） |
 | `server/webServer.js` | `web-editor/启动编辑器.py` 的 **Node 等价物**（分发版机器上不一定有 Python） |
 | `src/paths.js` | dev / 安装包两套路径布局；**所有可写数据都落 userData** |
 | `src/components.js` | 组件目录落地：分发版把随包组件**种子**拷进 `userData/组件`（安装目录只读，导入组件包要能写） |
@@ -28,13 +28,49 @@
 | `scripts/bundle-mcp.mjs` | 把 `editor-mcp` 打成**自包含单文件**（分发版唯一可靠形态，见「打包」一节） |
 | `dist-mcp/` | 上面那个脚本的产物（`editor-mcp.bundle.mjs`，约 2.4MB，已 gitignore） |
 
+## 界面：只有一层菜单（无边框窗口）
+
+桌面版**没有**原生标题栏与原生菜单 —— 用 Electron 的「隐藏标题栏 + 标题栏覆盖层」（Windows 上叫 WCO）：
+
+```js
+titleBarStyle: 'hidden',                                   // 不画原生标题栏（连带原生菜单栏）
+titleBarOverlay: { color, symbolColor, height: 36 },       // 系统的最小化/最大化/关闭按钮画在网页右上角
+Menu.setApplicationMenu(null)                              // 不设原生菜单
+```
+
+网页侧配合三件事（见 `web-editor/src/utils/desktopChrome.ts` 与 `src/index.css`）：
+
+1. 菜单栏那一行声明为**窗口拖拽区**（`-webkit-app-region: drag`），里面的按钮/输入框自动 `no-drag`
+   （否则菜单点不动）；
+2. 右上角给那三颗系统按钮**留出 138px**（`--titlebar-gap`），标题文字不会被压在按钮下面；
+3. **主题一变就同步按钮颜色**：读菜单栏的实际计算样式 → `desktop:set-titlebar` →
+   主进程 `win.setTitleBarOverlay()`。颜色不写死，浅色/深色主题（light / monokai）自动跟着变；
+   主进程只接受 `#rrggbb`，脏值忽略。
+
+于是菜单只剩网页自己的那一条：**文件 / 编辑 / 视图 / 页面 / 桌面 / 帮助**。其中「桌面」是**只有桌面版才有**的
+下拉（浏览器里 `window.desktop` 不存在，整个下拉不渲染 —— 网页版行为完全没变）：
+
+| 项 | 说明 |
+| --- | --- |
+| 检查更新… / 打开更新下载页 | 走加密配置里的 `update.baseUrl` |
+| 复制 MCP 地址 | 给外部 AI 客户端填的 `http://127.0.0.1:<port>/mcp` |
+| MCP 服务状态 | 现场再做一次 `initialize` 握手探测，报状态/进程号/桥接端口/最近错误 |
+| 重启 MCP 服务 | 菜单里就能重启，不用重启整个应用 |
+| 打开日志目录 / 数据目录 / 配置目录 | 让用户自己去看现场（桌面版没有终端） |
+| 关于 | 版本、Electron/Chromium/Node、页面与 MCP 地址、配置来源与提醒 |
+
+> 没有原生菜单就没有它带的加速键，所以**只在开发模式**补了 `F12`/`Ctrl+Shift+I`（开发者工具）与
+> `Ctrl+Shift+R`（重新加载）；生产环境**故意不补** —— 文档编辑器里误按 `Ctrl+R` 会丢掉没保存的内容。
+> 首帧的窗口按钮是浅色默认值（主题存在网页 localStorage 里，主进程读不到），网页一加载就会同步成真实主题。
+
+
 ## 加密配置（更新地址等都在里面）
 
 ```
 config/app-config.example.json   ← 明文源（改这个，人看）
 config/config.key                ← AES-256-GCM 密钥（base64 的 32 字节）
 config/app-config.enc            ← 应用真正读的加密配置
-config/buildKey.js               ← 构建期兜底密钥（找不到 config.key 时用）
+config/buildKey.mjs              ← 构建期兜底密钥（找不到 config.key 时用；**必须 .mjs**，见「打包」）
 ```
 
 加密/解密由**独立工具** [`tools/secure-config`](../../tools/secure-config/) 完成，本目录**不复制任何 crypto 代码**，
@@ -79,7 +115,7 @@ npm run dist
   要上线时在这里接。现在只把用户送到下载地址，不假装能自动升级。
 * 下载地址只允许 `http(s)`：配置文件被改成 `file://` 或自定义协议时会被拒绝执行。
 
-菜单：`工具 → 检查更新… / 打开更新下载页 / 复制 MCP 地址 / 查看 MCP 状态 / 重启 MCP 服务 / 查看当前配置（脱敏）`。
+菜单：`工具 → 检查更新… / 打开更新下载页 / 复制 MCP 地址 / MCP 服务状态 / 重启 MCP 服务 / 打开日志·数据·配置目录 / 关于（版本 / 运行环境）`。
 
 ## 外部 AI 怎么连
 
@@ -100,7 +136,7 @@ npm install          # 会下载 Electron（约 200MB）
 npm start            # 跑（读仓库里的 web-editor/dist 与 editor-mcp/dist）
 npm run dev          # 同上（显式开发模式，日志里会标 dev）
 npm run check        # 以 ?check=1 启动：界面右下角跑数据层/渲染层自检
-npm run selftest     # 装完自检：真开窗加载页面 + 真连 MCP，写报告后退出（装到别人机器上排障就靠它）
+npm run selftest     # 装完自检：真开窗加载页面 + 真连 MCP + 界面契约，写报告后退出（9 项）
 npm run verify       # 无界面验证（75 项，不需要 Electron）
 npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 ```
@@ -111,17 +147,27 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 `可视化编辑器.exe --selftest --selftest-out 报告.json`，就能拿到一份可发回来的报告：
 
 ```json
-{ "summary": { "total": 6, "passed": 6, "failed": 0, "result": "PASS" },
-  "checks": [ { "name": "页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）", "pass": true,
-                "evidence": "#root 子节点=1 左面板=1（组件按钮 20 个）右面板=1 画布=1 纸张=1 工具栏=1 正文长度=1002 标题=「可视化编辑器 · 文档模式 / Web 模式」" },
+{ "summary": { "total": 9, "passed": 9, "failed": 0, "result": "PASS" },
+  "checks": [ { "name": "界面：只有一条菜单栏，顺序符合惯例（文件/编辑/视图/页面/工具/帮助）", "pass": true,
+                "evidence": "菜单栏数=1；下拉=文件 / 编辑 / 视图 / 页面 / 工具 / 帮助" },
+              { "name": "无边框窗口：右上角给系统窗口按钮留了位（标题文字不会被压住）", "pass": true,
+                "evidence": "菜单栏 padding-right=138px、--titlebar-gap=138px；标题右侧余量=936px" },
               { "name": "外部 AI 客户端能列出工具（tools/list）", "pass": true,
                 "evidence": "工具数=108（例：doc.create, doc.open, doc.close）" } ] }
 ```
 
-它验的 6 件事：加密配置能解开且无致命问题 → 静态服务器 200 → **页面真的渲染出编辑器界面**
+它验的 9 件事：加密配置能解开且无致命问题 → 静态服务器 200 → **页面真的渲染出编辑器界面**
 （查 `data-panel="left|right"` / `data-canvas-body` / `data-paper` / `data-toolbar` 这些稳定标记，
-并数组件按钮，不是"窗口开了就算"）→ MCP 就绪 → `initialize` + `tools/list` 拿到 108 个工具 →
+并数组件按钮，不是"窗口开了就算"）→ **只有一条菜单栏且顺序符合惯例** → **菜单栏是拖拽区、菜单按钮不是**
+→ **右上角给系统窗口按钮留了位** → MCP 就绪 → `initialize` + `tools/list` 拿到 108 个工具 →
 更新接口配置可解析（**不联网**，自检不该依赖外网）。退出码 0/1。
+
+后三条是本轮加"无边框窗口"时补的界面契约：这几件事**靠网页截图看不准**（系统那三颗按钮不在
+`capturePage` 的结果里），所以直接用计算样式断言；任何一条坏掉都会表现为"拖不动窗口"或"标题被按钮压住"。
+
+另有 `--shot <png>`：跑自检时把窗口内容截一张图（配合 `--shot-menu 工具` 会把「工具」菜单点开再截），
+用来核对"看出来的问题"。系统级的三颗窗口按钮要用 OS 抓屏（`capturePage` 拍不到），
+参考图见 [`docs/界面-单层菜单.png`](docs/界面-单层菜单.png)。
 
 > 踩过的坑：一开始断言的是 `[data-palette]`，结果 0 —— 查源码发现那是**取色板色块**的标记
 > （`ColorControl.tsx`），只有选中带颜色属性的组件时才出现；组件箱的稳定标记是 shell 上的

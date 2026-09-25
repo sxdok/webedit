@@ -32,6 +32,7 @@ import {
 } from '../../utils/pluginPackage';
 import { bridgeSummary, isBridgeEnabled, setBridgeEnabled, useBridgeSummary, waitBridgeSettled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
+import { desktopApi, formatUpdateResult } from '../../utils/desktopChrome';
 import { DropdownMenu, MenuBarShell, type MenuEntry } from '../ui/Menu';
 import { Modal, SHORTCUTS } from '../ui/Modal';
 
@@ -218,6 +219,94 @@ export function MenuBar() {
           { key: 'bg-monokai', label: '画布背景 Monokai #272822', checked: canvas.background === '#272822', onClick: () => S().setCanvasProp('background', '#272822') },
         ];
 
+  /* ── 桌面版（Electron）专属菜单：惯例放在「页面」与「帮助」之间，叫「工具」──
+     桌面版没有原生菜单栏（无边框窗口把标题栏与菜单栏都去掉了，系统按钮画在网页右上角），
+     所以"检查更新 / MCP 服务 / 日志目录"这些**应用级**动作放在这里；浏览器里这个菜单不出现
+     （`window.desktop` 不存在）—— 也就是说网页版的行为完全没变。 */
+  const ds = desktopApi();
+  const desktopMenu: MenuEntry[] = ds
+    ? [
+        {
+          key: 'd-update',
+          label: '检查更新…',
+          onClick: () => {
+            void ds.checkUpdate().then((r) => setNotice(formatUpdateResult(r)));
+          },
+        },
+        {
+          key: 'd-download',
+          label: '打开更新下载页',
+          onClick: () => {
+            void ds.openDownload().then((r) => setNotice(r.ok ? `已在系统浏览器里打开：\n${r.url}` : `打不开下载页：\n${r.error ?? '当前没有可用的下载地址（先点「检查更新…」）'}`));
+          },
+        },
+        { key: 'd1', separator: true },
+        {
+          key: 'd-mcp-url',
+          label: '复制 MCP 地址（给外部 AI 客户端）',
+          onClick: () => {
+            void ds.copyMcpUrl().then((url) => setNotice(url ? `已复制到剪贴板：\n${url}\n\n把它填进支持 Streamable HTTP 的 MCP 客户端即可。` : 'MCP 没启动：配置里 mcp.enabled=false 或启动失败（「MCP 服务状态」可看原因）。'));
+          },
+        },
+        {
+          key: 'd-mcp-status',
+          label: 'MCP 服务状态（现场握手探测）',
+          onClick: () => {
+            void Promise.all([ds.getStatus(), ds.probeMcp()]).then(([s, p]) => {
+              const m = s.mcp;
+              setNotice(
+                [
+                  `运行状态：${m ? `${m.state}${m.external ? '（接管了外部已在跑的进程）' : ''}` : '(未启动)'}`,
+                  `进程号：${m?.pid ?? '(不是本应用拉起的)'}`,
+                  `地址：${m?.url ?? '-'}`,
+                  `桥接中转：${m?.bridgeUrl ?? '-'}`,
+                  `自动重启次数：${m?.restarts ?? 0}`,
+                  `握手探测：${p?.ok ? `通过（${p.serverInfo?.name ?? '?'} ${p.serverInfo?.version ?? ''}，协议 ${p.protocolVersion ?? '?'}）` : `未通过（${p?.error ?? '无响应'}）`}`,
+                  m?.lastError ? `最近错误：${m.lastError}` : '',
+                ]
+                  .filter(Boolean)
+                  .join('\n'),
+              );
+            });
+          },
+        },
+        {
+          key: 'd-mcp-restart',
+          label: '重启 MCP 服务',
+          onClick: () => {
+            void ds.restartMcp().then((st) => setNotice(st ? `已重启：${st.state}\n${st.url}${st.lastError ? `\n错误：${st.lastError}` : ''}` : 'MCP 未启用。'));
+          },
+        },
+        { key: 'd2', separator: true },
+        { key: 'd-logdir', label: '打开日志目录', onClick: () => void ds.openLogDir().then((r) => setNotice(`日志目录：\n${r.path ?? '-'}${r.error ? `\n（打开失败：${r.error}）` : ''}`)) },
+        { key: 'd-datadir', label: '打开数据目录（文档 / 组件）', onClick: () => void ds.openDataDir().then((r) => setNotice(`数据目录：\n${r.path ?? '-'}${r.error ? `\n（打开失败：${r.error}）` : ''}`)) },
+        { key: 'd-confdir', label: '打开配置目录（加密配置）', onClick: () => void ds.openConfigDir().then((r) => setNotice(`配置目录：\n${r.path ?? '-'}${r.error ? `\n（打开失败：${r.error}）` : ''}`)) },
+        { key: 'd3', separator: true },
+        {
+          key: 'd-about',
+          label: '关于（版本 / 运行环境）',
+          onClick: () => {
+            void ds.getStatus().then((s) => {
+              setNotice(
+                [
+                  `可视化编辑器 ${s.version} —— By Sxdok\n（桌面版 · ${s.mode === 'packaged' ? '已安装' : '开发模式'}）`,
+                  `Electron ${s.electron} / Chromium ${s.chrome} / Node ${s.node}`,
+                  `页面地址：${s.server?.url ?? '(未启动)'}`,
+                  `MCP 地址：${s.mcpUrl ?? '(未启动)'}`,
+                  `日志目录：${s.logDir ?? '-'}`,
+                  `配置来源：${s.config?.meta.source ?? '-'}（密钥：${s.config?.meta.keySource ?? '-'}）`,
+                  s.config?.meta.warnings?.length ? `\n配置提醒：\n${s.config.meta.warnings.join('\n')}` : '',
+                  s.config?.meta.problems?.length ? `\n配置问题：\n${s.config.meta.problems.join('\n')}` : '',
+                ]
+                  .filter(Boolean)
+                  .join('\n'),
+              );
+            });
+          },
+        },
+      ]
+    : [];
+
   const helpMenu: MenuEntry[] = [
     { key: 'sc', label: '快捷键说明', onClick: () => setHelpOpen(true) },
     // ★MCP 桥接（规格 §11）：默认不开；开了之后 MCP 客户端就能驱动这个编辑器
@@ -331,16 +420,17 @@ export function MenuBar() {
         });
       },
     },
-    { key: 'about', label: '关于：布局参照 Qt Designer，双模式可视化编辑器', disabled: true },
+    { key: 'about', label: '关于：布局参照 Qt Designer，双模式可视化编辑器 —— By Sxdok', disabled: true },
   ];
 
   return (
-    <MenuBarShell>
+    <MenuBarShell desktop={ds != null}>
       <span className="mr-2 select-none text-[13px] font-semibold text-primary">可视化编辑器</span>
       <DropdownMenu label="文件" items={fileMenu} />
       <DropdownMenu label="编辑" items={editMenu} />
       <DropdownMenu label="视图" items={viewMenu} />
       <DropdownMenu label="页面" items={pageMenu} />
+      {ds && <DropdownMenu label="工具" items={desktopMenu} />}
       <DropdownMenu label="帮助" items={helpMenu} />
       <span className="ml-3 truncate text-2xs text-gray-400">
         {title} · {mode === 'document' ? '文档模式' : 'Web 模式'}

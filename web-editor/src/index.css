@@ -497,3 +497,18 @@ html[data-theme='monokai'] .zoom-pill button:hover {
 [data-theme='monokai'] .prop-row-flash { background: #24405e !important; }
 [data-theme='monokai'] .prop-group-head { background: #34352c; }
 [data-theme='monokai'] .prop-group-head:hover { background: #3e3d32; }
+/* ══════════ 桌面版（Electron）无边框窗口适配 ══════════
+   桌面版用 `titleBarStyle:'hidden'` + Windows 的 titleBarOverlay：原生标题栏与菜单栏都不画，
+   系统的最小化/最大化/关闭按钮由 Electron 画在网页右上角。所以：
+     · 「可拖拽区」要在网页里声明（`.app-drag`），并且**里面的可点元素必须 no-drag**，否则菜单点不动；
+     · 右上角要给那三颗按钮留位（`.app-titlebar-gap`，宽度由 JS 写在 --titlebar-gap 上）。
+   只有挂上 `data-desktop="1"`（由 utils/desktopChrome.ts 设置）时才生效，浏览器里完全不受影响。 */
+html[data-desktop='1'] .app-drag { -webkit-app-region: drag; }
+html[data-desktop='1'] .app-drag button,
+html[data-desktop='1'] .app-drag a,
+html[data-desktop='1'] .app-drag input,
+html[data-desktop='1'] .app-drag select,
+html[data-desktop='1'] .app-drag textarea,
+html[data-desktop='1'] .app-drag [role='button'],
+html[data-desktop='1'] .app-no-drag { -webkit-app-region: no-drag; }
+html[data-desktop='1'] .app-titlebar-gap { padding-right: var(--titlebar-gap, 138px); }

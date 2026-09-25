@@ -87,8 +87,19 @@ export function DropdownMenu({ label, items }: { label: string; items: MenuEntry
   );
 }
 
-export function MenuBarShell({ children }: { children: ReactNode }) {
+/**
+ * 菜单栏外壳。
+ * 桌面版（Electron 无边框窗口）里这一行同时是**窗口拖拽区**：`.app-drag` 声明可拖，
+ * 里面的按钮由 CSS 自动 no-drag（见 index.css 的 `html[data-desktop='1']` 规则）；
+ * `.app-titlebar-gap` 给系统的最小化/最大化/关闭按钮留出右上角的位置。
+ */
+export function MenuBarShell({ children, desktop = false }: { children: ReactNode; desktop?: boolean }) {
   return (
-    <div className="no-print flex items-center gap-0.5 border-b border-line bg-white px-2 py-1">{children}</div>
+    <div
+      data-menubar="1"
+      className={`no-print flex items-center gap-0.5 border-b border-line bg-white px-2 py-1${desktop ? ' app-drag app-titlebar-gap' : ''}`}
+    >
+      {children}
+    </div>
   );
 }

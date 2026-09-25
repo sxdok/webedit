@@ -22,9 +22,14 @@ import { runSelfCheck } from './store/selfCheck';
 import { useEditorStore } from './store/editorStore';
 import { getForest } from './store/treeUtils';
 import { installGlobalDiagnostics, log, type LogLevel } from './utils/logger';
+import { installDesktopChrome } from './utils/desktopChrome';
 import { loadRuntimeComponents } from './registry/live';
 
 const params = new URLSearchParams(location.search);
+
+// 桌面版（Electron）外壳适配：无边框窗口的拖拽区、系统窗口按钮配色、`<html data-desktop>` 标记。
+// 浏览器里是空操作（`window.desktop` 不存在），所以网页版行为不受影响。
+installDesktopChrome();
 
 // 日志：先恢复上次会话尾部（崩溃后仍能看到现场），再装全局错误捕获
 const restored = log.restorePersisted();

@@ -51,6 +51,13 @@ const api = {
   restartMcp: () => ipcRenderer.invoke('desktop:restart-mcp'),
   probeMcp: () => ipcRenderer.invoke('desktop:mcp-probe'),
   getConfig: () => ipcRenderer.invoke('desktop:config'),
+  /**
+   * 同步系统窗口按钮（最小化/最大化/关闭）的颜色 —— 无边框窗口的「标题栏覆盖层」用。
+   * 网页按当前主题读菜单栏的实际底色后调用它；主进程只接受 `#rrggbb`。
+   */
+  setTitleBar: (o) => {
+    void ipcRenderer.invoke('desktop:set-titlebar', { color: String(o?.color ?? ''), symbolColor: String(o?.symbolColor ?? '') });
+  },
   /** 前端把日志交给主进程一起落盘（浏览器里没有这个能力，前端应自己判空） */
   log: (level, message) => ipcRenderer.send('desktop:log', String(level), String(message)),
 };

@@ -15,6 +15,7 @@ apps/desktop/.dist.log
 apps/desktop/.dist-debug.log
 apps/desktop/.portable-selftest.json
 apps/desktop/.selftest-report.json
+apps/desktop/.shot-*.png
 
 # Python 运行时缓存（启动器无需编译，删除后会自动重建）
 __pycache__/
