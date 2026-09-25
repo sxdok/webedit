@@ -5327,15 +5327,28 @@ async function interactionChecks(): Promise<Result[]> {
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
     const rowName = (i: number): string => String(document.querySelector(`[data-image-row-name="${i}"]`)?.textContent ?? '').trim();
+    /** 第 1 行里这些元素在 DOM 里的先后顺序（用来核对用户 2026-09-24 给的排版） */
+    const rowOrder = (): string[] =>
+      [
+        ...(document.querySelector('[data-image-row="1"]')?.querySelectorAll(
+          '[data-image-row-name],[data-image-row-rotate],[data-image-row-angle],[data-image-row-file],[data-image-row-src],[data-image-row-caption],[data-image-row-add],[data-image-row-remove]',
+        ) ?? []),
+      ].map((el) => {
+        const a = [...el.attributes].map((x) => x.name).find((n) => n.startsWith('data-image-row-'));
+        return (a ?? '').replace('data-image-row-', '');
+      });
     add(
-      '图片属性只有"一行一张图"这一个入口：默认 1 行，行首写「图片1」，行尾 🖼（选本地文件）/ ＋ / −',
+      '图片行排版：`图片N ◌旋转 ▩选图 地址 图题`；＋ 只在第 1 行，**没加过行时不显示 −**（用户 2026-09-24 指定）',
       !!rowsEl &&
         count() === 1 &&
         !!srcInput(1) &&
         !!document.querySelector('[data-image-row-caption="1"]') &&
         !!document.querySelector('[data-image-row-file="1"]') &&
-        rowName(1) === '图片1',
-      `行数=${count()}；行首=「${rowName(1)}」；地址框=${!!srcInput(1)}；图题框=${!!document.querySelector('[data-image-row-caption="1"]')}；选文件按钮=${!!document.querySelector('[data-image-row-file="1"]')}`,
+        !!document.querySelector('[data-image-row-rotate="1"]') &&
+        rowName(1) === '图片1' &&
+        rowOrder().join('>') === 'name>rotate>file>src>caption>add' &&
+        document.querySelector('[data-image-row-remove="1"]') === null,
+      `行数=${count()}；顺序=${rowOrder().join(' > ')}；− 存在=${!!document.querySelector('[data-image-row-remove="1"]')}`,
     );
     add(
       '图片行编辑器不再显示底部说明文字（用户 2026-09-24：描述由属性名与悬停气泡承担）',
@@ -5361,20 +5374,104 @@ async function interactionChecks(): Promise<Result[]> {
       `行数=${count()}；第 2 行行首=「${rowName(2)}」；props.images=「${afterAdd.replace(/\n/g, ' / ')}」`,
     );
 
-    // 加到 5 张后 ＋ 禁用；再点也不涨
+    // 加到 5 张后 ＋ 禁用；再点也不涨（★＋ 只挂第 1 行，所以固定点第 1 行那个）
     for (let i = 0; i < 5; i += 1) {
-      const addBtn = document.querySelector(`[data-image-row-add="${count()}"]`) as HTMLButtonElement | null;
+      const addBtn = document.querySelector('[data-image-row-add="1"]') as HTMLButtonElement | null;
       addBtn?.click();
       await wait(160);
     }
-    const capAdd = document.querySelector('[data-image-row-add="5"]') as HTMLButtonElement | null;
+    const capAdd = document.querySelector('[data-image-row-add="1"]') as HTMLButtonElement | null;
     add(
       '最多 5 张：加到 5 行后 ＋ 自动禁用（再点也不涨）',
       count() === 5 && capAdd?.disabled === true,
-      `行数=${count()}；第 5 行 ＋ 的 disabled=${String(capAdd?.disabled)}`,
+      `行数=${count()}；第 1 行 ＋ 的 disabled=${String(capAdd?.disabled)}`,
     );
 
-    // − 减行；只剩 1 行时 − 禁用
+    /* ── ★每行图片单独可旋转（用户 2026-09-24：「图片组件每行单独支持旋转」，◌ 图标按钮）── */
+    {
+      const propsNow = (): Record<string, unknown> => findNode(getForest(S().doc), rowsNode ?? '')?.props ?? {};
+      /** ★只查**可见节点**里的 figure：离屏测量层也渲染同一组件（它没有 data-node-id），
+          不限定节点会量到那份（自检第一版就是这么误报的） */
+      const figs = (): HTMLElement[] =>
+        [...document.querySelectorAll(`[data-node-id="${rowsNode}"] [data-image-gallery="1"] figure`)] as HTMLElement[];
+      const rotBtn = (i: number): HTMLButtonElement | null =>
+        document.querySelector(`[data-image-row-rotate="${i}"]`) as HTMLButtonElement | null;
+      /** 按钮上的 `data-image-row-rot` 就是"当前渲染出来的角度"，用它跟点击序列对账 */
+      const btnRot = (i: number): string => rotBtn(i)?.getAttribute('data-image-row-rot') ?? '（无按钮）';
+      const figRot = (i: number): string => figs()[i]?.getAttribute('data-image-rot') ?? '0';
+      /** 用 style **属性串**核对（`img.style.transform` 在某些情形下读不到，且属性串才是导出物里那一份） */
+      const figStyle = (i: number): string => (figs()[i]?.querySelector('img') as HTMLElement | null)?.getAttribute('style') ?? '';
+
+      rotBtn(2)?.click();
+      await wait(900); // 画布是 React 渲染，给足一帧多一点（面板是同步的，画布要等这次更新落到视图）
+      const one = {
+        rots: String(propsNow().imageRotations ?? ''),
+        images: String(propsNow().images ?? '').replace(/\n/g, '¶'),
+        btn2: btnRot(2),
+        figCount: figs().length,
+        galleryCount: document.querySelectorAll('[data-image-gallery="1"]').length,
+        fig0rot: figRot(0),
+        fig1rot: figRot(1),
+        fig1style: figStyle(1),
+        fig0style: figStyle(0),
+        allRotAttrs: [...document.querySelectorAll('[data-image-rot]')].map((e) => e.getAttribute('data-image-rot')).join(','),
+      };
+      add(
+        '每行图片单独旋转：点第 2 行的 ◌ → **只有第 2 行** +90°（props / 面板按钮 / 画布三处对得上）',
+        one.rots === '0\n90\n0\n0\n0' &&
+          one.btn2 === '90' &&
+          one.fig1rot === '90' &&
+          one.fig1style.includes('rotate(90deg)') &&
+          one.fig0rot === '0' &&
+          !one.fig0style.includes('rotate'),
+        `props.imageRotations=「${one.rots.replace(/\n/g, ' / ')}」（images=「${one.images}」）；按钮=${one.btn2}°；画布里 figure=${one.figCount}（gallery=${one.galleryCount}、带 rot 属性的=${one.allRotAttrs || '无'}）；第1张 rot=${one.fig0rot}、第2张 rot=${one.fig1rot} style 尾=「${one.fig1style.slice(-34)}」`,
+      );
+
+      // 循环：90 →(点)→ 180 →(点)→ 270 →(点)→ 0；再单独验"角度小标点一下归零"
+      const seq: string[] = [];
+      let badgeAt270 = '';
+      for (let i = 0; i < 3; i += 1) {
+        rotBtn(2)?.click();
+        await wait(600);
+        const r = btnRot(2);
+        seq.push(r);
+        if (r === '270') badgeAt270 = (document.querySelector('[data-image-row-angle="2"]')?.textContent ?? '').trim();
+      }
+      rotBtn(2)?.click(); // 回到 90，准备用小标归零
+      await wait(600);
+      const beforeBadge = btnRot(2);
+      (document.querySelector('[data-image-row-angle="2"]') as HTMLElement | null)?.click();
+      await wait(600);
+      const afterBadge = { btn2: btnRot(2), rots: String(propsNow().imageRotations ?? ''), fig1rot: figRot(1) };
+      add(
+        '旋转按 90° 循环（90→180→270→0），且**角度小标点一下归零**（画布与 props 一起清掉）',
+        seq.join('>') === '180>270>0' &&
+          badgeAt270 === '270°' &&
+          beforeBadge === '90' &&
+          afterBadge.btn2 === '0' &&
+          afterBadge.rots === '' &&
+          afterBadge.fig1rot === '0',
+        `点击序列=${seq.join(' → ')}；到 270° 时小标=「${badgeAt270}」；点小标前按钮=${beforeBadge}°；点小标后按钮=${afterBadge.btn2}°、props=「${afterBadge.rots}」、画布第2张 rot=${afterBadge.fig1rot}`,
+      );
+
+      // 旋转要进导出物（导出走的是同一个 render，inline style 里应当有 rotate）
+      rotBtn(1)?.click();
+      await wait(420);
+      const htmlOut = S().exportHTML();
+      const exported = htmlOut.includes('rotate(90deg)');
+      add(
+        '旋转进导出物：导出的 HTML 里那张图带 `rotate(90deg)`',
+        exported,
+        `导出 HTML ${htmlOut.length} 字符；含 rotate(90deg)=${exported}`,
+      );
+      for (let i = 0; i < 3; i += 1) {
+        rotBtn(1)?.click();
+        await wait(200);
+      } // 转回 0°
+      await wait(260);
+    }
+
+    // − 减行；只剩 1 行时 − 不再渲染（用户 2026-09-24：没加行时不显示 −）
     (document.querySelector('[data-image-row-remove="3"]') as HTMLElement | null)?.click();
     await wait(240);
     const afterRemove = count();
@@ -5385,9 +5482,9 @@ async function interactionChecks(): Promise<Result[]> {
     }
     const oneRemove = document.querySelector('[data-image-row-remove="1"]') as HTMLButtonElement | null;
     add(
-      '点行尾 − 减一行；只剩 1 行时 − 禁用（不会删空）',
-      afterRemove === 4 && count() === 1 && oneRemove?.disabled === true,
-      `减一次后 ${afterRemove} 行 → 连减到 ${count()} 行；最后一行 − 的 disabled=${String(oneRemove?.disabled)}`,
+      '点行尾 − 减一行；**只剩 1 行时 − 整个不渲染**（不会删空，也没有灰按钮占位）',
+      afterRemove === 4 && count() === 1 && oneRemove === null,
+      `减一次后 ${afterRemove} 行 → 连减到 ${count()} 行；最后一行还有 −=${oneRemove !== null}`,
     );
 
     // 老文档：只填了 `src`（老的单图写法）—— 面板照样当第 1 行显示，一编辑就迁移进 `images`

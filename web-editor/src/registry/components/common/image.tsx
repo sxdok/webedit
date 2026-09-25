@@ -37,6 +37,63 @@ export function parseImageLines(raw: unknown): { src: string; caption: string }[
 export interface ImageItem {
   src: string;
   caption: string;
+  /** 这张图的旋转角度（0/90/180/270…，顺时针；用户 2026-09-24：每行图片单独可旋转） */
+  rot?: number;
+}
+
+/**
+ * `props.imageRotations`（一行一个角度，与 `images` 的行**一一对齐**）→ 角度数组。
+ * 空串/缺行 = 0；非法值也当 0。归一化到 0…359。
+ */
+export function parseImageRotations(raw: unknown): number[] {
+  const text = String(raw ?? '');
+  if (text === '') return [];
+  return text.split(/\r?\n/).map((l) => {
+    const n = Number.parseFloat(l.trim());
+    return Number.isFinite(n) ? ((Math.round(n) % 360) + 360) % 360 : 0;
+  });
+}
+
+/**
+ * `images` + `imageRotations` → 真正要渲染的图（**按行对齐后再丢掉空行**）。
+ * ★顺序不能反：`imageRotations` 是按"面板里的行号"存的，必须先在**行**上配对，再和 `images` 一起丢掉空行，
+ *   否则中间空一行就会把后面所有图的角度错位一格。
+ */
+export function parseImageItems(images: unknown, rotations: unknown): ImageItem[] {
+  const rots = parseImageRotations(rotations);
+  const out: ImageItem[] = [];
+  String(images ?? '')
+    .split(/\r?\n/)
+    .forEach((line, i) => {
+      const l = line.trim();
+      if (l === '') return;
+      const j = l.indexOf('|');
+      const src = (j < 0 ? l : l.slice(0, j)).trim();
+      if (src === '') return;
+      out.push({ src, caption: j < 0 ? '' : l.slice(j + 1).trim(), rot: rots[i] ?? 0 });
+    });
+  return out;
+}
+
+/** 归一化角度（0…359） */
+function normRot(rot: number | undefined): number {
+  const n = Number(rot ?? 0);
+  return Number.isFinite(n) ? ((Math.round(n) % 360) + 360) % 360 : 0;
+}
+
+/**
+ * 旋转的 CSS：0° 什么都不做；90°/270° 额外把图片框变成**正方形**（`object-fit: contain`）——
+ * 正方形绕中心转 90° 还是它自己，所以旋转后的图仍然落在原来的格子里，不会顶出去压到邻居；
+ * 好处是**不需要知道图片的原始宽高比**（导出物是静态 HTML，拿不到 naturalWidth）。
+ */
+function rotateStyle(rot: number | undefined): React.CSSProperties {
+  const r = normRot(rot);
+  if (!r) return {};
+  return {
+    transform: `rotate(${r}deg)`,
+    transformOrigin: 'center center',
+    ...(r % 180 !== 0 ? { aspectRatio: '1 / 1', height: 'auto' } : {}),
+  };
 }
 
 /** 图集渲染（image 的多图模式与 imagePair 共用） */
@@ -92,13 +149,14 @@ export function renderImageGallery(
     return (
       <figure
         data-width-box="1"
+        data-image-rot={normRot(one?.rot) || undefined}
         style={{ margin: 0, display: 'flex', flexDirection: 'column', alignItems: alignMap[opts.align] }}
       >
         {one?.src ? (
           <img
             src={one.src}
             alt={one.caption || opts.alt || ''}
-            style={{ ...box, height: opts.heightAuto ? 'auto' : opts.height }}
+            style={{ ...box, height: opts.heightAuto ? 'auto' : opts.height, ...rotateStyle(one.rot) }}
           />
         ) : (
           placeholder('点击上传图片（在右侧属性面板选择本地文件或填地址）', w, opts.heightAuto ? 140 : opts.height)
@@ -122,7 +180,11 @@ export function renderImageGallery(
         style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: opts.gap }}
       >
         {items.map((it, i) => (
-          <figure key={i} style={{ margin: 0, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+          <figure
+            key={i}
+            data-image-rot={normRot(it.rot) || undefined}
+            style={{ margin: 0, display: 'flex', flexDirection: 'column', minWidth: 0 }}
+          >
             {it.src ? (
               <img
                 src={it.src}
@@ -134,6 +196,7 @@ export function renderImageGallery(
                   border,
                   height: opts.heightAuto ? 'auto' : opts.height,
                   objectFit: 'contain',
+                  ...rotateStyle(it.rot),
                 }}
               />
             ) : (
@@ -157,8 +220,10 @@ export function renderImageGallery(
 }
 
 function ImageBody(props: ComponentProps, ctx: RenderContext) {
-  const gallery = parseImageLines(props.images);
-  const single: ImageItem[] = [{ src: asString(props.src), caption: asString(props.caption) }];
+  const gallery = parseImageItems(props.images, props.imageRotations);
+  const single: ImageItem[] = [
+    { src: asString(props.src), caption: asString(props.caption), rot: parseImageRotations(props.imageRotations)[0] ?? 0 },
+  ];
   const items = gallery.length ? gallery : single;
   return renderImageGallery(items, {
     ctx,
@@ -187,11 +252,13 @@ export const imageComponent: ComponentDefinition = {
   category: '通用',
   supportedModes: ['document', 'web'],
   icon: ImageIcon,
-  description: '一行一张图（默认 1 行，＋ 加行 / − 减行，最多 5 张）；多张时用「列数」并排，每张各带图题',
+  description: '一行一张图（默认 1 行，＋ 加行 / − 减行，最多 5 张）；每行可单独旋转（◌）、可带图题；多张时用「列数」并排',
   defaultFrame: { x: 60, y: 160, w: 320, h: 160 },
   defaultProps: {
     /** 图片内容（一行一张）—— 面板唯一入口 */
     images: '',
+    /** 每行图片的旋转角度（一行一个，与 images 的行一一对齐；由面板里每行的 ◌ 按钮写） */
+    imageRotations: '',
     /** ↓ 老字段：只作老文档/老 MCP 调用的兜底，面板不再显示；`caption` 在多张时是"整组图题" */
     src: '',
     caption: '',

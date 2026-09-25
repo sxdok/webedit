@@ -1,20 +1,23 @@
 /**
  * 职责：`imageRows` 属性控件 —— **图片组件唯一的图片输入方式：一行一张图**（2026-09-23 用户要求）。
  *
- * 交互（按用户原话）：
- *   · **默认就是一行图片**（没有"单图/多图"两个字段了，图片组件只有一个图片入口）；
- *   · 每行行首写 **图片1 / 图片2 / …**；行尾三个图标：**🖼 选本地文件**（读成 data:URL 填进该行地址）、
- *     **＋** 在这行下面再加一行、**−** 删掉这一行（只剩一行时 − 禁用，不会删空）；
- *   · **最多 5 张**：到 5 行后 ＋ 变灰并提示。
+ * 交互（按用户 2026-09-24 给的排版）：
+ *   `图片1  ◌  ▩ |地址| |图题| + -`
+ *   · 行首写 **图片1 / 图片2 / …**；
+ *   · **◌ = 旋转按钮**（`RotateCw`）：点一下这张图 +90°（0→90→180→270→0 循环），
+ *     角度不为 0 时右边跟一个可点的角度小标（点一下归零）；
+ *   · **▩ = 选图片文件**（`ImagePlus`，读成 data:URL 填进该行地址）；
+ *   · 之后是**地址 / 图题**两个输入框；
+ *   · **＋ 只在第 1 行**（在它下面加一张），**− 只在行数 > 1 时出现**（没有加过行就不显示 −，用户明确要求）。
  *
- * 数据形态**不变**：仍是 `props.images` 的多行文本（每行 `地址` 或 `地址 | 图题`），
- * 只是把"手写多行文本"换成"一行一个输入框"。这样 MCP、HTML 导入、老文档都不受影响。
+ * 数据形态：`props.images` 仍是多行文本（每行 `地址` 或 `地址 | 图题`），**旋转另存 `props.imageRotations`**
+ * （一行一个角度，与行号一一对齐）—— 不动 `images` 的格式，MCP / HTML 导入 / 老文档都不受影响。
  *
  * 老文档兼容：老的单图写法是 `props.src` + `props.caption`（没有 `images`）。这种节点
  * 在面板里**当作第 1 行显示**（不会看着像"图丢了"），一旦在这里编辑就迁移成 `images`
  * 并清掉 `src`/`caption`（同一张图，只是换了存放位置）。
  */
-import { Plus, Minus, ImagePlus } from 'lucide-react';
+import { Plus, Minus, ImagePlus, RotateCw } from 'lucide-react';
 import { pickImageDataUrl } from './pickImageFile';
 import type { ControlProps } from './index';
 
@@ -24,6 +27,27 @@ export const IMAGE_ROWS_MAX = 5;
 interface Row {
   src: string;
   caption: string;
+  /** 顺时针角度（0/90/180/270…） */
+  rot: number;
+}
+
+/** 角度归一化到 0…359 */
+function normRot(n: unknown): number {
+  const v = Number(n);
+  return Number.isFinite(v) ? ((Math.round(v) % 360) + 360) % 360 : 0;
+}
+
+/** `props.imageRotations`（一行一个）→ 角度数组 */
+export function parseRotations(raw: unknown): number[] {
+  const text = String(raw ?? '');
+  if (text === '') return [];
+  return text.split(/\r?\n/).map((l) => normRot(Number.parseFloat(l.trim())));
+}
+
+/** 角度数组 → `props.imageRotations`（与行数对齐；全 0 时写空串，保持 JSON 干净） */
+function joinRotations(rots: number[]): string {
+  const list = rots.map(normRot);
+  return list.every((r) => r === 0) ? '' : list.join('\n');
 }
 
 /**
@@ -42,7 +66,7 @@ interface Row {
  *    就被吃掉（那一下空格正好在末尾）；只去掉"|"后面的前导空白（那是 MCP 写
  *    `地址 | 图题` 的排版空格，不该进图题）。
  */
-export function parseRows(raw: unknown): Row[] {
+export function parseRows(raw: unknown): { src: string; caption: string }[] {
   const text = String(raw ?? '');
   if (text === '') return [{ src: '', caption: '' }];
   return text.split(/\r?\n/).map((line) => {
@@ -53,40 +77,51 @@ export function parseRows(raw: unknown): Row[] {
 }
 
 /** 行数组 → `props.images` 文本。与 `parseRows` 严格互逆（空行要保留，行数就是张数）。 */
-export function joinRows(rows: Row[]): string {
+export function joinRows(rows: { src: string; caption: string }[]): string {
   // ★空行必须保留：这是"行编辑器"，刚点 ＋ 加出来的就是空行 ——
   //   过滤掉的话数据没变化，控件会立刻把新行收回去（点 ＋ 看着没反应）。
-  //   渲染端（image.tsx 的 parseImageLines）本来就会忽略空行，所以保留是安全的。
+  //   渲染端（image.tsx 的 parseImageItems）本来就会忽略空行，所以保留是安全的。
   return rows.map((r) => (r.caption ? `${r.src} | ${r.caption}` : r.src)).join('\n');
 }
 
 export function ImageRowsControl({ value, onChange, allProps, onPatch }: ControlProps) {
   const stored = parseRows(value);
+  const storedRot = parseRotations(allProps?.imageRotations);
   /** 老字段（单图）里的那张图 —— 只在 `images` 一张都没有时兜底显示 */
   const legacySrc = String(allProps?.src ?? '');
   const legacy = !stored.some((r) => r.src !== '') && legacySrc !== '';
-  const rows: Row[] = legacy ? [{ src: legacySrc, caption: String(allProps?.caption ?? '') }] : stored;
+  const rows: Row[] = (legacy ? [{ src: legacySrc, caption: String(allProps?.caption ?? '') }] : stored).map((r, i) => ({
+    ...r,
+    rot: storedRot[i] ?? 0,
+  }));
 
   const write = (next: Row[]): void => {
+    const images = joinRows(next);
+    const imageRotations = joinRotations(next.map((r) => r.rot));
     // 编辑老节点 = 顺手迁移到 images（清掉 src/caption），免得同一张图存两份、以后又对不上
-    if (legacy && onPatch) onPatch({ images: joinRows(next), src: '', caption: '' });
-    else onChange(joinRows(next));
+    if (onPatch) onPatch(legacy ? { images, imageRotations, src: '', caption: '' } : { images, imageRotations });
+    else onChange(images);
   };
 
   const patch = (i: number, p: Partial<Row>): void => write(rows.map((r, idx) => (idx === i ? { ...r, ...p } : r)));
-  const addAfter = (i: number): void => {
+  /**
+   * ＋ 只有第 1 行那一个按钮 → **加到最后一行后面**（不是插在第 1 行后面）。
+   * 用户 2026-09-24 的排版把 ＋ 画在第 1 行；若按"插在这行下面"实现，已经填好的第 2 行会被新空行顶下去
+   * （自检里就是这么发现的：images 变成 `a.png / 空 / 空 / 空 / b.png`，b.png 那行的角度就对不上了）。
+   */
+  const appendRow = (): void => {
     if (rows.length >= IMAGE_ROWS_MAX) return;
-    const next = [...rows];
-    next.splice(i + 1, 0, { src: '', caption: '' });
-    write(next);
+    write([...rows, { src: '', caption: '', rot: 0 }]);
   };
   const removeAt = (i: number): void => {
     if (rows.length <= 1) return;
-    write(rows.filter((_, idx) => idx !== i));
+    write(rows.filter((_, idx) => idx !== i)); // 角度跟着行走（数组一起删）
   };
 
   const inputCls =
     'h-7 w-full min-w-0 rounded border border-line bg-white px-1.5 text-[12px] outline-none focus:border-primary';
+  const iconBtn =
+    'flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-gray-500 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40';
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-0.5" data-image-rows="1" data-image-rows-count={rows.length}>
@@ -99,6 +134,39 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
           <span data-image-row-name={i + 1} className="w-9 shrink-0 pt-2 text-2xs leading-none text-gray-400">
             图片{i + 1}
           </span>
+          {/* ◌ 旋转 + ▩ 选图：按用户 2026-09-24 给的排版，两个图标紧跟在行首文字后面 */}
+          <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
+            <button
+              type="button"
+              data-image-row-rotate={i + 1}
+              data-image-row-rot={r.rot}
+              title={`旋转这张图 90°（当前 ${r.rot}°；点 4 下回到 0°）`}
+              onClick={() => patch(i, { rot: normRot(r.rot + 90) })}
+              className={iconBtn}
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+            </button>
+            {r.rot !== 0 && (
+              <button
+                type="button"
+                data-image-row-angle={i + 1}
+                title={`当前 ${r.rot}°，点一下归零`}
+                onClick={() => patch(i, { rot: 0 })}
+                className="h-6 shrink-0 rounded border border-line px-1 text-[10px] tabular-nums text-gray-500 hover:border-primary hover:text-primary"
+              >
+                {r.rot}°
+              </button>
+            )}
+            <button
+              type="button"
+              data-image-row-file={i + 1}
+              title="选这张图的本地文件（转 data:URL 填进地址）"
+              onClick={() => pickImageDataUrl((dataUrl) => patch(i, { src: dataUrl }))}
+              className={iconBtn}
+            >
+              <ImagePlus className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <input
               data-image-row-src={i + 1}
@@ -116,35 +184,30 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
             />
           </div>
           <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
-            <button
-              type="button"
-              data-image-row-file={i + 1}
-              title="选这张图的本地文件（转 data:URL 填进地址）"
-              onClick={() => pickImageDataUrl((dataUrl) => patch(i, { src: dataUrl }))}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-gray-500 hover:border-primary hover:text-primary"
-            >
-              <ImagePlus className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              data-image-row-add={i + 1}
-              disabled={rows.length >= IMAGE_ROWS_MAX}
-              title={rows.length >= IMAGE_ROWS_MAX ? `最多 ${IMAGE_ROWS_MAX} 张` : '在这行下面加一张'}
-              onClick={() => addAfter(i)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-gray-500 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              data-image-row-remove={i + 1}
-              disabled={rows.length <= 1}
-              title={rows.length <= 1 ? '至少留一张' : '删掉这一行'}
-              onClick={() => removeAt(i)}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-gray-500 hover:border-red-300 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Minus className="h-3.5 w-3.5" />
-            </button>
+            {/* ＋ 只在第 1 行（用户排版）；− 只在"加过行"之后才出现（1 行时整个按钮不渲染） */}
+            {i === 0 && (
+              <button
+                type="button"
+                data-image-row-add={i + 1}
+                disabled={rows.length >= IMAGE_ROWS_MAX}
+                title={rows.length >= IMAGE_ROWS_MAX ? `最多 ${IMAGE_ROWS_MAX} 张` : '加一张图（加在最后一行后面）'}
+                onClick={appendRow}
+                className={iconBtn}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {rows.length > 1 && (
+              <button
+                type="button"
+                data-image-row-remove={i + 1}
+                title="删掉这一行"
+                onClick={() => removeAt(i)}
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-gray-500 hover:border-red-300 hover:text-red-500"
+              >
+                <Minus className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         </div>
       ))}
