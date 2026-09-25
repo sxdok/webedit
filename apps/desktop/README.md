@@ -24,7 +24,7 @@
 | `src/logger.js` | 主进程日志（按天落盘 + 内存环形缓冲） |
 | `config/` | 加密配置、密钥、构建期密钥（见下） |
 | `scripts/embed-key.mjs` | 一键「生成密钥 → 加密配置 → 嵌入密钥 → 验证」 |
-| `scripts/verify-desktop.mjs` | **无界面验证**（69 项，见下） |
+| `scripts/verify-desktop.mjs` | **无界面验证**（75 项，见下） |
 | `scripts/bundle-mcp.mjs` | 把 `editor-mcp` 打成**自包含单文件**（分发版唯一可靠形态，见「打包」一节） |
 | `dist-mcp/` | 上面那个脚本的产物（`editor-mcp.bundle.mjs`，约 2.4MB，已 gitignore） |
 
@@ -101,7 +101,7 @@ npm start            # 跑（读仓库里的 web-editor/dist 与 editor-mcp/dist
 npm run dev          # 同上（显式开发模式，日志里会标 dev）
 npm run check        # 以 ?check=1 启动：界面右下角跑数据层/渲染层自检
 npm run selftest     # 装完自检：真开窗加载页面 + 真连 MCP，写报告后退出（装到别人机器上排障就靠它）
-npm run verify       # 无界面验证（69 项，不需要 Electron）
+npm run verify       # 无界面验证（75 项，不需要 Electron）
 npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 ```
 
@@ -135,7 +135,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 
 `npm run build` 相关：桌面版**不构建前端**，它加载 `web-editor/dist`。改了前端要先去 `web-editor` 跑 `npm run build`。
 
-## 验证（`npm run verify`，69 项）
+## 验证（`npm run verify`，75 项）
 
 跑一次就知道"哪一层坏了"，全部只写临时目录：
 
@@ -156,6 +156,9 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 * **F 静态检查**：全部新文件 `node --check`；`contextIsolation/nodeIntegration/sandbox` 三项基线；
   外链协议白名单；preload 只暴露 `window.desktop`；`extraResources` 齐全且**不含**
   `editor-mcp/node_modules`（那东西装不进安装包，见 G）。
+* **F2 打包清单完整性**：入口的每个相对依赖都要被 `build.files` 覆盖（漏一个 → 双击没反应）；
+  `server/**` 在清单里；`config/{app-config.enc, buildKey.mjs}` 在 extraResources；
+  **用 Electron 自带的 Node** 在没有 `package.json` 的目录里加载随包密钥并解密配置。
 * **G MCP 单文件打包**：esbuild 把 `editor-mcp` 打成 **2.4 MB 单文件**；把它单独放进一个
   **没有 node_modules 的隔离目录**里跑 `--list`（exit 0，108 工具 / 23 资源 / 12 提示词），
   再用真监管器把它当 MCP 拉起来做 `tools/list`（108 个真实工具名）—— 证明打包后的文件**自包含、能对外服务**。
@@ -167,11 +170,12 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 
 `package.json` 的 `build` 字段已经写好：
 
-* `files`：只有外壳代码进 `asar`；
+* `files`：只有外壳代码进 `asar`（**注意 `server/**` 必须列进去**，见下"真踩过的两个坑"）；
 * `extraResources`：`web-editor/dist`、`web-editor/public/组件`、**`dist-mcp/editor-mcp.bundle.mjs`**、
-  `tools/secure-config`、`config/app-config.enc` 都放在 **asar 外面**的 `resources/` 下 ——
-  子进程要从磁盘跑（asar 里的文件没法 spawn），而且配置文件要能现场替换。
-* `win.target`：`nsis`（可选安装目录）+ `portable`（免安装单文件）。
+  `tools/secure-config`、`config/app-config.enc`、`config/buildKey.mjs` 都放在 **asar 外面**的
+  `resources/` 下 —— 子进程要从磁盘跑（asar 里的文件没法 spawn），配置与密钥要能现场替换；
+* `win.target`：`nsis`（可选安装目录）+ `portable`（免安装单文件）；
+* `win.signAndEditExecutable: false`：见下；
 * `npm run dist` 会**先跑 `bundle:mcp`** 再打包，避免打进一个旧的单文件。
 
 ```bash
@@ -179,13 +183,42 @@ npm run bundle:mcp   # 只打 MCP 单文件 → dist-mcp/editor-mcp.bundle.mjs
 npm run dist         # 产物在 apps/desktop/release/
 ```
 
-**为什么 MCP 必须打单文件**：仓库里的 `editor-mcp/node_modules` 是**符号链接拼的**
-（`chokidar`/`ws`/`zod`/`react`/`react-dom`/`typescript` → `D:\DSHClient\user\server\node_modules\.pnpm\…`），
-拷进安装包要么跟着链接跑到包外、要么拷成空壳，装到别人机器上必然 `ERR_MODULE_NOT_FOUND`。
-打成单文件后 `resources/editor-mcp-bundle/` 里只有一个 `.mjs`，与开发机的 pnpm store 彻底无关。
+产物（本机实测）：`可视化编辑器-0.1.0-x64.exe`（NSIS 安装包 **79.0 MB**）、
+`可视化编辑器-0.1.0-portable.exe`（免安装 **78.8 MB**）、`win-unpacked/`。
+
+**本机实测：两个产物都跑过 `--selftest`，都是 6/6 通过**（`mode=packaged`，密钥来自
+`resources/config/buildKey.mjs`，MCP 列出 108 个工具）。
+
+### 真踩过的两个坑（都已修，且都补了自动断言）
+
+1. **`build.files` 漏了 `server/**`** → asar 里没有 `server/webServer.js` → 打包版 ESM 入口
+   一 `import` 就崩。桌面程序**没有终端**，现象只是"双击没反应/卡住"（主进程还活着、不写日志、不开端口）。
+   定位办法：把 asar 当应用跑一次 `electron release/win-unpacked/resources/app.asar --selftest`，
+   stderr 会直接给出 `ERR_MODULE_NOT_FOUND`。**断言**：`verify` 的 F2 段扫描入口的所有相对依赖，
+   逐个对 `build.files` 做 glob 匹配，缺一个就 FAIL。
+2. **随包密钥以前叫 `buildKey.js` 但内容是 ESM 语法** → 在免安装版的 `%TEMP%` 解包目录、
+   或 Program Files 安装目录里，向上都找不到 `package.json`，Node 会按 **CommonJS** 解析 → `import()`
+   语法错误 → 应用只好退回默认配置（更新地址变回示例地址）。仓库里跑 `win-unpacked` 时恰好向上能找到
+   `apps/desktop/package.json`，**侥幸通过**，所以这个 bug 只在真实部署形态下暴露。
+   改成 **`buildKey.mjs`**（`.mjs` 永远是 ESM）后解决；老的 `.js` 仍兼容读取。
+   **断言**：`verify` 的 F2 段用 **Electron 自带的 Node**（本机是 20.18.3，没有"ESM 语法自动探测"；
+   本机 Node 24 有，所以用 Node 24 验**验不出来**）在一个没有 `package.json` 的目录里加载密钥并解密配置。
+
+### 为什么 `win.signAndEditExecutable: false`
+
+electron-builder 在 Windows 上编辑 exe 资源时会调用 app-builder 的 `rcedit`，而 app-builder **自己**
+要去下载 `winCodeSign-2.6.0.7z`；那个包里含 **macOS 符号链接**（`darwin/10.12/lib/libcrypto.dylib` 等），
+普通用户没有创建符号链接的特权 → 7za 解压报 `Cannot create symbolic link : 客户端没有所需的特权` → 构建失败
+（JS 侧的 `SIGNTOOL_PATH` / `ELECTRON_BUILDER_BINARIES_MIRROR` 都拦不住，这条下载发生在 Go 二进制内部）。
+关掉这一步后构建正常。**代价**：exe 保持 Electron 默认图标、没有版本信息（窗口标题、快捷方式名不受影响）。
+想恢复资源编辑，二选一：
+* 让当前账户获得创建符号链接的权限 —— 打开「设置 → 隐私和安全性 → 开发者选项 → 开发人员模式」（需要管理员）；
+* 或在管理员身份的终端里跑 `npm run dist`。
+然后删掉 `package.json` 里 `win.signAndEditExecutable` 这一行即可（记得配 `win.icon`）。
 
 **尚未做**（后续要跟用户确认的）：
 * 代码签名（没有证书，SmartScreen 会提示"未知发布者"）；
 * 自动安装（`install()` 挂点）；
-* 安装包体积与更新包差量（现在前端 3.3MB + MCP 单文件 2.4MB + Electron 本体）。
+* 应用图标（现在用 Electron 默认图标：上面那条开关 + 一张 256×256 的 `build/icon.png` 即可）。
+
 

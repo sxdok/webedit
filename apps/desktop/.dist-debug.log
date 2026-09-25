@@ -1,0 +1,252 @@
+  • electron-builder  version=25.1.8 os=10.0.19045
+  • loaded configuration  file=package.json ("build" field)
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["node-dep-tree","--dir","E:\\可视化编辑器\\apps\\desktop"]
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at executeAppBuilder (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:404:12)
+    at rebuild (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\util\yarn.ts:177:19)
+    at installOrRebuild (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\util\yarn.ts:33:5)
+    at Packager.installAppDependencies (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:542:7)
+    at WinPackager.doPack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:221:5)
+    at WinPackager.pack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:138:5)
+    at Packager.doBuild (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:459:9)
+    at executeFinally (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\promise.ts:12:14)
+    at Packager.build (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:393:31)
+    at executeFinally (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\promise.ts:12:14)
+  • executing @electron/rebuild  electronVersion=33.4.11 arch=x64 buildFromSource=false appDir=./
+  • installing native dependencies  arch=x64
+  • completed installing native dependencies
+  • packaging       platform=win32 arch=x64 electron=33.4.11 appOutDir=release\win-unpacked
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["unpack-electron","--configuration","[{\"platform\":\"win32\",\"arch\":\"x64\",\"version\":\"33.4.11\"}]","--output","E:\\可视化编辑器\\apps\\desktop\\release\\win-u
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at executeAppBuilder (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:404:12)
+    at unpack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\electron\ElectronFramework.ts:201:5)
+    at ElectronFramework.prepareApplicationStageDirectory (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\electron\ElectronFramework.ts:154:5)
+    at WinPackager.doPack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:238:5)
+    at WinPackager.pack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:138:5)
+    at Packager.doBuild (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:459:9)
+    at executeFinally (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\promise.ts:12:14)
+    at Packager.build (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:393:31)
+    at executeFinally (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\promise.ts:12:14)
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["node-dep-tree","--dir","E:\\可视化编辑器\\apps\\desktop","--flatten"]
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at executeAppBuilder (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:404:12)
+    at computeNodeModuleFileSets (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\util\appFileCopier.ts:184:17)
+    at E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:401:34
+    at async Promise.all (index 0)
+    at AsyncTaskManager.awaitTasks (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\asyncTaskManager.ts:65:25)
+    at WinPackager.doPack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:293:5)
+    at WinPackager.pack (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:138:5)
+    at Packager.doBuild (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:459:9)
+    at executeFinally (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\promise.ts:12:14)
+    at Packager.build (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\packager.ts:393:31)
+  • updating asar integrity executable resource  executablePath=release\win-unpacked\可视化编辑器.exe
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["icon","--format","ico","--root","E:\\可视化编辑器\\apps\\desktop\\build","--root","E:\\可视化编辑器\\apps\\desktop","--out","E:\\可视化编辑器\\apps\\desktop\\release\\.icon-ico
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at executeAppBuilder (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:404:12)
+    at WinPackager.resolveIcon (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:718:39)
+    at WinPackager.getOrConvertIcon (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\platformPackager.ts:678:20)
+    at WinPackager.signAndEditResources (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\winPackager.ts:191:22)
+  • default Electron icon is used  reason=application icon is not set
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["rcedit","--args","[\"E:\\\\可视化编辑器\\\\apps\\\\desktop\\\\release\\\\win-unpacked\\\\可视化编辑器.exe\",\"--set-version-string\",\"FileDescription\",\"可视化编辑器 桌面分发版（El
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:6:18)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:411:22)
+    at executeAppBuilder (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:406:12)
+    at WinPackager.signAndEditResources (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\winPackager.ts:228:7)
+  • downloading     url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=899ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\262311375.7z
+    --
+    Path = E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\262311375.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\262311375\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\262311375\darwin\10.12\lib\libssl.dylib
+    
+                    command='E:\可视化编辑器\apps\desktop\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\262311375.7z' '-oE:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\262311375'
+                    workingDir=E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign
+  • Above command failed, retrying 3 more times
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["rcedit","--args","[\"E:\\\\可视化编辑器\\\\apps\\\\desktop\\\\release\\\\win-unpacked\\\\可视化编辑器.exe\",\"--set-version-string\",\"FileDescription\",\"可视化编辑器 桌面分发版（El
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:6:18)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:10:20)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:411:10)
+    at WinPackager.signAndEditResources (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\winPackager.ts:228:7)
+  • downloading     url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=1.027s
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\229126355.7z
+    --
+    Path = E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\229126355.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\229126355\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\229126355\darwin\10.12\lib\libssl.dylib
+    
+                    command='E:\可视化编辑器\apps\desktop\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\229126355.7z' '-oE:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\229126355'
+                    workingDir=E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign
+  • Above command failed, retrying 3 more times
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["rcedit","--args","[\"E:\\\\可视化编辑器\\\\apps\\\\desktop\\\\release\\\\win-unpacked\\\\可视化编辑器.exe\",\"--set-version-string\",\"FileDescription\",\"可视化编辑器 桌面分发版（El
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:6:18)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:10:20)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:10:14)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:411:10)
+    at WinPackager.signAndEditResources (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\winPackager.ts:228:7)
+  • downloading     url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=901ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\394526647.7z
+    --
+    Path = E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\394526647.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\394526647\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\394526647\darwin\10.12\lib\libssl.dylib
+    
+                    command='E:\可视化编辑器\apps\desktop\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\394526647.7z' '-oE:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\394526647'
+                    workingDir=E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign
+  • Above command failed, retrying 3 more times
+=== SPAWN spawn: E:\可视化编辑器\apps\desktop\node_modules\app-builder-bin\win\x64\app-builder.exe ["rcedit","--args","[\"E:\\\\可视化编辑器\\\\apps\\\\desktop\\\\release\\\\win-unpacked\\\\可视化编辑器.exe\",\"--set-version-string\",\"FileDescription\",\"可视化编辑器 桌面分发版（El
+Error: trace
+    at Object.cp.<computed> [as spawn] (E:\可视化编辑器\apps\desktop\.trace-spawn.cjs:10:21)
+    at spawn (E:\可视化编辑器\apps\desktop\node_modules\cross-spawn\index.js:12:24)
+    at doSpawn (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:180:18)
+    at E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:386:28
+    at new Promise (<anonymous>)
+    at runCommand (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:385:12)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:6:18)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:10:20)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:10:14)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util-runtime\src\retry.ts:10:14)
+    at retry (E:\可视化编辑器\apps\desktop\node_modules\builder-util\src\util.ts:411:10)
+    at WinPackager.signAndEditResources (E:\可视化编辑器\apps\desktop\node_modules\app-builder-lib\src\winPackager.ts:228:7)
+  • downloading     url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z size=5.6 MB parts=1
+  • downloaded      url=https://npmmirror.com/mirrors/electron-builder-binaries/winCodeSign-2.6.0/winCodeSign-2.6.0.7z duration=747ms
+  ⨯ cannot execute  cause=exit status 2
+                    out=
+    7-Zip (a) 21.07 (x64) : Copyright (c) 1999-2021 Igor Pavlov : 2021-12-26
+    
+    Scanning the drive for archives:
+    1 file, 5635384 bytes (5504 KiB)
+    
+    Extracting archive: E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\446963387.7z
+    --
+    Path = E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\446963387.7z
+    Type = 7z
+    Physical Size = 5635384
+    Headers Size = 1492
+    Method = LZMA2:24m LZMA:20 BCJ2
+    Solid = +
+    Blocks = 2
+    
+    
+    Sub items Errors: 2
+    
+    Archives with Errors: 1
+    
+    Sub items Errors: 2
+    
+                    errorOut=ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\446963387\darwin\10.12\lib\libcrypto.dylib
+    ERROR: Cannot create symbolic link : �ͻ���û���������Ȩ�� : E:\���ӻ��༭��\apps\desktop\.electron-builder-cache\winCodeSign\446963387\darwin\10.12\lib\libssl.dylib
+    
+                    command='E:\可视化编辑器\apps\desktop\node_modules\7zip-bin\win\x64\7za.exe' x -snld -bd 'E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\446963387.7z' '-oE:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign\446963387'
+                    workingDir=E:\可视化编辑器\apps\desktop\.electron-builder-cache\winCodeSign
+  • Above command failed, retrying 3 more times

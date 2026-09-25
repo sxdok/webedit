@@ -39,8 +39,7 @@
       "main.js",
       "preload.cjs",
       "src/**/*",
-      "config/buildKey.js",
-      "config/app-config.enc",
+      "server/**/*",
       "package.json",
       "!**/node_modules/**"
     ],
@@ -64,6 +63,10 @@
       {
         "from": "config/app-config.enc",
         "to": "config/app-config.enc"
+      },
+      {
+        "from": "config/buildKey.mjs",
+        "to": "config/buildKey.mjs"
       }
     ],
     "win": {
@@ -71,7 +74,8 @@
         "nsis",
         "portable"
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,

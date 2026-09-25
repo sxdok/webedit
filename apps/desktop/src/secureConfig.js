@@ -146,9 +146,11 @@ export function resolveSecretForConfig({ layout, env = process.env, explicitKey 
   return { secret: null, source: null };
 }
 
-/** 构建期嵌入的兜底密钥（`config/buildKey.js`），可能不存在 */
+/** 构建期嵌入的兜底密钥（`config/buildKey.mjs`，兼容老的 `buildKey.js`），可能不存在 */
 export async function loadEmbeddedKey({ layout, env = process.env } = {}) {
-  const p = env.EDITOR_DESKTOP_BUILD_KEY || layout?.buildKeyPath;
+  const explicit = env.EDITOR_DESKTOP_BUILD_KEY;
+  const candidates = [explicit, layout?.buildKeyPath, layout?.buildKeyLegacyPath].filter(Boolean);
+  const p = candidates.find((c) => existsSync(c)) ?? candidates[0] ?? null;
   if (!p || !existsSync(p)) return { key: null, fingerprint: null, path: p ?? null };
   const mod = await import(pathToFileURL(p).href);
   return { key: mod.BUILD_CONFIG_KEY ?? null, fingerprint: mod.BUILD_KEY_FINGERPRINT ?? null, path: p };

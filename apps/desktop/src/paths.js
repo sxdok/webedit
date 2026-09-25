@@ -109,7 +109,16 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
     configEncPath: join(resolvedConfigDir, 'app-config.enc'),
     configPlainPath: join(resolvedConfigDir, 'app-config.json'),
     configKeyPath: join(resolvedConfigDir, 'config.key'),
-    buildKeyPath: join(resolvedConfigDir, 'buildKey.js'),
+    /**
+     * 构建期兜底密钥。**必须是 `.mjs`**：这个文件是 ESM 语法（`export const`），而它的落点是
+     * 安装目录 / 免安装版解包出的临时目录 —— 那里向上找不到任何 `package.json`，
+     * Node 会把 `.js` 当 CommonJS 解析，`import()` 直接 SyntaxError。
+     * （真踩过：仓库里跑 win-unpacked 时恰好向上能找到 apps/desktop/package.json 而侥幸通过，
+     *   一到免安装版的 %TEMP% 解包目录就"找不到密钥"。）老的 buildKey.js 仍兼容读取。
+     */
+    buildKeyPath: join(resolvedConfigDir, 'buildKey.mjs'),
+    /** 老版本（或手写脚本）留下的 buildKey.js；仍兼容读取 */
+    buildKeyLegacyPath: join(resolvedConfigDir, 'buildKey.js'),
     secureConfigCore,
     /** 用 Electron 自带的 Node 跑子进程（分发版机器上不一定装了系统 node） */
     nodeBin: nodeBin ?? process.execPath,

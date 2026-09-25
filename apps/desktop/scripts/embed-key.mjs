@@ -34,7 +34,7 @@ const configDir = resolve(APP_DIR, argOf('--config-dir', 'config'));
 const inPath = resolve(APP_DIR, argOf('--in', join('config', 'app-config.example.json')));
 const keyPath = resolve(APP_DIR, argOf('--key-file', join('config', 'config.key')));
 const encPath = resolve(APP_DIR, argOf('--out', join('config', 'app-config.enc')));
-const buildKeyPath = resolve(APP_DIR, argOf('--build-key', join('config', 'buildKey.js')));
+const buildKeyPath = resolve(APP_DIR, argOf('--build-key', join('config', 'buildKey.mjs')));
 
 if (!existsSync(TOOL)) {
   process.stderr.write(`✗ 找不到独立的加密工具：${TOOL}\n`);

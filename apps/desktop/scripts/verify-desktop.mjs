@@ -15,9 +15,9 @@
  */
 import { spawn } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, closeSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, closeSync, copyFileSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = resolve(fileURLToPath(import.meta.url), '..');
@@ -133,7 +133,31 @@ async function testComponents() {
   ok('取值校验：坏端口/端口打架/非 http 更新地址都被列出来', bad.problems.length >= 3, bad.problems.join(' ｜ '));
   const warn = normalizeConfig({ update: { baseUrl: 'https://updates.example.com/x/' } });
   ok('取值校验：还是示例地址时给出"正式分发前要换掉"的提醒', warn.warnings.some((w) => w.includes('示例地址')), warn.warnings.find((w) => w.includes('示例地址')));
-  ok('更新地址在界面/日志里默认打码（只留主机名与路径首段前 2 字）', maskUrl('https://updates.example.com/visual-editor/') === 'https://updates.example.com/vi***' && maskUrl('乱写') === '(无法解析)', `${maskUrl('https://updates.example.com/visual-editor/')}；乱写→${maskUrl('乱写')}`);
+  ok('更新地址在界面/日志里默认打码（只留主机名与路径首段前 2 字）', maskUrl('https://updates.example.com/visual-editor/') === 'https://updates.example.com/vi***' && maskUrl('乱写') === '(无法解析)', `${maskUrl('https://updates.example.com/visual-editor/')}；乱写→${maskUrl('无法解析')}`);
+
+  /**
+   * ★真实安装场景：把 config 目录放到一个**向上找不到任何 package.json** 的地方（模拟 %TEMP% 免安装解包目录
+   * 与 Program Files 安装目录），并且只用构建期兜底密钥解密。
+   * 真踩过：buildKey 用 `.js` 后缀装 ESM 语法 → 在那种目录里 Node 按 CJS 解析 → import 语法错误 →
+   * 应用只好退回默认配置；而仓库里跑 win-unpacked 时恰好向上能找到 apps/desktop/package.json，**侥幸通过**。
+   */
+  const isolated = join(tmp, 'installed-like-nowhere', 'resources', 'config');
+  mkdirSync(isolated, { recursive: true });
+  copyFileSync(join(APP_DIR, 'config', 'app-config.enc'), join(isolated, 'app-config.enc'));
+  const buildKeyReal = join(APP_DIR, 'config', 'buildKey.mjs');
+  copyFileSync(buildKeyReal, join(isolated, 'buildKey.mjs'));
+  const isoLayout = {
+    ...dev,
+    configDir: isolated,
+    configEncPath: join(isolated, 'app-config.enc'),
+    configPlainPath: join(isolated, 'app-config.json'),
+    configKeyPath: join(isolated, 'config.key'),
+    buildKeyPath: join(isolated, 'buildKey.mjs'),
+    buildKeyLegacyPath: join(isolated, 'buildKey.js'),
+  };
+  const r6 = await loadAppConfig({ layout: isoLayout, env: { ...process.env, EDITOR_DESKTOP_CONFIG_KEY: '', EDITOR_DESKTOP_CONFIG_KEY_FILE: '' } });
+  ok('模拟"安装目录/免安装解包目录"（向上没有 package.json）：只用随包密钥也能解开配置', r6.meta.source === 'encrypted' && r6.meta.problems.length === 0, `来源=${r6.meta.source} 密钥=${r6.meta.keySource} 问题数=${r6.meta.problems.length}${r6.meta.problems.length ? `（${r6.meta.problems[0]}）` : ''}`);
+  ok('构建期密钥是 .mjs（.js 在那种目录里会被当 CJS，import 必失败）', buildKeyReal.endsWith('.mjs') && existsSync(buildKeyReal), `buildKeyPath=${buildKeyReal}`);
   return r1.config;
 }
 
@@ -539,6 +563,134 @@ async function testMcpBundle() {
 }
 
 /* ═══════════ F 静态检查 ═══════════ */
+
+/**
+ * 极简 glob → 正则（只支持 electron-builder `files` 里真正用到的那几种写法：`**`、`*`、后缀）。
+ * 为什么要它：真踩过一次 —— `files` 里漏了 `server/**​/*`，asar 里没有 `server/webServer.js`，
+ * 打包版 ESM 入口一 import 就崩，而**桌面程序没有终端**，现象只是"双击没反应/卡住"。
+ * 所以这里把"入口会 import 到的本地文件"逐个对 `files` 做匹配，缺一个就 FAIL。
+ */
+function globToRegExp(glob) {
+  const esc = String(glob).replace(/[.+^${}()|[\]\\]/g, '\\$&');
+  const body = esc
+    .replace(/\*\*\//g, '(?:.*/)?')
+    .replace(/\*\*/g, '.*')
+    .replace(/\*/g, '[^/]*');
+  return new RegExp(`^${body}$`);
+}
+
+/**
+ * 扫出一个文件里所有 `from './x.js'` / `import('./x.js')` 形式的**本地**依赖（递归）。
+ * ⚠ 这里路径一律以 APP_DIR 为基准解析：早先写成 `resolve(dirname(相对路径), …)` 会以 CWD 为基准，
+ * 于是算出 APP_DIR 之外的路径、递归读到不存在的文件直接抛错（自己的检查脚本先把验证搞崩了）。
+ */
+function localImports(file, seen = new Set()) {
+  if (seen.has(file)) return seen;
+  seen.add(file);
+  const abs = join(APP_DIR, file);
+  if (!existsSync(abs)) return seen;
+  const text = readFileSync(abs, 'utf8');
+  const re = /(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const target = resolve(dirname(abs), m[1]);
+    if (!target.startsWith(APP_DIR)) continue;
+    localImports(relative(APP_DIR, target).replace(/\\/g, '/'), seen);
+  }
+  return seen;
+}
+
+async function testPackagingManifest() {
+  G('F2 打包清单完整性（真踩过：漏一个文件 → 双击没反应）');
+  const pkg = JSON.parse(readFileSync(join(APP_DIR, 'package.json'), 'utf8'));
+  const patterns = (pkg.build?.files ?? []).filter((p) => !String(p).startsWith('!')).map(globToRegExp);
+  const entrances = ['main.js', 'preload.cjs'];
+  const needed = new Set();
+  for (const e of entrances) for (const f of localImports(e)) needed.add(f);
+  const missing = [...needed].filter((f) => !patterns.some((re) => re.test(f)));
+  ok(
+    '入口 import 到的每个本地文件都被 build.files 覆盖（否则 asar 里会缺文件）',
+    missing.length === 0,
+    missing.length ? `缺：${missing.join(', ')}` : `${needed.size} 个本地依赖全部命中：${[...needed].sort().join(', ')}`,
+  );
+  const hasServerGlob = (pkg.build?.files ?? []).some((p) => String(p).startsWith('server/'));
+  ok('server/ 目录在 build.files 里（它不在 src/ 下，最容易漏）', hasServerGlob, (pkg.build?.files ?? []).join(', '));
+  // 打包版要用的两个数据文件必须在 asar **外面**（密钥要能被替换、密文要能现场换）
+  const er = (pkg.build?.extraResources ?? []).map((r) => String(r.to));
+  ok('config/{app-config.enc, buildKey.mjs} 都在 extraResources（打包版从 resources/config 读密钥）', er.includes('config/app-config.enc') && er.includes('config/buildKey.mjs') && !er.includes('config/buildKey.js'), er.join(', '));
+
+  /**
+   * ★用**打包运行时真正用的那个 Node**再验一次密钥能不能加载。
+   * 为什么必须这样验：Electron 33 自带 Node **20.18.3**，它没有"ESM 语法自动探测"；
+   * 而随包密钥以前是 `.js` 装 ESM 语法，落在 `%TEMP%` 解包目录 / Program Files（向上都没有 package.json）
+   * 时会被当 CommonJS → import 语法错误 → 应用只好退回默认配置。用本机的 Node 24 验**验不出来**
+   * （24 会先按 CJS 失败再自动按 ESM 重试）。所以这里直接拿 electron.exe 当 node 跑。
+   */
+  const electronBin = join(APP_DIR, 'node_modules', 'electron', 'dist', 'electron.exe');
+  const isoDir = join(tmp, 'runtime-iso');
+  mkdirSync(isoDir, { recursive: true });
+  copyFileSync(join(APP_DIR, 'config', 'app-config.enc'), join(isoDir, 'app-config.enc'));
+  copyFileSync(join(APP_DIR, 'config', 'buildKey.mjs'), join(isoDir, 'buildKey.mjs'));
+  const probe = join(isoDir, 'probe.mjs');
+  writeFileSync(
+    probe,
+    [
+      "import { pathToFileURL } from 'node:url';",
+      "import { readFileSync } from 'node:fs';",
+      'const m = await import(pathToFileURL(process.argv[2]).href);',
+      'const core = await import(pathToFileURL(process.argv[3]).href);',
+      "const plain = core.decryptConfig(readFileSync(process.argv[4], 'utf8'), m.BUILD_CONFIG_KEY);",
+      "console.log('KEYOK ' + plain.update.baseUrl + ' ' + m.BUILD_KEY_FINGERPRINT);",
+    ].join('\n'),
+    'utf8',
+  );
+  const origin = join(REPO_ROOT, 'tools', 'secure-config', 'secure-config.mjs');
+  if (!existsSync(electronBin)) {
+    skip('打包运行时（Electron 自带的 Node）在"没有 package.json 的目录"里能加载随包密钥', '未安装 electron（npm install 后才能验这一条）');
+  } else {
+    const outFile = join(tmp, 'runtime-probe.out');
+    const errFile = join(tmp, 'runtime-probe.err');
+    const r = await new Promise((resolve) => {
+      const fdOut = openSync(outFile, 'w');
+      const fdErr = openSync(errFile, 'w');
+      const c = spawn(electronBin, [probe, join(isoDir, 'buildKey.mjs'), origin, join(isoDir, 'app-config.enc')], {
+        cwd: isoDir,
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        stdio: ['ignore', fdOut, fdErr],
+      });
+      c.on('exit', (code) => {
+        closeSync(fdOut);
+        closeSync(fdErr);
+        resolve({ code, out: readFileSync(outFile, 'utf8'), err: readFileSync(errFile, 'utf8') });
+      });
+      c.on('error', (e) => {
+        closeSync(fdOut);
+        closeSync(fdErr);
+        resolve({ code: -1, out: '', err: e.message });
+      });
+    });
+    const nodeVer = await new Promise((resolve) => {
+      const o = join(tmp, 'electron-node-ver.out');
+      const fd = openSync(o, 'w');
+      const c = spawn(electronBin, ['-e', 'process.stdout.write(process.versions.node)'], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', fd, 'ignore'] });
+      c.on('exit', () => {
+        closeSync(fd);
+        resolve(readFileSync(o, 'utf8').trim());
+      });
+      c.on('error', () => {
+        closeSync(fd);
+        resolve('?');
+      });
+    });
+    ok(
+      '打包运行时（Electron 自带的 Node）在"没有 package.json 的目录"里能加载随包密钥',
+      r.code === 0 && /KEYOK/.test(r.out),
+      `Electron 自带 Node ${nodeVer}；exit=${r.code}；输出=${r.out.trim() || '(空)'}${r.code !== 0 ? `；stderr=${r.err.split('\n').slice(0, 2).join(' / ')}` : ''}`,
+    );
+  }
+}
+
+/* ═══════════ F 静态检查 ═══════════ */
 async function testStatic() {
   G('F 语法与安全基线（静态检查）');
   const files = ['main.js', 'preload.cjs', 'src/paths.js', 'src/logger.js', 'src/secureConfig.js', 'src/mcpSupervisor.js', 'src/updater.js', 'src/components.js', 'server/webServer.js', 'scripts/embed-key.mjs', 'scripts/bundle-mcp.mjs'];
@@ -578,7 +730,7 @@ async function testStatic() {
   const pkg = JSON.parse(text('package.json'));
   ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('web-editor')), pkg.build.extraResources.map((r) => r.to).join(', '));
   ok('不再把 editor-mcp/node_modules 打进包（它是符号链接拼的，装不进安装包），改为单文件 bundle', !pkg.build.extraResources.some((r) => String(r.to).includes('node_modules')) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle')) && /bundle:mcp/.test(pkg.scripts?.dist ?? ''), `extraResources 有 editor-mcp-bundle=${pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle'))}；dist 脚本先打包=${pkg.scripts?.dist}`);
-  ok('加密配置与密钥都在打包清单里（开箱即用）', existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.js')) && existsSync(join(APP_DIR, 'config', 'config.key')), 'config/{app-config.enc, buildKey.js, config.key}');
+  ok('加密配置与密钥都在（开箱即用）', existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.mjs')) && existsSync(join(APP_DIR, 'config', 'config.key')), 'config/{app-config.enc, buildKey.mjs, config.key}');
 }
 
 /* ═══════════ 主流程 ═══════════ */
@@ -599,6 +751,7 @@ try {
   }
 }
 await testStatic();
+await testPackagingManifest();
 await testMcpBundle();
 
 for (const c of cleanups) {

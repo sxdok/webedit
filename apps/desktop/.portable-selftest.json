@@ -1,0 +1,77 @@
+{
+  "runAt": "2026-09-25T07:44:37.233Z",
+  "app": {
+    "version": "0.1.0",
+    "electron": "33.4.11",
+    "chrome": "130.0.6723.191",
+    "node": "20.18.3"
+  },
+  "mode": "packaged",
+  "userData": "C:\\Users\\Admin\\AppData\\Roaming\\可视化编辑器",
+  "config": {
+    "source": "encrypted",
+    "keySource": "build:C:\\Users\\Admin\\AppData\\Local\\Temp\\3JoL1SJRMTBZaxBLfpToe82PWTu\\resources\\config\\buildKey.mjs",
+    "problems": [],
+    "warnings": [
+      "update.baseUrl 还是示例地址（https://updates.example.com/visual-editor/）—— 正式分发前请换成真实地址并重新加密配置"
+    ],
+    "updateBaseUrl": "https://updates.example.com/vi***"
+  },
+  "checks": [
+    {
+      "name": "加密配置读取（能解开、无致命问题）",
+      "pass": true,
+      "evidence": "来源=encrypted 密钥=build:C:\\Users\\Admin\\AppData\\Local\\Temp\\3JoL1SJRMTBZaxBLfpToe82PWTu\\resources\\config\\buildKey.mjs 问题数=0"
+    },
+    {
+      "name": "内置静态服务器返回首页",
+      "pass": true,
+      "evidence": "HTTP 200 text/html 长度=412 http://127.0.0.1:58658/"
+    },
+    {
+      "name": "页面渲染出编辑器界面（组件箱 / 画布 / 纸张 / 工具栏）",
+      "pass": true,
+      "evidence": "#root 子节点=1 左面板=1（组件按钮 20 个）右面板=1 画布=1 纸张=1 工具栏=1 正文长度=1002 标题=「可视化编辑器 · 文档模式 / Web 模式」"
+    },
+    {
+      "name": "MCP 服务就绪",
+      "pass": true,
+      "evidence": "状态=ready pid=11312 地址=http://127.0.0.1:37651/mcp"
+    },
+    {
+      "name": "外部 AI 客户端能列出工具（tools/list）",
+      "pass": true,
+      "evidence": "工具数=108（例：doc.create, doc.open, doc.close）会话=4de74485…"
+    },
+    {
+      "name": "更新接口已就绪（不联网检查，只看配置）",
+      "pass": true,
+      "evidence": "开关=true 清单地址=https://updates.example.com/vi*** 通道=stable"
+    }
+  ],
+  "page": {
+    "title": "可视化编辑器 · 文档模式 / Web 模式",
+    "rootChildren": 1,
+    "panelLeft": 1,
+    "panelRight": 1,
+    "leftButtons": 20,
+    "canvas": 1,
+    "paper": 1,
+    "toolbar": 1,
+    "textLen": 1002
+  },
+  "mcp": {
+    "url": "http://127.0.0.1:37651/mcp",
+    "tools": 108,
+    "pid": 11312,
+    "external": false,
+    "bridgeConflict": true
+  },
+  "summary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "result": "PASS"
+  },
+  "reportPath": "E:\\可视化编辑器\\apps\\desktop\\.portable-selftest.json"
+}
