@@ -49,7 +49,7 @@ npm run dist                # 打 Windows 安装包 + 免安装版（release/）
 
 | 对象 | 入口 | 说明 |
 |---|---|---|
-| web-editor | `http://127.0.0.1:5179/?check=1` | **294 条端到端断言**（数据层 / 渲染 / 真实指针交互 / 分页与页码 / 打印 / 导入导出 / 热加载 / 暗色审计 / 验收项），报告渲染在页面左下角、同时写进 `document.title` |
+| web-editor | `http://127.0.0.1:5179/?check=1` | **295 条端到端断言**（数据层 / 渲染 / 真实指针交互 / 分页与页码 / 打印 / 导入导出 / 热加载 / 暗色审计 / 验收项），报告渲染在页面左下角、同时写进 `document.title` |
 | web-editor | `?demo=1` / `?diag=1` / `?prefs=1` / `?spec=1` / `?load=<地址>` / `?theme=monokai` / `?printdebug=1` / `?scroll=N` / `?select=<类型>` | 示例文档 / 诊断面板 / 首选项 / 组件说明清单 / 载入 HTML / 深色主题 / 打印排障 / 滚动定位 / 选中某类组件 |
 | editor-mcp | `npm run smoke`（或 `node scripts/*.mjs`） | 工具面与插件沙箱的冒烟检查（详见 `editor-mcp/README.md`） |
 | tools/secure-config | `node tools/secure-config/secure-config.mjs selftest` | 加密工具自检 **8 项**（往返 / 错密钥 / 篡改密文 / 篡改头部 AAD / 口令模式 / 密钥形状提醒 / 密钥来源优先级 / CLI 三件套） |

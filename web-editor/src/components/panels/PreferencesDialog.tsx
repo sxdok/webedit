@@ -105,7 +105,7 @@ const DEFAULTS: Pick<
   showTree: false,
   compPreview: false,
   autoNumber: false,
-  autoBridge: false,
+  autoBridge: true,
   autoSave: false,
   theme: 'light',
   leftWidth: 240,
@@ -244,18 +244,18 @@ export function PreferencesDialog() {
         <PrefSwitch
           prefKey="autoBridge"
           label="启动时自动连接"
-          hint="开 = 每次打开编辑器就自动连 ws://127.0.0.1:37650/bridge（默认关）"
+          hint="开 = 启动时探测本机 MCP 服务器（含应用带起来的那个），检测到就自动接入（默认开；没检测到不会硬连）"
           value={ui.autoBridge === true}
           onChange={() => toggleUI('autoBridge')}
         />
-        {/* 只读状态：**不放第二个"连接/断开"按钮**（用户 2026-09-24 要求入口收敛，那个开关在 帮助 → MCP 桥接） */}
+        {/* 只读状态：**不放第二个"连接/断开"按钮**（用户 2026-09-24 要求入口收敛；开关在 工具 → MCP 桥接） */}
         <div className="flex items-center gap-2 py-1" data-pref="bridgeStatus" data-pref-value={bridge.state}>
           <span className="w-32 shrink-0 text-[12px] text-gray-600">当前状态</span>
           <span className="min-w-0 flex-1 truncate text-2xs text-gray-400" data-bridge-summary="1">
             {bridge.label}
             {bridge.detail ? ` · ${bridge.detail}` : ''}
           </span>
-          <span className="flex-none text-2xs text-gray-400">连接开关在 帮助 → MCP 桥接</span>
+          <span className="flex-none text-2xs text-gray-400">连接开关在 工具 → MCP 桥接</span>
         </div>
       </Section>
 

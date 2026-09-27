@@ -307,9 +307,14 @@ export function MenuBar() {
       ]
     : [];
 
-  const helpMenu: MenuEntry[] = [
-    { key: 'sc', label: '快捷键说明', onClick: () => setHelpOpen(true) },
-    // ★MCP 桥接（规格 §11）：默认不开；开了之后 MCP 客户端就能驱动这个编辑器
+  /**
+   * 「工具」菜单 —— **两种环境都有**（用户 2026-09-28：MCP 桥接项从「帮助」移到「工具」）：
+   *   · 浏览器里只有 MCP 桥接这一项（原来在 帮助 菜单，属于"把编辑器接到外部服务器"的运维动作，
+   *     和"查日志/看快捷键"不是一类，移到工具更合惯例）；
+   *   · 桌面版里这一项后面再接上应用级动作（检查更新 / MCP 服务 / 目录 / 关于）。
+   */
+  const toolsMenu: MenuEntry[] = [
+    // ★MCP 桥接（规格 §11）：默认不开，但启动时若探测到本机 MCP 会自动接入（见 mcp/bridgeClient.ts）
     {
       key: 'mcpbridge',
       label: `MCP 桥接：${bridge.label}`,
@@ -333,8 +338,8 @@ export function MenuBar() {
               `当前：${s.label}\n` +
               `${s.detail ? `详情：${s.detail}\n` : ''}\n` +
               '排查顺序：\n' +
-              '  1) 命令行启动 MCP 服务器（它会在 37650 起桥接中转 hub）：\n' +
-              '     cd E:\\可视化编辑器\\editor-mcp; node dist\\index.js --stdio\n' +
+              '  1) 起 MCP 服务器（它会在 37650 起桥接中转 hub）。桌面版由应用自己起，不用手敲；\n' +
+              '     命令行起法（stdio）：cd E:\\可视化编辑器\\editor-mcp; node dist\\index.js --stdio\n' +
               '  2) 若 37650 被别的实例占用，换端口：地址栏加\n' +
               '     ?bridge=1&bridgeUrl=ws://127.0.0.1:37652/bridge（并给 MCP 加 EDITOR_MCP_BRIDGE_URL 指到同一端口）\n' +
               '  3) 「帮助 → 诊断信息」里有桥接日志与最近错误。',
@@ -342,6 +347,13 @@ export function MenuBar() {
         });
       },
     },
+    ...(ds
+      ? ([{ key: 't-sep', separator: true }, ...desktopMenu] as MenuEntry[])
+      : []),
+  ];
+
+  const helpMenu: MenuEntry[] = [
+    { key: 'sc', label: '快捷键说明', onClick: () => setHelpOpen(true) },
     { key: 'diag', label: '诊断信息（日志 / 状态 / 环境）', onClick: () => S().toggleUI('showDiagnostics') },
     /* ★「重载外部组件」收进首选项（用户 2026-09-24）：帮助菜单与组件箱底部都不再放，
        入口统一在「首选项 → 组件箱 → 重载外部组件」。 */
@@ -430,7 +442,7 @@ export function MenuBar() {
       <DropdownMenu label="编辑" items={editMenu} />
       <DropdownMenu label="视图" items={viewMenu} />
       <DropdownMenu label="页面" items={pageMenu} />
-      {ds && <DropdownMenu label="工具" items={desktopMenu} />}
+      <DropdownMenu label="工具" items={toolsMenu} />
       <DropdownMenu label="帮助" items={helpMenu} />
       <span className="ml-3 truncate text-2xs text-gray-400">
         {title} · {mode === 'document' ? '文档模式' : 'Web 模式'}

@@ -190,12 +190,14 @@ const applyCellParam = () => {
 /**
  * 启动时的桥接策略：
  *   · `?bridge=1[&bridgeUrl=ws://…]` → **强制开**（无人值守验证用，覆盖首选项）；
- *   · 否则看**首选项 → MCP 桥接 → 启动时自动连接**（`ui.autoBridge`，用户 2026-09-24 要求）。
+ *   · 否则走**首选项 → MCP 桥接 → 启动时自动连接**（`ui.autoBridge`，默认开）：
+ *     先探测本机 MCP 服务器（桌面版还会从应用配置里取真实桥接端口），检测到才接入，
+ *     并在 0.3/2/5/10/20s 内有界重试 —— 桌面版是"先开窗、后拉 MCP 子进程"，页面常比 MCP 先就绪。
  */
 const applyBridgeParam = () => {
   void import('./mcp/bridgeClient').then((m) => {
     if (params.get('bridge')) m.autoStartBridgeFromUrl();
-    else m.autoStartBridgeFromPrefs();
+    else void m.autoStartBridgeFromPrefs();
   });
 };
 

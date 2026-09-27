@@ -137,7 +137,8 @@ export interface EditorPage {
   doc: EditorDocument;
 }
 
-const initialUI: UIState = {
+/** 首选项/UI 的**出厂默认值**（导出供自检断言"默认是开还是关"；运行期不要改它） */
+export const initialUI: UIState = {
   showGrid: false,
   showRuler: true,
   showGuides: true,
@@ -152,7 +153,9 @@ const initialUI: UIState = {
   newDocOpen: false,
   compPreview: false,
   prefsOpen: false,
-  autoBridge: false,
+  // ★默认开（用户 2026-09-28：编辑器启动时自动接入"应用带起来的那个 MCP 服务器"）。
+  //   实现是"先探测再连"（见 mcp/bridgeClient.ts）：端口上没人时不会硬连、也不会假装已连接。
+  autoBridge: true,
   autoSave: false,
   fitWhenNarrow: true,
   showMarkdown: false,

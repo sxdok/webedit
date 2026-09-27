@@ -17,6 +17,7 @@ import { useEditorStore } from '../store/editorStore';
 import { getLiveTypes } from '../registry/live';
 import { routeLive } from './liveMethods';
 import { log } from '../utils/logger';
+import { desktopApi } from '../utils/desktopChrome';
 
 const BRIDGE_URL_DEFAULT = 'ws://127.0.0.1:37650/bridge';
 let url = BRIDGE_URL_DEFAULT;
@@ -49,6 +50,21 @@ export function onBridgeState(cb: (s: BridgeState) => void): () => void {
 
 const subscribeBridge = (cb: () => void): (() => void) => onBridgeState(cb);
 const getBridgeState = (): BridgeState => state;
+
+/**
+ * 订阅用的**快照**：必须把"影响文案的每一项"都编进去。
+ * ★真踩过（2026-09-28，自检抓到的真 bug，修了两次才对）：
+ *   菜单文案 = `bridgeSummary()`，它同时依赖 `shouldRun`（决定"未开启"那一支）与 `reconnects`（"第 N 次重试"）。
+ *   而这里是 `useSyncExternalStore` 的快照比较 —— 只比 `state` 的话：
+ *     ① 关掉桥接时 `state` 往往**已经是 `'off'`**（之前连失败过），快照没变 → React **bail out**，菜单停在
+ *        「✓MCP 桥接：连接中…（还没连上）」，明明关了还说开着；
+ *     ② 重连次数增加时 `state` 也是 `'off' → 'connecting' → 'off'` 的快照，可能整段被跳过一次，文案不刷新。
+ *   所以先把 `notify()` 补齐（让订阅者被叫到），再让快照带上 `shouldRun | state | reconnects`
+ *   （让 React 认得出"真的变了"）。两件事缺一不可 —— 只做前者，React 仍然不重渲染。
+ */
+function bridgeSnapshot(): string {
+  return `${shouldRun ? 'on' : 'off'}|${state}|${reconnects}`;
+}
 
 /** 订阅桥接状态：状态一变（connecting/connected/off）就触发重渲染 */
 export function useBridgeState(): BridgeState {
@@ -89,7 +105,8 @@ export function bridgeSummary(): BridgeSummary {
 
 /** 订阅版摘要（菜单/状态栏用）：状态一变自动跟着变 */
 export function useBridgeSummary(): BridgeSummary {
-  useBridgeState();
+  // ★订阅的是"复合快照"而不是单个 state —— 理由见上面 bridgeSnapshot() 的注释
+  useSyncExternalStore(subscribeBridge, bridgeSnapshot, bridgeSnapshot);
   return bridgeSummary();
 }
 
@@ -118,10 +135,28 @@ export function waitBridgeSettled(timeoutMs = 2500): Promise<BridgeState> {
   });
 }
 
+/**
+ * 通知订阅者。
+ * ★为什么单独抽出来：`bridgeSummary()` 依赖的不只是 `state`，还有 `shouldRun`（"没开启" vs "开了但没连上"）。
+ *   真踩过（2026-09-28，改自动连接时被自检抓到）：连接失败后 `state` 已经是 `'off'`，此时用户关掉桥接，
+ *   `setState('off')` 因"值没变"直接 return → **一个通知都没发** → 菜单保持上一次渲染的
+ *   「✓MCP 桥接：连接中…（还没连上）」——明明已经关了，菜单还说开着。所以凡是 `shouldRun` 变化的地方，
+ *   都必须无条件 `notify()`，不能只靠 `setState`。
+ */
+function notify(): void {
+  for (const cb of listeners) {
+    try {
+      cb(state);
+    } catch {
+      /* 单个订阅者出错不影响别人 */
+    }
+  }
+}
+
 function setState(next: BridgeState): void {
   if (state === next) return;
   state = next;
-  listeners.forEach((cb) => cb(next));
+  notify();
 }
 
 /** 统一返回体（与 MCP 侧 Tool 的 data 对齐） */
@@ -239,6 +274,8 @@ export function setBridgeEnabled(on: boolean, nextUrl?: string): void {
     }
     ws = null;
     setState('off');
+    // ★`state` 可能本来就是 off（连接失败后）→ setState 不会通知，但菜单文案要跟着 shouldRun 变
+    notify();
     log.info('bridge', '已关闭 MCP 桥接');
   }
 }
@@ -258,14 +295,107 @@ export function autoStartBridgeFromUrl(): void {
 }
 
 /**
- * **首选项里的"启动时自动连接"**（`ui.autoBridge`，用户 2026-09-24 要求做成开关）。
- * 与 `?bridge=1` 的分工：这个开关是用户可见、随 ui 持久化的设置；URL 参数仍然强制开（无人值守验证用）。
- * 只负责"开"，不负责"关" —— 用户手动断开后不该被下一次启动逻辑立刻又连上（他关的是本次会话）。
+ * **启动时自动接入"应用带起来的那个 MCP 服务器"**（用户 2026-09-28 要求；开关在 首选项 → MCP 桥接）。
+ *
+ * 做法与取舍（都比"直接把 shouldRun 置 true"多一点）：
+ *   · **先探测、再连**：端口上没人时不假装"已开启" —— 否则菜单会一直显示"连接中/重连中"，
+ *     把"服务器没起"说成"正在连"，正是 2026-09-24 那次报过的假话问题的翻版；
+ *   · **有界重试**（默认 0.3s / 2s / 5s / 10s / 20s 共 5 次）：桌面分发版是"先开窗、后拉 MCP 子进程"，
+ *     页面往往比 MCP 先就绪；只探测一次会漏掉这个竞态。5 次之后不再打扰，菜单里可手动连；
+ *   · **桌面版以应用配置为准**：桥接地址取 `window.desktop → mcp.bridgeUrl`（端口可配置），
+ *     而不是写死 37650；浏览器里仍旧用默认地址；
+ *   · 开关默认**开**；关掉时连探测都不做（`tried:false`），用户的关闭是本次会话的有效决定。
  */
-export function autoStartBridgeFromPrefs(): void {
-  try {
-    if (useEditorStore.getState().ui.autoBridge === true && !shouldRun) setBridgeEnabled(true);
-  } catch {
-    /* 忽略 */
-  }
+export interface AutoBridgeResult {
+  /** 是否真的去探测了（开关关着 / 已经开着 → false） */
+  tried: boolean;
+  /** 是否接上了 */
+  connected: boolean;
+  url: string;
+  attempts: number;
+  /** 给人看的结论（诊断面板/自检用） */
+  reason: string;
 }
+
+/** 探测某个地址上有没有桥接中转（能建立 WebSocket 就算有；探完立刻断开，不发 hello） */
+export function probeBridge(targetUrl: string, timeoutMs = 1200): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let socket: WebSocket | null = null;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      try {
+        socket?.close();
+      } catch {
+        /* 已经关了 */
+      }
+      resolve(ok);
+    };
+    try {
+      socket = new WebSocket(targetUrl);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const timer = window.setTimeout(() => finish(false), timeoutMs);
+    socket.addEventListener('open', () => {
+      window.clearTimeout(timer);
+      finish(true);
+    });
+    socket.addEventListener('error', () => {
+      window.clearTimeout(timer);
+      finish(false);
+    });
+  });
+}
+
+/** 桥接地址：显式给的 > 桌面版应用配置里的 > 默认值 */
+async function resolveBridgeUrl(explicit?: string): Promise<string> {
+  if (explicit) return explicit;
+  const d = desktopApi();
+  if (d) {
+    try {
+      const s = await d.getStatus();
+      if (s?.mcp?.bridgeUrl) return s.mcp.bridgeUrl;
+    } catch {
+      /* 拿不到就用默认地址 */
+    }
+  }
+  return url;
+}
+
+/**
+ * 自动接入。返回结论而不是抛错 —— 调用方（main.tsx / 自检）都不该因为它失败而中断启动。
+ * @param opts.url     指定桥接地址（自检用；缺省按上面的优先级解析）
+ * @param opts.delays  每次探测前的等待（毫秒；自检可传小值让它快）
+ */
+export async function autoStartBridgeFromPrefs(opts: { url?: string; delays?: number[] } = {}): Promise<AutoBridgeResult> {
+  const delays = opts.delays ?? [300, 2000, 5000, 10000, 20000];
+  let enabled = false;
+  try {
+    enabled = useEditorStore.getState().ui.autoBridge === true;
+  } catch {
+    enabled = false;
+  }
+  if (!enabled) {
+    return { tried: false, connected: false, url, attempts: 0, reason: '首选项里「启动时自动连接」是关的' };
+  }
+  if (shouldRun) {
+    return { tried: false, connected: true, url, attempts: 0, reason: '已经开着（手动连过或 ?bridge=1 强制开）' };
+  }
+
+  const target = await resolveBridgeUrl(opts.url);
+  for (let i = 0; i < delays.length; i += 1) {
+    if (delays[i] > 0) await new Promise((r) => window.setTimeout(r, delays[i]));
+    if (shouldRun) return { tried: true, connected: true, url: target, attempts: i + 1, reason: '期间已被手动打开' };
+    if (await probeBridge(target)) {
+      setBridgeEnabled(true, target);
+      log.info('bridge', `检测到本机 MCP 服务器，已自动接入：${target}（第 ${i + 1} 次探测）`);
+      return { tried: true, connected: true, url: target, attempts: i + 1, reason: '探测到桥接中转并已接入' };
+    }
+  }
+  log.info('bridge', `没有检测到本机 MCP 服务器（探测 ${delays.length} 次：${target}）—— 可用「工具 → MCP 桥接」手动连`);
+  return { tried: true, connected: false, url: target, attempts: delays.length, reason: '没探测到桥接中转（MCP 服务器没在运行？）' };
+}
+

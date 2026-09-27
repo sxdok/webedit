@@ -229,11 +229,36 @@ npm run bundle:mcp   # 只打 MCP 单文件 → dist-mcp/editor-mcp.bundle.mjs
 npm run dist         # 产物在 apps/desktop/release/
 ```
 
+> ⚠ **2026-09-28 现状：`npm run dist` 的第一步会失败** —— `bundle:mcp` 用 esbuild 打 `editor-mcp/dist/index.js`，
+> 而 `editor-mcp/node_modules` 是当年手工拼的**符号链接**（`@modelcontextprotocol/sdk` / `ws` / `zod` →
+> `D:\DSHClient\user\server\node_modules\.pnpm\…`），那个目录在 09-27 的迁移清理里被删了 → esbuild 报
+> `Could not resolve "@modelcontextprotocol/sdk/server/stdio.js"`。**MCP 源码本身没坏**，坏的是依赖树。
+> 在 `editor-mcp` 里跑一次 `npm install` 即可恢复；在那之前要打包，就跳过那一步**复用现有单文件**
+> （它自包含、与源码无关；仅当 MCP 源码改过时才必须重打）：
+>
+> ```bash
+> .\node_modules\.bin\electron-builder.cmd --win    # 不跑 bundle:mcp
+> ```
+>
+> 另外打包/自检时**留意 `ELECTRON_RUN_AS_NODE`**：如果是从带这个变量的环境（例如 DSH 宿主进程起出来的终端）
+> 启动打包版 exe，Electron 会以 Node 模式运行、直接报 `bad option: --selftest` 并退出码 9 ——
+> 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再跑。
+
 产物（本机实测）：`可视化编辑器-0.1.0-x64.exe`（NSIS 安装包 **79.0 MB**）、
 `可视化编辑器-0.1.0-portable.exe`（免安装 **78.8 MB**）、`win-unpacked/`。
 
-**本机实测：两个产物都跑过 `--selftest`，都是 6/6 通过**（`mode=packaged`，密钥来自
-`resources/config/buildKey.mjs`，MCP 列出 108 个工具）。
+**本机实测：两个产物都跑过 `--selftest`，都是 9/9 通过**（`mode=packaged`，密钥来自
+`resources/config/buildKey.mjs`，MCP 列出 108 个工具；另有 3 条界面契约：只有一条菜单栏 / 菜单栏可拖拽 /
+右上角给系统按钮留位）。
+
+> **已知限制（2026-09-28 实测）**：应用拉起的 MCP 子进程跑在 **Electron 自带的 Node 20** 上，而
+> `editor-mcp` 的 `liveBridge` 只认 `globalThis.WebSocket`（Node ≥22 才有，且源码里没有 `ws` 回退）→
+> MCP 侧连不上自己起的桥接 hub，`editor://bridge/status` 报 `connected:false`、`mode:headless`，
+> 于是 **Live 能力（doc.attach 等）在打包版里用不了**，所有工具按无头模式工作（`degraded:true`）。
+> 页面侧不受影响（实测 hub 回执 `editors:1`＝页面已自动接入）。要用 Live，三条路：
+> ① 在 `editor-mcp` 里 `npm install` 恢复依赖，给 `liveBridge` 加 `ws` 回退后重打单文件（最省事，改动小）；
+> ② 把 Electron 升到自带 Node ≥22 的版本（37+），子进程就用 Electron 的 Node 也够了；
+> ③ 用系统 Node ≥22 跑 MCP（`EDITOR_MCP_*` 那套照旧），例如 `node editor-mcp/dist/index.js --stdio`。
 
 ### 真踩过的两个坑（都已修，且都补了自动断言）
 

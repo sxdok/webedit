@@ -11,7 +11,7 @@ import { getAllComponents, getCategoriesByMode, getComponent, getComponentsByMod
 import { COMPONENT_MODULES, collectComponents } from '../registry/components';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
 import { CATEGORY_ORDER, pageLabel, type ComponentDefinition, type ComponentNode, type EditorDocument } from '../registry/types';
-import { createInitialDocument, useEditorStore } from './editorStore';
+import { createInitialDocument, initialUI, useEditorStore } from './editorStore';
 import { HISTORY_LIMIT } from './history';
 import { mmToPx } from '../utils/units';
 
@@ -4454,20 +4454,30 @@ async function interactionChecks(): Promise<Result[]> {
       !helpItems.includes('reloadlive'),
       `帮助菜单项：${helpItems.join(' / ')}`,
     );
+    /* 用户 2026-09-28：MCP 桥接从「帮助」移到「工具」—— 两侧都要断言，防止只删不加/只加不删 */
+    const helpItems2 = await openMenu('帮助');
+    await closeMenu();
+    const toolsItems = await openMenu('工具');
+    await closeMenu();
+    add(
+      '菜单：MCP 桥接在「工具」里、且已从「帮助」移出（用户 2026-09-28）',
+      toolsItems.includes('mcpbridge') && !helpItems2.includes('mcpbridge'),
+      `工具菜单项：${toolsItems.join(' / ')}；帮助菜单项：${helpItems2.join(' / ')}`,
+    );
 
     /* MCP 桥接的状态文案（用户 2026-09-24：点开关弹窗说"已开启"，菜单里却还是「未开启」）
        —— 原来 `state === 'off'` 同时表示"没开启"和"开了但没连上"，且菜单没人订阅状态 → 说了假话 + 不刷新。 */
-    const helpLabelsBefore = await openMenuLabels('帮助');
+    const helpLabelsBefore = await openMenuLabels('工具');
     await closeMenu();
     const bridgeBefore = bridgeSummary();
     setBridgeEnabled(true);
     await wait(500);
-    const helpLabelsOn = await openMenuLabels('帮助');
+    const helpLabelsOn = await openMenuLabels('工具');
     await closeMenu();
     const bridgeOn = bridgeSummary();
     setBridgeEnabled(false);
     await wait(400);
-    const helpLabelsOff = await openMenuLabels('帮助');
+    const helpLabelsOff = await openMenuLabels('工具');
     await closeMenu();
     const bridgeOff = bridgeSummary();
     const bridgeLine = (labels: string[]): string => labels.find((t) => t.includes('MCP 桥接')) ?? '(菜单里没有这一项)';
@@ -4482,22 +4492,38 @@ async function interactionChecks(): Promise<Result[]> {
       `关：${bridgeLine(helpLabelsBefore)} → 开：${bridgeLine(helpLabelsOn)}（state=${bridgeOn.state}、detail=${bridgeOn.detail.slice(0, 30)}）→ 再关：${bridgeLine(helpLabelsOff)}`,
     );
 
-    /* 首选项里的「启动时自动连接」开关（用户 2026-09-24 要求做成开关）：开着才自动连，默认关 */
+    /**
+     * 首选项「启动时自动连接」（用户 2026-09-28 改成**默认开**，且改成"先探测再连"）：
+     *   ① 默认值必须是 true；
+     *   ② 关掉开关时**连探测都不做**（tried=false）—— 用户的关闭是本次会话的有效决定；
+     *   ③ 开着但端口上没人时**不硬连**（shouldRun 保持 false，返回 connected=false 与原因）——
+     *      否则菜单会一直显示"连接中/重连中"，把"没起服务器"说成"正在连"。
+     * ③ 用 `ws://127.0.0.1:1/bridge`（必然连不上）来判定，不依赖这台机器上是否恰好有 MCP 在跑。
+     */
     const uiSnapshot = useEditorStore.getState().ui;
+    const defaultAutoBridge = initialUI.autoBridge;
     useEditorStore.setState({ ui: { ...uiSnapshot, autoBridge: true } });
     setBridgeEnabled(false);
-    autoStartBridgeFromPrefs();
-    const autoOn = bridgeSummary().on;
+    const nobodyListening = await autoStartBridgeFromPrefs({ url: 'ws://127.0.0.1:1/bridge', delays: [0, 120] });
+    const autoOnNoServer = bridgeSummary().on;
     setBridgeEnabled(false);
     useEditorStore.setState({ ui: { ...uiSnapshot, autoBridge: false } });
-    autoStartBridgeFromPrefs();
-    const autoOff = bridgeSummary().on;
+    const autoOff = await autoStartBridgeFromPrefs({ url: 'ws://127.0.0.1:1/bridge', delays: [0, 120] });
+    const autoOffOn = bridgeSummary().on;
     setBridgeEnabled(false);
+    useEditorStore.setState({ ui: { ...uiSnapshot, autoBridge: true } });
     add(
-      '首选项「启动时自动连接」开关生效：开着 → 启动逻辑自动连桥；关着 → 不连（**默认关**）',
-      autoOn === true && autoOff === false,
-      `开关开着时自动连=${autoOn}；关着时=${autoOff}`,
+      '首选项「启动时自动连接」：**默认开**、关着不探测、开着且端口没人时不硬连（不假装"正在连"）',
+      defaultAutoBridge === true &&
+        autoOff.tried === false &&
+        autoOffOn === false &&
+        nobodyListening.tried === true &&
+        nobodyListening.connected === false &&
+        autoOnNoServer === false,
+      `默认值=${defaultAutoBridge}；关着 → tried=${autoOff.tried}/${autoOff.reason}；开着且没人监听 → ${nobodyListening.attempts} 次探测、connected=${nobodyListening.connected}、桥接仍关=${autoOnNoServer === false}`,
     );
+    /* 还原：别让自检把用户的开关状态带跑（原值） */
+    useEditorStore.setState({ ui: { ...uiSnapshot } });
 
     /* 文案收敛（用户 2026-09-24） */
     const viewLabels = await openMenuLabels('视图');

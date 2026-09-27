@@ -17,6 +17,11 @@ apps/desktop/.portable-selftest.json
 apps/desktop/.selftest-report.json
 apps/desktop/.shot-*.png
 
+# DSH MCP 管理器的项目级配置（含本机绝对路径，不适合共享仓库；要团队共享请改相对命令后再纳入版本库）
+.dsh/@wingsky-1/
+# meow-memory 插件的记忆库（工作区本地数据，不随仓库走）
+.dsh-meow/
+
 # Python 运行时缓存（启动器无需编译，删除后会自动重建）
 __pycache__/
 *.pyc
