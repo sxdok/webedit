@@ -433,6 +433,58 @@ async function testMcp(dev) {
     ok('接管来的外部进程：应用停止时**不动它**（它不归本应用管）', stillAlive.ok, `stop() 后仍能握手=${stillAlive.ok}`);
   }
 
+  /**
+   * ★版本不一致时**拒绝接管**（2026-09-28 加）。
+   * 真踩过的风险：端口上恰好是另一个版本（旧安装版 / DSH 自己拉起的实例）时，老实现只要"能握手"就接管，
+   * 于是 agent 静默连到了**别人的工具表与工作区**，而界面还显示"就绪"。这里用一个自报 9.9.9 的假 MCP 验它。
+   */
+  {
+    const fakePort = adoptPort + 7;
+    const fake = createHttpServer((req, res) => {
+      let raw = '';
+      req.on('data', (c) => (raw += c));
+      req.on('end', () => {
+        let id = 1;
+        try {
+          id = JSON.parse(raw).id ?? 1;
+        } catch {
+          /* 忽略 */
+        }
+        const body = JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake-mcp', version: '9.9.9' } },
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json', 'mcp-session-id': 'fake-session' });
+        res.end(body);
+      });
+    });
+    await new Promise((r) => fake.listen(fakePort, '127.0.0.1', () => r()));
+    try {
+      const sup3 = createMcpSupervisor({
+        nodeBin: process.execPath,
+        nodeEnv: {},
+        mcpEntry: dev.mcpEntry,
+        mcpRoot: dev.mcpRoot,
+        host: '127.0.0.1',
+        port: fakePort,
+        bridgePort: adoptBridge + 7,
+        workspace: join(tmp, 'mcp-workspace-foreign'),
+        readyTimeoutMs: 5000,
+        logger,
+      });
+      const st3 = await sup3.start();
+      ok(
+        '端口上是**别的版本**的 MCP 时拒绝接管（否则 agent 会静默连错实例）',
+        st3.state === 'failed' && /拒绝接管/.test(String(st3.lastError ?? '')),
+        `state=${st3.state} external=${st3.external} lastError=${String(st3.lastError ?? '').slice(0, 130)}`,
+      );
+      await sup3.stop();
+    } finally {
+      await new Promise((r) => fake.close(() => r()));
+    }
+  }
+
   // 收尾：真停掉，端口应释放
   const stoppedPid = sup.status().pid;
   await sup.stop();

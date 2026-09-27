@@ -111,8 +111,14 @@ console.log(hub.hello ? JSON.stringify(hub.hello) : (hub.note ?? '(无结果)'))
 const s = mcp.status ?? {};
 const editors = hub.hello?.editors;
 console.log('\n── 结论 ──');
-console.log(`MCP→hub：connected=${s.connected}（${s.lastError ?? '无错误'}）`);
+console.log(`MCP→hub：connected=${s.connected} ready=${s.ready}（${s.lastError ?? '无错误'}）`);
 console.log(`页面→hub：editors=${editors ?? '(读不到)'}`);
-const live = s.connected === true && typeof editors === 'number' && editors >= 1;
+/**
+ * ★判据必须带 `ready`：
+ *   `connected` 只说明"本侧连上了中转"，编辑器没接入、或**版本不匹配被拒绝**时它同样是 true
+ *   （实测：页面 0.1.0 / MCP 0.2.0 → connected=true 但 lastError=版本不匹配、ready=false）。
+ *   只看 connected + editors 会把"被拒绝的 Live"报成可用 —— 本脚本第一版就是这么错的。
+ */
+const live = s.connected === true && s.ready === true && s.mode === 'live' && typeof editors === 'number' && editors >= 1;
 console.log(live ? '★ Live 通道可用（三段都通）' : '★ Live 通道不可用（看上两行缺哪一段）');
 process.exitCode = live ? 0 : 1;

@@ -55,10 +55,23 @@ async function main(): Promise<void> {
   let hub: { close: () => Promise<void> } | null = null;
   if (config.bridgeHub) {
     try {
-      const { startBridgeHub } = await import('./bridge/host.js');
-      hub = await startBridgeHub();
       /**
-       * ★中转起来后**立刻**让 MCP 侧也接进去（而不是等第一次 live 调用才惰性连接）。
+       * ★**先探再绑**（用户 2026-09-28：「运行同时连接多个」）。
+       * 多个 editor-mcp 实例应当**共用一个中转**：第一个绑端口当持有者，其余作为客户端接进去 ——
+       * 实测两边都能拿到 Live（见 `scripts/multi-connection-check.mjs`：A 占端口、B 只连不占，
+       * 两边 `editor://bridge/status` 都是 connected + ready + mode=live）。
+       * 老写法是无条件 `startBridgeHub()`，第二个实例必然 EADDRINUSE，日志写成
+       * "桥接中转未能启动（端口可能被占）" —— 看着像故障，也让人误判成"只能有一个拿到 Live"。
+       */
+      const { startBridgeHub, probeHub, hubOwnedByMe } = await import('./bridge/host.js');
+      const existing = await probeHub();
+      if (existing) {
+        log.info(`检测到既有桥接中转（${config.bridgeUrl}）—— 本实例作为客户端接入（多实例共用一个中转，都能拿到 Live）`);
+      } else {
+        hub = await startBridgeHub();
+      }
+      /**
+       * ★中转起来（或已存在）后**立刻**让 MCP 侧也接进去（而不是等第一次 live 调用才惰性连接）。
        *   为什么必须提前：`editor://bridge/status` 的 `ready` 是从本侧连接状态算出来的 ——
        *   如果这侧还没连，"编辑器已接入"这件事**没有任何人告诉它**，于是 ready 永远 false，
        *   直到某次调用触发惰性连接、顺便 hello 问出 `editors` 才转真。
@@ -67,9 +80,9 @@ async function main(): Promise<void> {
        */
       const { liveBridge } = await import('./bridge/liveBridge.js');
       liveBridge.start();
-      log.info(`MCP 侧已接入桥接中转（${config.bridgeUrl}），等待编辑器页面接入`);
+      log.info(`MCP 侧已接入桥接中转（${config.bridgeUrl}），等待编辑器页面接入${hubOwnedByMe() ? '（本实例持有中转）' : '（中转由其它实例持有）'}`);
     } catch (e) {
-      log.warn(`桥接中转未能启动（端口可能被占）：${String((e as Error)?.message ?? e)}`);
+      log.warn(`桥接中转未能启动：${String((e as Error)?.message ?? e)}（端口可能被非中转进程占用；Live 不可用，其余工具不受影响）`);
     }
   }
 

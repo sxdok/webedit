@@ -13,6 +13,7 @@
  */
 import { log } from '../log.js';
 import { liveBridge } from './liveBridge.js';
+import { hubOwnedByMe } from './host.js';
 
 export type Via = 'live' | 'headless';
 
@@ -75,6 +76,12 @@ export function bridgeSummary() {
   const s = liveBridge.status();
   return {
     ...s,
+    /**
+     * 本进程是不是"中转的持有者"。多实例共存时（桌面版自己拉的那个 + agent 拉的那个 + 手动起的），
+     * **只有一个**能绑上 37650，其余作为客户端接入 —— 但**两边都能拿到 Live**（实测见
+     * `scripts/multi-connection-check.mjs`）。这个字段让排查时一眼看清"谁是地主、谁在蹭"。
+     */
+    hubOwner: hubOwnedByMe(),
     mode: s.ready ? 'live' : 'headless',
     /** 一句话说清现在是哪种情况（排障用；`connected` 与 `ready` 的区别见 BridgeStatus 注释） */
     situation: s.ready
@@ -83,10 +90,10 @@ export function bridgeSummary() {
         ? 'headless：中转可达、但编辑器未接入（编辑器没开或菜单里没开桥接）'
         : s.connected
           ? 'handshake：中转已连、还没问出编辑器状态'
-          : 'headless：连不上中转（editor-mcp 的 hub 没起或被占端口）',
+          : 'headless：连不上中转（本地中转没起，或端口被非中转进程占用）',
     hint: s.ready
       ? undefined
-      : '编辑器未开启 MCP 桥接（菜单「帮助 → 开启 MCP 桥接」），当前所有操作走无头模式并标记 degraded=true',
+      : '编辑器未开启 MCP 桥接（菜单「工具 → MCP 桥接」），当前所有操作走无头模式并标记 degraded=true',
   };
 }
 

@@ -38,6 +38,63 @@ export interface BridgeHubHandle {
 
 const HUB_PATH = '/bridge';
 
+/**
+ * 探测"这个地址上是不是已经有中转在跑"。
+ * ★为什么要先探再绑（用户 2026-09-28 要求「运行同时连接多个」）：
+ *   多个 editor-mcp 实例（桌面版自己拉的那个 + DSH/agent 拉的那个 + 手动起的）应当**共用一个中转**：
+ *   第一个绑端口当地主，其余的作为客户端接进去 —— 实测两边都能拿到 Live。
+ *   老写法是无条件 `startBridgeHub()`，第二个实例必然 EADDRINUSE，于是日志里出现
+ *   "桥接中转未能启动（端口可能被占）"，看着像故障（我一度也据此判断"只有一个能 Live"）。
+ *   先探一次就能把这种情况如实说成"接入既有中转"（info），而不是报错。
+ */
+export function probeHub(rawUrl = config.bridgeUrl, timeoutMs = 1200): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    /** 只用 DOM 风格的两个事件 + close：内置 WebSocket 与 `ws` 都满足（`ws` 也实现了 addEventListener） */
+    interface ProbeSocket {
+      close(): void;
+      addEventListener(type: string, cb: () => void): void;
+    }
+    let ws: ProbeSocket | null = null;
+    const finish = (okValue: boolean): void => {
+      if (settled) return;
+      settled = true;
+      try {
+        ws?.close();
+      } catch {
+        /* 忽略 */
+      }
+      resolve(okValue);
+    };
+    // 只做"建得起来吗"的探测：不发 hello，连上就关（中转会把它当作 role=unknown，断开即回收）
+    const Ctor = (globalThis as unknown as { WebSocket?: new (u: string) => ProbeSocket }).WebSocket;
+    if (!Ctor) {
+      resolve(false);
+      return;
+    }
+    try {
+      ws = new Ctor(rawUrl);
+    } catch {
+      resolve(false);
+      return;
+    }
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref?.();
+    ws.addEventListener('open', () => {
+      clearTimeout(timer);
+      finish(true);
+    });
+    ws.addEventListener('error', () => {
+      clearTimeout(timer);
+      finish(false);
+    });
+  });
+}
+
+/** 本进程是不是"中转的持有者"（第一个实例 true，后续接入既有中转的实例 false） */
+let ownsHub = false;
+export const hubOwnedByMe = (): boolean => ownsHub;
+
 export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
   const url = new URL(config.bridgeUrl);
   const listenPort = port ?? Number(url.port || 37650);
@@ -174,6 +231,7 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
     wss.once('error', reject);
   });
   log.info(`桥接中转已监听 ws://${host}:${listenPort}${HUB_PATH}（等待编辑器页面接入）`);
+  ownsHub = true;
 
   return {
     url: `ws://${host}:${listenPort}${HUB_PATH}`,
@@ -181,6 +239,7 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
     editors,
     clients,
     close: async () => {
+      ownsHub = false;
       for (const p of peers) {
         try {
           p.ws.close();

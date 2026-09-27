@@ -267,9 +267,24 @@ export function createMcpSupervisor({
       if (adopt) {
         const found = await probeMcp(url, { timeoutMs: 1500 });
         if (found.ok) {
+          /**
+           * ★只有在**版本一致**时才接管。
+           * 真踩过的风险（审计 2026-09-28）：原来只要端口上能握手就接管 —— 同一台机器上另一个
+           * 版本（旧安装版、或 DSH 自己拉起的实例）占着 37651 时，本应用会静默把 agent 接到
+           * **那个实例**上：它读写的 workspace、它注册的工具表都不是本应用的，界面还显示"就绪"。
+           * 版本不一致就明确失败并说清怎么处理，而不是"看起来能用、实际连错了人"。
+           */
+          const foundVersion = found.serverInfo?.version ?? null;
+          if (foundVersion !== null && foundVersion !== clientVersion) {
+            const msg = `端口 ${port} 上已有一个 editor-mcp v${foundVersion}（本应用 v${clientVersion}），**拒绝接管**：接管会让 agent 连到那个实例的工具表与工作区。请关掉那个实例，或在加密配置里改 mcp.httpPort（同时改 agent 侧的 URL）。`;
+            state.exits = [];
+            set({ state: 'failed', external: false, serverInfo: found.serverInfo, lastError: msg, probe: found });
+            logger?.error(msg);
+            return status();
+          }
           state.exits = [];
           set({ state: 'ready', external: true, serverInfo: found.serverInfo, startedAt: new Date().toISOString(), restarts: 0, probe: found });
-          logger?.info(`端口 ${port} 上已有可用的 editor-mcp（外部进程），直接接管：${url}`);
+          logger?.info(`端口 ${port} 上已有可用且版本一致的 editor-mcp（v${foundVersion ?? '?'}，外部进程），直接接管：${url}`);
           return status();
         }
       }
