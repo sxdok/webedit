@@ -24,7 +24,7 @@
     "dist:dir": "npm run bundle:mcp && electron-builder --win --dir"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
+    "electron": "44.0.0",
     "electron-builder": "^25.1.8"
   },
   "build": {

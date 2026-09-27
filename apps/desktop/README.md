@@ -131,7 +131,7 @@ MCP 的日志与无头文档目录都在 userData：
 
 ```bash
 cd apps/desktop
-npm install          # 会下载 Electron（约 200MB）
+npm install          # 下载 Electron 44（约 200MB；若装完没有 node_modules/electron/dist，见「Electron 版本」一节的手动补一步）
 
 npm start            # 跑（读仓库里的 web-editor/dist 与 editor-mcp/dist）
 npm run dev          # 同上（显式开发模式，日志里会标 dev）
@@ -244,21 +244,56 @@ npm run dist         # 产物在 apps/desktop/release/
 > 启动打包版 exe，Electron 会以 Node 模式运行、直接报 `bad option: --selftest` 并退出码 9 ——
 > 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再跑。
 
-产物（本机实测）：`可视化编辑器-0.1.0-x64.exe`（NSIS 安装包 **79.0 MB**）、
-`可视化编辑器-0.1.0-portable.exe`（免安装 **78.8 MB**）、`win-unpacked/`。
+产物（本机实测，Electron **44.0.0**）：`可视化编辑器-0.1.0-x64.exe`（NSIS 安装包 **109.6 MB**）、
+`可视化编辑器-0.1.0-portable.exe`（免安装 **109.4 MB**）、`win-unpacked/`。
 
-**本机实测：两个产物都跑过 `--selftest`，都是 9/9 通过**（`mode=packaged`，密钥来自
-`resources/config/buildKey.mjs`，MCP 列出 108 个工具；另有 3 条界面契约：只有一条菜单栏 / 菜单栏可拖拽 /
-右上角给系统按钮留位）。
+**本机实测：两个产物都跑过 `--selftest`，都是 9/9 通过**（`mode=packaged`、`electron=44.0.0`、`node=24.18.1`，
+密钥来自 `resources/config/buildKey.mjs`，MCP 列出 108 个工具；另有 3 条界面契约：只有一条菜单栏 /
+菜单栏可拖拽 / 右上角给系统按钮留位）。
 
-> **已知限制（2026-09-28 实测）**：应用拉起的 MCP 子进程跑在 **Electron 自带的 Node 20** 上，而
-> `editor-mcp` 的 `liveBridge` 只认 `globalThis.WebSocket`（Node ≥22 才有，且源码里没有 `ws` 回退）→
-> MCP 侧连不上自己起的桥接 hub，`editor://bridge/status` 报 `connected:false`、`mode:headless`，
-> 于是 **Live 能力（doc.attach 等）在打包版里用不了**，所有工具按无头模式工作（`degraded:true`）。
-> 页面侧不受影响（实测 hub 回执 `editors:1`＝页面已自动接入）。要用 Live，三条路：
-> ① 在 `editor-mcp` 里 `npm install` 恢复依赖，给 `liveBridge` 加 `ws` 回退后重打单文件（最省事，改动小）；
-> ② 把 Electron 升到自带 Node ≥22 的版本（37+），子进程就用 Electron 的 Node 也够了；
-> ③ 用系统 Node ≥22 跑 MCP（`EDITOR_MCP_*` 那套照旧），例如 `node editor-mcp/dist/index.js --stdio`。
+### Electron 版本：与 DSH 桌面版对齐（44.0.0）
+
+2026-09-28 把 `electron` 从 `^33.2.0` 换成**钉死的 `44.0.0`**，理由与实测：
+
+| | 旧（33.4.11） | 现在（44.0.0） | DSH 桌面版 |
+| --- | --- | --- | --- |
+| Node | 20.18.3 | **24.18.1** | 24.18.1 |
+| Chromium | 130 | 152 | 152 |
+| `globalThis.WebSocket` | ❌ 没有 | ✅ function | ✅ function |
+
+**为什么必须换**：应用拉起的 MCP 子进程是「Electron 自己的 Node」（`ELECTRON_RUN_AS_NODE=1` + `process.execPath`），
+而 `editor-mcp` 的 `liveBridge` 只认 `globalThis.WebSocket`（Node ≥22 才有，源码里没有 `ws` 回退）——
+在 Node 20 上 MCP 侧连不上自己起的桥接 hub，`editor://bridge/status` 报 `connected:false / mode:headless`，
+于是 **Live 能力（`doc.attach` 等"操作你正打开的那份文档"）在打包版里用不了**，所有工具退化成无头（`degraded:true`）。
+换成 44.0.0 后子进程直接拿到 Node 24.18.1，问题消失，无需改 `editor-mcp` 一行代码。
+
+**实测（升级后，开发版与打包版都验过）**——用 `editor-mcp/scripts/bridge-status.mjs` 一次看三段：
+
+```
+MCP 侧：connected=true, ready=true, mode="live"（situation: live：编辑器已接入，调用走编辑器实例）
+hub 侧：editors=1, clients=2
+★ Live 通道可用（三段都通）
+```
+
+**升级时的两个坑**：
+1. `npm install electron@44` 之后 **postinstall 没有下载二进制**（`node_modules/electron/dist` 缺失、无 `path.txt`），
+   `npm` 也没报错。手动补一次即可：`node node_modules/electron/install.js`（`ELECTRON_MIRROR` 指镜像更快）。
+2. `electron-builder 25.1.8` 打 Electron 44 **实测可用**（NSIS + portable 都成功），不必跟着升级。
+
+> ⚠ **`npm run dist` 的第一步仍会失败** —— `bundle:mcp` 用 esbuild 打 `editor-mcp/dist/index.js`，
+> 而 `editor-mcp/node_modules` 是当年手工拼的**符号链接**（`@modelcontextprotocol/sdk` / `ws` / `zod` →
+> `D:\DSHClient\user\server\node_modules\.pnpm\…`），那个目录在 09-27 的迁移清理里被删了 → esbuild 报
+> `Could not resolve "@modelcontextprotocol/sdk/server/stdio.js"`。**MCP 源码本身没坏**，坏的是依赖树。
+> 要恢复得连 `package.json` 一起补（`ws` / `react` / `react-dom` 被 import 但没声明，见 `editor-mcp` 的说明）；
+> 在那之前要打包，就跳过那一步**复用现有单文件**（它自包含、与源码无关；仅当 MCP 源码改过时才必须重打）：
+>
+> ```bash
+> .\node_modules\.bin\electron-builder.cmd --win    # 不跑 bundle:mcp
+> ```
+>
+> 另外打包/自检时**留意 `ELECTRON_RUN_AS_NODE`**：如果是从带这个变量的环境（例如 DSH 宿主进程起出来的终端）
+> 启动打包版 exe，Electron 会以 Node 模式运行、直接报 `bad option: --selftest` 并退出码 9 ——
+> 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再跑。
 
 ### 真踩过的两个坑（都已修，且都补了自动断言）
 
@@ -272,8 +307,9 @@ npm run dist         # 产物在 apps/desktop/release/
    语法错误 → 应用只好退回默认配置（更新地址变回示例地址）。仓库里跑 `win-unpacked` 时恰好向上能找到
    `apps/desktop/package.json`，**侥幸通过**，所以这个 bug 只在真实部署形态下暴露。
    改成 **`buildKey.mjs`**（`.mjs` 永远是 ESM）后解决；老的 `.js` 仍兼容读取。
-   **断言**：`verify` 的 F2 段用 **Electron 自带的 Node**（本机是 20.18.3，没有"ESM 语法自动探测"；
-   本机 Node 24 有，所以用 Node 24 验**验不出来**）在一个没有 `package.json` 的目录里加载密钥并解密配置。
+   **断言**：`verify` 的 F2 段用 **Electron 自带的 Node**（现在是 24.18.1；旧版 33 是 20.18.3，
+   没有"ESM 语法自动探测"；本机 Node 24 有，所以用 Node 24 验**验不出来**）在一个没有 `package.json`
+   的目录里加载密钥并解密配置。
 
 ### 为什么 `win.signAndEditExecutable: false`
 
