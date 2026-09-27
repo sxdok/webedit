@@ -25,3 +25,8 @@ apps/desktop/.shot-*.png
 # Python 运行时缓存（启动器无需编译，删除后会自动重建）
 __pycache__/
 *.pyc
+
+# 临时解包/探针产物（2026-09-28：审计中解 DSH 客户端用过，不进仓库）
+.tmp-asar/
+.asar-probe/
+.probe-capabilities.mjs
