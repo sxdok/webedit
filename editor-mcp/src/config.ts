@@ -26,7 +26,7 @@ function envBool(key: string, fallback: boolean): boolean {
 export const config = {
   /** 服务器标识（会打印并参与 bridge.hello 版本协商） */
   name: 'editor-mcp',
-  version: '0.1.0',
+  version: '0.2.0',
   /** 支持的 MCP 协议版本（打印用；握手由 SDK 负责） */
   protocolVersion: '2025-06-18',
 

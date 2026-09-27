@@ -615,6 +615,29 @@ async function testPackagingManifest() {
   );
   const hasServerGlob = (pkg.build?.files ?? []).some((p) => String(p).startsWith('server/'));
   ok('server/ 目录在 build.files 里（它不在 src/ 下，最容易漏）', hasServerGlob, (pkg.build?.files ?? []).join(', '));
+
+  /**
+   * ★版本号必须**跨包一致**。这不是洁癖：`editor-mcp/src/bridge/liveBridge.ts` 收到编辑器的
+   * `bridge.hello` 后是 `version !== config.version` 就**拒绝使用 Live Bridge**（不是降级，是拒绝），
+   * 后果是所有工具退化为无头 degraded、界面只表现为"连上了但不实时"。版本号散落在 4 个文件里，
+   * 只改 package.json 或只改一边就会静默炸掉 Live —— 所以这条断言是发布前的硬闸门。
+   */
+  const repo = resolve(APP_DIR, '..', '..');
+  const readJsonVersion = (rel) => JSON.parse(readFileSync(join(repo, rel), 'utf8')).version;
+  const grab = (rel, re) => (re.exec(readFileSync(join(repo, rel), 'utf8'))?.[1] ?? null);
+  const versions = {
+    'apps/desktop/package.json': readJsonVersion(join('apps', 'desktop', 'package.json')),
+    'web-editor/package.json': readJsonVersion(join('web-editor', 'package.json')),
+    'editor-mcp/package.json': readJsonVersion(join('editor-mcp', 'package.json')),
+    'editor-mcp/src/config.ts': grab(join('editor-mcp', 'src', 'config.ts'), /version:\s*'([^']+)'/),
+    'web-editor/src/mcp/bridgeClient.ts': grab(join('web-editor', 'src', 'mcp', 'bridgeClient.ts'), /let editorVersion\s*=\s*'([^']+)'/),
+  };
+  const uniq = [...new Set(Object.values(versions).filter(Boolean))];
+  ok(
+    '版本号跨包一致（Live 的版本闸门要求 editor-mcp 与编辑器完全相同）',
+    uniq.length === 1 && Object.values(versions).every(Boolean),
+    Object.entries(versions).map(([k, v]) => `${k}=${v ?? '?'}`).join('；'),
+  );
   // 打包版要用的两个数据文件必须在 asar **外面**（密钥要能被替换、密文要能现场换）
   const er = (pkg.build?.extraResources ?? []).map((r) => String(r.to));
   ok('config/{app-config.enc, buildKey.mjs} 都在 extraResources（打包版从 resources/config 读密钥）', er.includes('config/app-config.enc') && er.includes('config/buildKey.mjs') && !er.includes('config/buildKey.js'), er.join(', '));

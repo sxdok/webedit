@@ -29,7 +29,14 @@ let backoff = 1000;
 let shouldRun = false;
 let reconnects = 0;
 let lastError: string | null = null;
-let editorVersion = '0.1.0';
+/**
+ * 发给 hub 的 `bridge.hello` 里的编辑器版本。
+ * ★**必须与 `editor-mcp` 的 `config.version` 完全一致**：MCP 侧 `liveBridge.ts` 在收到 hello 时
+ *   `version !== config.version` 就直接断言"版本不匹配"并**拒绝使用 Live Bridge**（不是降级、是拒绝），
+ *   后果是所有工具退化为无头 degraded，而界面上的表现只是"连上了但内容不实时"。
+ *   所以发版时两处必须一起改 —— 迁移到单一版本源之前，`apps/desktop` 的 verify 里有一条断言在盯这个等式。
+ */
+let editorVersion = '0.2.0';
 const listeners = new Set<(s: BridgeState) => void>();
 
 export function bridgeStatus(): { state: BridgeState; url: string; reconnects: number; lastError: string | null; liveComponents: number } {

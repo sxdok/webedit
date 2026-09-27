@@ -1,7 +1,7 @@
 {
   "name": "visual-editor-desktop",
   "productName": "可视化编辑器",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "可视化编辑器 桌面分发版（Electron 外壳：内置静态服务器 + editor-mcp HTTP 服务 + 预留更新接口）",
   "type": "module",

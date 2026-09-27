@@ -22,7 +22,7 @@ import { resolveLayout } from './src/paths.js';
 import { createLogger } from './src/logger.js';
 import { resolveComponentsDir } from './src/components.js';
 import { loadAppConfig, maskUrl, redactConfig } from './src/secureConfig.js';
-import { createMcpSupervisor, probeMcp } from './src/mcpSupervisor.js';
+import { createMcpSupervisor, probeMcp, setClientVersion } from './src/mcpSupervisor.js';
 import { createUpdater } from './src/updater.js';
 import { startWebServer } from './server/webServer.js';
 
@@ -109,6 +109,8 @@ function buildStatus() {
 /* ══════════════════ ① ~ ③ 启动 ══════════════════ */
 
 async function boot() {
+  // 探测/握手时自报的版本：用应用真实版本，而不是源码里再抄一份常量（版本号已经散落多处，能少一处是一处）
+  setClientVersion(app.getVersion());
   runtime.layout = resolveLayout({
     isPackaged: app.isPackaged,
     resourcesPath: process.resourcesPath,

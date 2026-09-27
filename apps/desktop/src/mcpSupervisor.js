@@ -18,7 +18,17 @@ import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const MCP_CLIENT_INFO = { name: 'visual-editor-desktop', version: '0.1.0' };
+/**
+ * 探测/握手时自报的客户端身份。
+ * 版本由 `main.js` 在启动时用 `app.getVersion()` 覆盖（`setClientVersion`），
+ * 这里只是模块被单独 import（例如 verify 脚本）时的兜底值 —— 这样"版本号散落多处"少一处。
+ */
+let clientVersion = '0.2.0';
+const mcpClientInfo = () => ({ name: 'visual-editor-desktop', version: clientVersion });
+/** 覆盖自报版本（main.js 启动时调用；测试脚本也可用） */
+export function setClientVersion(v) {
+  if (v) clientVersion = String(v);
+}
 const PROTOCOL_VERSION = '2025-06-18';
 
 /** 一次 JSON-RPC over Streamable HTTP 请求；返回 { ok, status, sessionId, body } */
@@ -77,7 +87,7 @@ export function parseRpcBody(text) {
 export async function probeMcp(url, { timeoutMs = 4000 } = {}) {
   const init = await mcpRequest(url, {
     timeoutMs,
-    body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: MCP_CLIENT_INFO } },
+    body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: mcpClientInfo() } },
   });
   const parsed = parseRpcBody(init.body);
   if (!init.ok || !parsed?.result) {

@@ -18,7 +18,7 @@ type Msg = { role: 'user' | 'assistant'; content: { type: 'text'; text: string }
 const user = (text: string): Msg => ({ role: 'user', content: { type: 'text', text } });
 const assistant = (text: string): Msg => ({ role: 'assistant', content: { type: 'text', text } });
 
-const ENV_NOTE = `环境：MCP 服务器 editor-mcp v0.1.0；工作区 ${config.workspace}；插件目录 ${config.pluginDir}。
+const ENV_NOTE = `环境：MCP 服务器 editor-mcp v${config.version}；工作区 ${config.workspace}；插件目录 ${config.pluginDir}。
 工具命名 <域>.<动作>；所有写操作返回 { ok, data, error?, degraded?, changed? }。
 编辑器没开 MCP 桥接时，工具会走**无头模式**（直接改磁盘文档）并标 degraded: true —— 这时画布不会实时变，最后要在编辑器里打开该文档。`;
 
