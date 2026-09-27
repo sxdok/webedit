@@ -333,7 +333,222 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 
 ---
 
-## 7. 去冗余清单（合并去向）
+## 7. 编辑器菜单与交互审计（改版方案）
+
+依据：Electron 官方菜单模板（`File / Edit(undo,redo,cut,copy,paste,delete,selectAll) / View(zoomIn,zoomOut,resetZoom,togglefullscreen) / Help`）
+与同类编辑器（Word / Figma / VS Code / Qt Designer）的通行位置。逐条对着 `web-editor/src/components/layout/MenuBar.tsx` 与
+`src/components/layout/useShortcuts.ts` 核过。
+
+### 7.1 现状（六个菜单的全部条目）
+
+| 菜单 | 条目 | 快捷键（`useShortcuts`） |
+|---|---|---|
+| 文件 | 新建… / 打开（JSON）/ 打开 HTML（导入成组件）… / 从 URL 载入 HTML… / ─ / 保存（导出 JSON）/ ─ / 导出 HTML / 导出 React 代码 / 导出 Word（.docx）/ 打印… | Ctrl+N；打印菜单标注 Ctrl+P（无全局绑定，靠浏览器） |
+| 编辑 | 撤销 / 重做 / ─ / 复制 / 粘贴 / 原地复制 / 删除 / ─ / 全选 / 清空当前模式内容 | Ctrl+Z、Ctrl+Shift+Z、Ctrl+C/V、Ctrl+D、Delete/Backspace、Ctrl+A |
+| 视图 | 首选项… / ─ / 显示网格 / 显示标尺 / 显示辅助线 / 对齐吸附 / ─ / 缩放 50/75/100/适应宽度/适应页面 / ─ / 显示组件树 / Markdown 源码 / 图表按章编号 / 预览模式 | Ctrl+= / Ctrl+- / Ctrl+0（菜单未标） |
+| 页面 | 纸张（A4/A3/A5/Letter/Legal/自定义）/ 纵向·横向 / 页边距预设 / 设备预设（web）/ 画布背景色 | — |
+| 工具 | MCP 桥接：<状态> +（桌面版）检查更新… / 打开更新下载页 / 复制 MCP 地址 / MCP 服务状态 / 重启 MCP / 打开日志·数据·配置目录 / 关于（版本/运行环境） | — |
+| 帮助 | 快捷键说明 / 诊断信息 / 下载日志文件 / 导出组件包 / 导入组件包 / 保存诊断报告 / 导出组件与属性说明清单 / 关于（文案行，disabled） | Ctrl+Shift+M（模式切换，菜单里没有入口）｜Tab/Shift+Tab、Enter（进出容器）、Ctrl+[ / Ctrl+]（层级） |
+
+### 7.2 判定与改法（13 条）
+
+| # | 现状 | 判定 | 改法 |
+|---|---|---|---|
+| M-1 | 首选项在**视图**首项（`MenuBar.tsx:158`） | ❌ 不合惯例：Windows 应用多在「工具→选项」或「编辑→首选项」；Chrome/VS Code 在应用/文件级 | 移到 **编辑 → 首选项…（末项）**，加 `Ctrl+,`；视图只管显示 |
+| M-2 | **图表按章编号**在视图（`:174`） | ❌ 它改的是**输出内容**（图 X-Y/表 X-Y），不是显示 | 移到 **页面**（或改名为「文档」），与纸张/页边距同组 |
+| M-3 | **关于**在工具（`:286`），帮助底部又有一行关于文案（`:435`） | ❌ 两处；惯例在帮助 | 只留 **帮助 → 关于**（含版本/运行环境/许可状态，见 §9） |
+| M-4 | **检查更新…/打开下载页**在工具（`:230/:237`） | ⚠️ 可接受但不统一（Chrome/VS Code 在帮助） | 移到 **帮助**（与关于相邻）；工具只留运维类 |
+| M-5 | **导出/导入组件包**（`:363/:377`）、**导出组件与属性说明清单**（`:418`）在帮助 | ❌ 数据导入导出不是"帮助" | 组件包进 **文件 → 导入/导出**；说明清单进 **文件 → 导出**（它是交付物） |
+| M-6 | **编辑缺"剪切"**（菜单与快捷键都没有） | ❌ Electron 标准 Edit 必含 cut | 补 `Ctrl+X` + 菜单项 |
+| M-7 | **视图缺"全屏"**；缩放菜单项未标快捷键 | ❌ Electron 标准 View 含 `togglefullscreen` | 补 **全屏（F11）**；缩放项标 `Ctrl+=/-/0` |
+| M-8 | 重做只认 `Ctrl+Shift+Z`（`useShortcuts.ts:157-161`） | ⚠️ Windows 惯例还认 `Ctrl+Y` | 两者都支持，菜单里显示 `Ctrl+Y` |
+| M-9 | **没有查找/替换** | ❌ 文档编辑器基本盘（Markdown 视图、长文档、表格内容都要） | 补 **编辑 → 查找/替换…（Ctrl+F）**，作用于画布文本与 Markdown 视图 |
+| M-10 | 「保存（导出 JSON）」语义含糊（`:116`）；没有"另存为" | ⚠️ 用户分不清"保存到浏览器"与"导出文件" | 拆成 **保存到浏览器（Ctrl+S）** / **导出 JSON…（Ctrl+Shift+S）** / 导出 HTML / React / Word / 打印… |
+| M-11 | 文件里没有**最近文档** | ⚠️ 常见能力（Electron 原生支持 recent documents） | 加 **文件 → 最近打开**（存 userData；与浏览器内的文档列表分开） |
+| M-12 | 模式切换（`Ctrl+Shift+M`）没有菜单入口 | ⚠️ 快捷键孤儿 | **视图 → 模式：文档 / Web / PPT**（显示当前模式） |
+| M-13 | 「页面」在两种模式下切换内容（`:178-225`） | ✅ 合理（已按模式分派） | 仅建议菜单名改 **页面 / 画布**，或在组内加"（文档模式）"提示 |
+
+### 7.3 目标菜单结构（建议）
+
+```
+文件：新建…(Ctrl+N) · 打开…(Ctrl+O) · 最近打开 ▸ · 打开 HTML（导入）… · 从 URL 载入… ─
+      保存到浏览器(Ctrl+S) · 导出 JSON…(Ctrl+Shift+S) ─
+      导出 ▸（HTML / React / Word / 组件与属性说明清单） · 打印…(Ctrl+P) ─ 导入/导出组件包 ▸ · 退出
+编辑：撤销(Ctrl+Z) · 重做(Ctrl+Y) ─ 剪切(Ctrl+X) · 复制(Ctrl+C) · 粘贴(Ctrl+V) · 原地复制(Ctrl+D) · 删除(Delete) ─
+      全选(Ctrl+A) · 查找/替换…(Ctrl+F) ─ 清空当前模式内容 ─ 首选项…(Ctrl+,)
+视图：模式（文档/Web/PPT） ─ 显示网格 · 标尺 · 辅助线 · 对齐吸附 · 组件树 · Markdown 源码 · 预览模式 ─
+      缩放 ▸（50/75/100/适应宽度/适应页面，标 Ctrl+=/-/0） · 全屏(F11)
+页面：纸张 ▸ · 方向 ▸ · 页边距 ▸ · 分页符 · 图表按章编号 ─ 画布（设备预设 / 背景色）
+工具：MCP 桥接：<状态> · MCP 服务状态 · 重启 MCP · 复制 MCP 地址 ─ 打开日志/数据/配置目录
+帮助：快捷键说明 · 诊断信息 · 下载日志 · 保存诊断报告 ─ 检查更新… · 打开下载页 ─ 关于（版本/许可）
+```
+
+**约定（写进断言）**：会弹窗的条目一律以 `…` 结尾；快捷键在菜单里显示且**全局唯一**；
+破坏性操作（清空/删除）保留二次确认；同一命令只能有一个入口（现在是"关于"两处、"组件包"在帮助）。
+
+### 7.4 断言（可直接加进 `?check=1` 或 verify）
+
+- 菜单顺序 = `文件 编辑 视图 页面 工具 帮助`（已有断言，扩展为"条目标题集合"）。
+- 每条命令**唯一入口**；`…` 结尾的条目确实会打开对话框。
+- 快捷键表与菜单标注**一致**（例如菜单写 `Ctrl+Y` 就必须真能重做）。
+- Electron 标准动作都在（cut/copy/paste/delete/selectAll/zoomIn/zoomOut/resetZoom/togglefullscreen 的等价项）。
+
+---
+
+## 8. 新增「工具箱」桌面应用（加密配置 + 授权 + 诊断）
+
+### 8.1 为什么
+
+`tools/secure-config` 现在只有 CLI（`secure-config.mjs` + `selftest.mjs`），生成配置与授权文件时
+需要命令行与手写 JSON；用户要求"加密工具等应做一个简单界面应用"。
+
+### 8.2 形态（三选一，推荐 A）
+
+| 方案 | 说明 | 取舍 |
+|---|---|---|
+| **A（推荐）同一 Electron 项目，双入口** | `可视化编辑器.exe --toolbox` 打开工具箱窗口；主应用菜单也有「工具 → 授权与工具箱…」 | 零新增运行时（复用 Electron 44）、共用加密/配置/授权代码；缺点是发布物只有一个 exe，内部运营用要装整套 |
+| B 独立小应用（第二个 exe） | 同一代码库、两个 electron-builder 目标 | 到客户现场/内部运营更干净；体积与构建配置各一份 |
+| C 纯网页（本地 file:// 打开） | 零安装 | 无法读写本机配置/指纹，只能做"验签"演示，不推荐 |
+
+**建议**：先做 A（成本最低、立刻可用），若将来要把工具箱发给客户/运营独立使用，再加 B 的打包目标（共用同一套 `tools/secure-config` 内核）。
+
+### 8.3 功能（三个标签页，够用就好）
+
+1. **配置**：列出当前配置（脱敏显示）· 生成/轮换密钥 · 加密（明文 JSON → `app-config.enc`）· 解密查看 · 校验（字段/地址/端口）· 备份与回滚（带时间戳）。
+2. **授权**：读取客户发来的**请求文件**（机器指纹 + 客户信息）→ 选择版本/功能/有效期/维护期 → **生成签名授权文件**；查看/续期/吊销列表（本地台账）。
+3. **诊断**：端口探测（37650/37651）· 版本与运行时 · 日志打包导出 · 一键自检（复用现有 `--selftest`）。
+
+### 8.4 安全
+
+- **私钥永不进安装包**：工具箱涉及签名的部分只在内部环境使用；发布包只内置**公钥**用于验证（§9）。
+- 工具箱不联外网（除"打开下载页"这类显式动作）。
+- 生成的授权文件与配置走同一套加密/签名原语（AES-256-GCM 用于机密，Ed25519 用于**授权签名**）。
+
+---
+
+## 9. 授权体系（License）设计
+
+### 9.1 威胁模型（先说清防谁）
+
+| 防 | 不防 |
+|---|---|
+| 把安装包/授权文件随手拷给同事直接用 | 铁了心的逆向（本地离线校验必然可被 patch） |
+| 一台授权多机使用 | 虚拟机克隆的指纹伪装 |
+| 改一个字节伪造授权 | 打补丁绕过校验 |
+
+设计目标：**让"正常使用必须走授权流程"，让破解成本明显高于购买成本**，并且**不牺牲正版用户体验**（离线可用、换机有救济渠道）。
+
+### 9.2 密钥层级
+
+```
+主签名密钥对（Ed25519，长期）
+  ├─ 私钥：只存在于内部生成流程（工具箱「授权」页 + CLI），口令加密存储，不进任何安装包
+  └─ 公钥：内置到 可视化编辑器.exe（与 editor-mcp/工具箱）用于离线验签
+```
+
+### 9.3 文件契约
+
+**① 请求文件**（客户/运营在目标机器生成，`.req.json`）：
+```jsonc
+{ "v": 1, "product": "visual-editor", "requestId": "uuid",
+  "machine": { "fingerprint": "sha256:…", "os": "windows", "hostnameHash": "…" },
+  "app": { "version": "0.3.0", "channel": "stable" },
+  "customer": { "name": "…", "email": "…", "note": "…" } }
+```
+指纹构成：CPU/主板/系统盘的稳定标识 + 产品盐做 SHA-256；**不采集**用户名、文档内容、MAC 列表等隐私。
+
+**② 授权文件**（`.lic.json`，工具箱签发）：
+```jsonc
+{ "v": 1, "licenseId": "…", "edition": "pro",
+  "features": ["export.docx", "export.pdf", "plugin.sign", "whiteLabel"],
+  "machine": { "fingerprint": "sha256:…" },        // 或 { "floating": true }
+  "issuedAt": "…", "notBefore": "…", "expiresAt": "…",
+  "maintenanceUntil": "…",                          // 覆盖到哪个版本（与更新通道联动）
+  "maxSeats": 1, "notes": "…" }
+```
+外加 `sig`：对**规范化 JSON**（键排序、无空白）的 Ed25519 签名（base64）。
+
+### 9.4 校验与执行点
+
+| 时机 | 行为 |
+|---|---|
+| 启动 | 验签 → 校验 `notBefore/expiresAt/machine` → 缓存结果（不每次读盘） |
+| 关键功能（导出 docx/pdf、组件包签名、白标） | 走"功能门"检查 `features`；无授权时**功能可见但点击提示如何授权**（不藏功能） |
+| 时钟回拨 | 记录最近一次运行时间；回拨超过阈值（如 24h）→ 标记异常并要求重新校验 |
+| 换机 | 指纹不匹配 → 提示"联系获取新授权"（内部台账允许 1 次免费重签） |
+| 更新 | 更新器检查 `maintenanceUntil` 是否覆盖目标版本，否则提示续期（不阻断安全更新） |
+
+### 9.5 版本分级与免费策略（建议）
+
+- **社区版**（无需授权）：编辑器全部编辑能力、导出 HTML/JSON、外部组件热加载、MCP 的**只读**工具。
+- **专业版**（需授权）：导出 Word/PDF、批量导出、组件包签名与分发、白标/自定义品牌、MCP **写**工具批量操作。
+- 理由：把"基本创造能力"免费，授权门槛放在**交付/量产/商用**环节——符合常见桌面工具的做法，也不会把
+  现在用得很顺的 MCP 工作流一刀切断（MCP 只读仍免费）。
+
+### 9.6 落地拆解（每步可独立交付）
+
+| 步 | 内容 | 产物/验证 |
+|---|---|---|
+| L1 | 指纹与文件契约定稿（含规范化 JSON 规则） | `tools/secure-config` 里新增 `fingerprint.mjs` / `license-format.mjs` + 单测（自检） |
+| L2 | CLI：`--request` 生成请求、`--issue` 签发、`--verify` 校验 | 命令行跑通；篡改一字节必失败（断言） |
+| L3 | 主应用接入：启动校验 + 功能门 + 「关于」显示许可状态 | `verify` 新增授权断言；无授权时导出 Word 被拒且提示可读 |
+| L4 | 工具箱 GUI（§8）「授权」页 + 「配置」页 | 手工走一遍签发→导入→导出全流程 |
+| L5 | 试用与宽限（可选）：首启 14 天试用、到期宽限 7 天只读 | 断言试用期行为 |
+| L6 | 运营流程与文档：签发台账、换机重签规则、吊销列表 | 写进 README；工具箱导出台账 CSV |
+
+**诚实边界**（写进文档）：离线校验可被 patch；签名只保证"授权文件是真的、没被改过"，不保证"程序没被改过"。
+后续若要更强，再考虑在线激活/定期回连（但那会牺牲离线可用性，需另做决策）。
+
+---
+
+## 10. 开发流程与适应性检查（以后继续开发编辑器 / 组件 / MCP）
+
+### 10.1 对照业界做法
+
+| 来源 | 借鉴的规则 |
+|---|---|
+| [Electron 官方应用菜单](https://www.electronjs.org/docs/latest/tutorial/application-menu) | 标准菜单角色：Edit 必含 cut/copy/paste/delete/selectAll；View 含 zoomIn/zoomOut/resetZoom/togglefullscreen；About/更新在 Help |
+| [Figma 插件 API 稳定性](https://developers.figma.com/docs/plugins/stability-updates/) | **新增 = minor**（自动可用）；**改已有 API/行为 = major**（插件**不**自动升级，manifest 里声明 `api` 主版本，旧主版本尽量长期支持）；typings 可变；插件必须容忍**未知枚举**（别在 `default` 里直接抛错） |
+| [MCP 规范 · Transports 安全警告](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports) | Streamable HTTP：**MUST 校验 `Origin`**（防 DNS rebinding）、本地服务 SHOULD 只绑 127.0.0.1、SHOULD 实现鉴权；无效会话 MUST 回 404（我们的"会话复活"是对该条的**有意偏离**，见 §5.3，需在 README 说明理由） |
+| [Cryptlex 离线授权](https://cryptlex.com/docs/licensing-models/offline-licenses) | 离线授权 = 请求文件（密钥+指纹）→ **有有效期的签名响应**→ 本机验签+指纹比对；换机/吊销只在重新下发时生效 |
+
+### 10.2 三条流水线各自的"完成定义"
+
+| 流水线 | 放哪 | 契约规则 | 必须过的闸门 |
+|---|---|---|---|
+| **编辑器内核**（框架/属性面板/画布/导出） | `web-editor/src/{components,store,utils,registry}` | 只做 **additive** 改动；破坏性改动必须 bump `contract` 主版本并写迁移说明 | `tsc -b` + `npm run build` + `?check=1` + `audit:dark` |
+| **组件**（内置/外部插件） | 内置 `src/registry/components/**`；外部 `public/组件/*.js` | 同一个 `ComponentDefinition`；外部插件文件头/注册时声明 `api` 主版本；**新增 propSchema 控件必须让老插件安全忽略** | `plugin.validate` + `plugin.dryRun` + 「重载外部组件」+ `?check=1` |
+| **MCP 工具** | `editor-mcp/src/tools/*` | 工具名 `<域>.<动作>` 稳定；**新增工具 = additive**；**新增参数必须可选**；错误码稳定；未知方法**降级不抛** | `tsc -b` + `--list` 数量断言 + `agent-live-check` / `multi-connection` / `session-revive` |
+| **桌面外壳** | `apps/desktop/**` | IPC 通道只增不改语义；配置键只增不重命名 | `npm run verify` + 打包 `--selftest` |
+
+### 10.3 版本与兼容策略（写进 `contracts/`）
+
+- `productVersion`（对外版本，0.3.0）与 `protocolVersion` / `componentApiVersion` **分开**：前者按发布节奏走，
+  后者只在**破坏性协议变更**时 +1（借助 §5.1 的协商，版本不同不再直接废掉 Live）。
+- 兼容窗口：`protocol` 旧主版本**至少支持一个里程碑**（写进 CHANGELOG）；组件 `api` 旧主版本长期支持
+  （Figma 的做法：老 major 不自动升级、尽量不废）。
+- 未知值容错：MCP 遇到未知方法/未知字段 → 降级并记录；插件遇到未知 propSchema 控件 → 忽略该控件但**保留取值**。
+
+### 10.4 质量闸门（一条命令跑完）
+
+```
+npm run verify        # 根编排：契约一致 + 版本一致 + 菜单结构 + 安全断言 + 三套子系统闸门 + 打包自检
+```
+
+当前已有：`tsc -b`、`vite build`、`?check=1`(295)、`audit:dark`、`verify`(77)、`--selftest`(9)、
+`bridge-status`、`agent-live-check`(5)、`multi-connection`(10)、`session-revive`(7)。
+本方案新增：契约/版本一致、清单形状、协议兼容、**Origin/鉴权**、**授权门**、菜单结构、路径解析（搬迁后）。
+
+### 10.5 文档与提示词固化
+
+- 新增仓库级 `AGENTS.md`：目录边界 + 单一写入者 + 三条流水线的兼容规则 + 闸门清单。
+- 更新 `.dsh/skills/visual-editor-plugin-dev/SKILL.md`：加"外部插件 `api` 版本声明""未知控件容错""清单形状 `files`"。
+- DSH 的 a4-doc 预设提示词里仍是旧命名 `mcp__editor__doc_create_<hash>` → 改为"用 `Tool.listTools` 按关键词找
+  `mcp__mcp-editor__*`"（该文件在 DSH profile 里，需要你确认后我再改）。
+
+---
+
+## 11. 去冗余清单（合并去向）
 
 | 冗余 | 现状 | 合并去向 | 防漂移断言 |
 |---|---|---|---|
@@ -348,7 +563,7 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 
 ---
 
-## 8. 与既有开发提示词的衔接
+## 12. 与既有开发提示词的衔接
 
 现在的约定主要活在 `.dsh/skills/visual-editor-plugin-dev/SKILL.md`（组件/插件）与三份 README 里。
 本方案把"只靠人记"的部分变成**能自动检查**的部分：
@@ -364,31 +579,52 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 
 ---
 
-## 9. 落地路线图（大版本重构）
+## 13. 落地路线图（大版本重构，逐步拆解）
 
 **版本计划**：`0.2.0` = 已提交的里程碑（Electron 44、Live 修复、会话自愈、多实例、依赖恢复）；
-**`0.3.0` = 本次大版本重构**（安全边界 + 单一来源 + 目录重排 + 契约层），一次性发布，
-`CHANGELOG.md` 写清"对开发者有破坏性、对已安装用户无感"；`1.0.0` 留给"契约与目录冻结、API 稳定"。
+**`0.3.0` = 本次大版本重构**（安全边界 + 单一来源 + 目录重排 + 契约层 + 菜单改版 + 工具箱 + 授权），
+一次性发布，`CHANGELOG.md` 写清"对开发者有破坏性、对已安装用户基本无感"；
+`1.0.0` 留给"契约与目录冻结、API 稳定"。
+
+### 13.1 阶段总表
 
 | 阶段 | 内容 | 改动面 | 验证口径 | 风险/回滚 |
 |---|---|---|---|---|
-| **P0 安全**（先行，独立可回滚） | Origin 白名单 + Host 校验 + 可选 token + `allowWrite` 默认 false + `config.key` 出库 | `editor-mcp/src/http.ts`、`bridge/host.ts`、`apps/desktop/{src,config,scripts}` | `verify` 新断言：跨源被拒、无 token（配置了 token 时）被拒、有 token 通过；`multi-connection`/`session-revive`/`agent-live` 仍全绿 | 中；未配置 token 时保持兼容；改动集中在传输层，单独回滚 |
-| **P1 单一来源**（不改目录） | ① `_manifest.json` 写入形状修正 + 读取兼容 + 四处清单统一 ② 协议/能力协商替换版本全等，`METHOD_NOT_FOUND` 改降级 ③ `tools/sync-contracts.mjs` 生成版本与方法清单 ④ 表格内核同源 | `editor-mcp/src/{tools/plugin.ts,bridge/*,engine/tableKit.ts}`、`web-editor/src/{registry/live.ts,mcp/*}`、新增 `tools/` | 四件套全绿 + 新断言（清单形状、协议兼容、方法清单一致）；`?check=1`、108 工具数不变 | 低-中；每项独立提交 |
-| **P2 收敛 + 契约层**（不改目录） | 根 `package.json` 编排（一次 install/build/verify/dist）、`contracts/` 落地、静态服务器归一（Python 版降级 dev-only + 契约测试）、删空挂点与冗余导出、README 去重、`bundle:mcp` 自带 esbuild | 根新增编排脚本、`contracts/`、各包脚本与 `src/utils` | 根一条命令跑完三套闸门；打包 `--selftest` 9/9；干净克隆可构建 | 中；不移动目录，随时回滚 |
-| **P3 目录重排**（§6，本次重构核心） | M1–M9 逐条执行：交付物→`dist/`、发行物→`release/`、运行数据→`var/`、探针入库 `tools/cdp/`、生成物出库、活文档迁移、密钥出库 | 见 §6.5 表（每条自带"必须同步改"清单） | 每完成一个 M 号跑四件套；全部完成后走 §6.8 验收（干净克隆 + 干净机器） | 高；**一条一个提交**，回滚 = revert + 删新目录（无数据损失） |
-| **P4 冻结** | `AGENTS.md`（目录边界/单一写入者/闸门清单）、README 索引化、`CHANGELOG` 定稿、断言补齐、版本单一来源校验进 CI | 文档 + `verify` | 任何人（或 agent）只读 AGENTS.md + 子 README 就能上手 | 低 |
+| **P0 安全**（先行） | Origin 白名单 + Host 校验 + 可选 token + `allowWrite` 默认 false + `config.key` 出库 | `editor-mcp/src/{http.ts,bridge/host.ts}`、`apps/desktop/{src,config,scripts}` | verify 新断言：跨源被拒、配了 token 时无 token 被拒、有 token 通过；`multi-connection`/`session-revive`/`agent-live` 仍全绿 | 中；未配置 token 保持兼容；传输层改动，单独回滚 |
+| **P1 单一来源** | ① 清单形状（§5.2）② 协议/能力协商 + 未知方法降级（§5.1）③ `tools/sync-contracts.mjs` 生成版本与方法清单 ④ 表格内核同源 | `editor-mcp/src/{tools/plugin.ts,bridge/*,engine/tableKit.ts}`、`web-editor/src/{registry/live.ts,mcp/*}`、新增 `tools/` | 四件套全绿 + 新断言；`?check=1` 与 108 工具数不变 | 低-中；每项独立提交 |
+| **P2 契约层 + 编排** | 根 `package.json`（`setup/build/verify/dist` 一条命令）、`contracts/` 落地（协议/组件契约/配置 schema/版本）、`bundle:mcp` 自带 esbuild | 根编排脚本、`contracts/`、各包脚本 | 一条命令跑完所有闸门；干净克隆可构建 | 中；不移动目录 |
+| **P3 目录重排**（§6） | M1–M9 逐条：交付物→`dist/`、发行物→`release/`、运行数据→`var/`、探针入库 `tools/cdp/`、生成物出库、活文档迁移、密钥出库 | 见 §6.5（每条自带"必须同步改"清单） | 每完成一个 M 号跑四件套；完成后走 §6.8 验收 | 高；**一条一个提交**，revert 即回滚 |
+| **P4 菜单改版**（§7） | M-1…M-13：首选项归位、关于/更新归帮助、组件包归文件、补剪切/查找/全屏/Ctrl+Y/最近文档、模式入口 | `web-editor/src/components/layout/{MenuBar.tsx,useShortcuts.ts}` + 对应 store 动作 | 菜单结构断言 + 快捷键一致性断言 + `?check=1` 全绿 | 低-中；纯前端，独立提交 |
+| **P5 工具箱应用**（§8） | Electron 双入口 `--toolbox`（配置/授权/诊断三页），复用 `tools/secure-config` 内核 | `apps/desktop/{main.js,src/toolbox/**}`、`tools/secure-config` | 手工全流程（生成配置→解密→签发授权→导入）+ 打包后 `--toolbox` 可开 | 中；新增窗口，不影响主流程 |
+| **P6 授权体系**（§9） | L1 指纹/契约 → L2 CLI 签发校验 → L3 主应用启动校验 + 功能门 → L4 工具箱授权页 → L5 试用 → L6 运营台账 | `tools/secure-config/**`、主应用「关于」与导出门、`apps/desktop/config` | 篡改一字节被拒、过期/未来时间被拒、换机被拒、无授权时导出 Word 被拒且提示可读 | 中-高；分 6 小步，每步可停 |
+| **P7 冻结** | `AGENTS.md`、skill 增补、README 索引化、CHANGELOG、断言全部并入 `npm run verify` | 文档 + 闸门 | 新人只读 AGENTS.md + 子 README 能上手 | 低 |
 
-**顺序说明**：P0 先做（安全不能等）；P1/P2 是 P3 的地基——**契约与版本先单一来源，再搬目录**，
-否则搬迁过程中"两份实现 + 三个版本号"会互相掩盖错误。P3 的每条 M 号都**不依赖**下一条，可随时停。
+### 13.2 依赖关系（为什么是这个顺序）
+
+```
+P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）
+                 ├─▶ P4（菜单）      ← P4/P5 依赖 P2 的契约与编排
+                 ├─▶ P5（工具箱）─▶ P6（授权）   ← 授权签发依赖工具箱与 secure-config 内核
+                 └─▶ P7（冻结）      ← 所有断言齐了再冻结文档
+```
+
+- **P0 不能等**：这是当前唯一的"可被外部网页利用"的口子。
+- **P1/P2 是 P3 的地基**：契约与版本先单一来源，再搬目录；否则搬迁期"两份实现 + 多个版本号"会互相掩盖错误。
+- **P6 依赖 P5**：签发流程要有界面（用户要求），而界面复用 P2 的密钥与配置内核。
+- 每个阶段内部都拆成可独立提交/回滚的小步（§6.5、§7.2、§9.6 各自成表）。
 
 ---
 
-## 10. 需要你决策的点
+## 14. 需要你决策的点
 
-1. **token 策略**：接受"未配置 token 时保持现状 + 警告"（推荐，不会弄断你现在的 agent 链路），还是强制？
+1. **token 策略**：未配置时"保持现状 + 警告"（推荐）还是强制？
 2. **`allowWrite` 默认值**：分发版默认 `false`（推荐）还是保持 `true`？
-3. **Origin 白名单**：放行"无 Origin 的本地进程"（Node 客户端不发 Origin），配置了 token 时仍要求 token（推荐）？
-4. **P3 边界**：按 §6.3 的论证——**编译产物留包内**、只把交付物/发行物/运行数据移出（推荐）；
-   还是要"彻底版"（连 `*/dist` 也出包，前置是 P2 的 workspaces 一次安装）？
-5. **版本号**：本次重构发 `0.3.0`（推荐），还是直接标 `1.0.0`？
+3. **Origin 白名单**：放行"无 Origin 的本地进程"、配了 token 时仍要 token（推荐）？
+4. **P3 边界**：编译产物留包内、只移交付物/发行物/运行数据（推荐，理由见 §6.3），还是要"彻底版"？
+5. **版本号**：本次发 `0.3.0`（推荐）还是直接 `1.0.0`？
+6. **菜单改版尺度**：按 §7.3 的目标结构全改（推荐），还是只修 M-1/M-3/M-5/M-6 这几条明显不合理的？
+7. **工具箱形态**：同项目双入口 `--toolbox`（推荐，省一套运行时）还是独立第二 exe？
+8. **免费策略**：§9.5 的"社区版免费 / 专业版授权"分级是否认可？（尤其"导出 Word/PDF"是否划入专业版——这直接影响你现在的使用）
+9. **授权强度**：接受"离线校验 + 签名 + 指纹"（推荐，离线可用、可被 patch）还是要定期回连在线校验？
+
 
