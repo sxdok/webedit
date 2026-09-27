@@ -226,7 +226,7 @@
 | 不变（用户/agent 无感） | 会变（只影响我们自己的仓库） |
 |---|---|
 | 端口 37650 / 37651 / 5179、只绑回环 | 仓库内路径与脚本 |
-| `%APPDATA%\可视化编辑器\{workspace,组件,logs,docs}` | 文档里的相对路径、`.dsh/skills` 里的路径 |
+| `%APPDATA%\webedit\{workspace,组件,logs,docs}`（**目录名本次由 `可视化编辑器` 改为 `webedit`**，内容零迁移：老目录首启复制一次，见 §6.10） | 文档里的相对路径、`.dsh/skills` 里的路径 |
 | `EDITOR_MCP_WORKSPACE` / `EDITOR_MCP_PLUGIN_DIR` / `EDITOR_MCP_BRIDGE_URL` 等环境变量名 | `electron-builder` 的 `files`/`extraResources` |
 | 加密配置键（只新增，不重命名） | 各包 `dist/` 的落点与 `.gitignore` 规则 |
 
@@ -247,7 +247,7 @@ E:\可视化编辑器\                         ← 仓库根：索引 + 忽略�
 │                                         不进客户分发、不进更新通道；见 §8）
 ├─ tools\                                【工具·入库】secure-config\ · cdp\（自检探针）· sync-contracts.mjs
 ├─ dist\                                 【交付物·不入库】mcp\editor-mcp.bundle.mjs · desktop\（win-unpacked）
-├─ release\                              【发行物·不入库】可视化编辑器-<版本>-x64.exe / -portable.exe
+├─ release\                              【发行物·不入库】webedit-<版本>-x64.exe / -portable.exe
 ├─ var\                                  【运行数据·不入库】logs\ · caches\ · mcp-workspace\ · shots\
 └─ .dsh\                                 【DSH 约定】必须留在根（skills\ 等），不可移动
 ```
@@ -274,7 +274,7 @@ E:\可视化编辑器\                         ← 仓库根：索引 + 忽略�
 | 编译产物 | `tsc`/`vite` 生成 | `*/dist\`、`*.tsbuildinfo` | ❌ |
 | 交付物 | 要装进安装包/给外部用 | `dist\mcp\*.mjs`、`dist\desktop\` | ❌ |
 | 发行物 | 直接交给用户的 | `release\*.exe` | ❌ |
-| 运行数据 | 跑起来才有、含隐私 | `var\{logs,caches,mcp-workspace,shots}`、`%APPDATA%\可视化编辑器\*` | ❌ |
+| 运行数据 | 跑起来才有、含隐私 | `var\{logs,caches,mcp-workspace,shots}`、`%APPDATA%\webedit\*` | ❌ |
 | 生成文档 | 从注册表/运行态生成 | `?spec=1` 清单、自检报告、截图 | ❌（落 `var\`） |
 | 开发文档 | 人写的说明 | 根 README/ARCHITECTURE/CHANGELOG/AGENTS、各包 README | ✅ |
 
@@ -337,6 +337,50 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 | M5 活文档 | 用户文档丢失 | 复制 + 哈希比对 + 旧目录保留 |
 | 契约层生成物被手工改 | 两端再次漂移 | 生成物带"DO NOT EDIT"头 + `--check` 模式断言 |
 
+### 6.10 命名与标识：应用包名/userData 改 `webedit`，**界面显示名不动**
+
+用户 2026-09-28 要求：**应用包名称**与**用户目录下的运行目录名称**都改成 `webedit`；
+**界面上显示的「可视化编辑器」不改动**。这正好把"标识"与"品牌"分开——标识用 ASCII 短名（避免中文路径
+在 NSIS/zip/日志/第三方工具里的老问题），界面文案保持中文品牌。
+
+| 用途 | 现在 | 改为 | 说明 |
+|---|---|---|---|
+| npm 包名 `package.json.name` | `visual-editor-desktop` | **`webedit`** | 只影响开发侧 |
+| 应用名 / 安装包与 exe 名（`productName`） | `可视化编辑器` | **`webedit`** | 产物变成 `webedit-0.3.0-x64.exe`、`webedit.exe`（`artifactName: ${productName}-${version}-${arch}.${ext}` 自动跟随） |
+| `appId` | `com.visual-editor.desktop` | **`com.webedit.app`** | 注册表/卸载项标识 |
+| **userData 运行目录** | `%APPDATA%\可视化编辑器` | **`%APPDATA%\webedit`** | 文档 / 组件 / 日志 / 授权 / bridge-token 都在这里 |
+| 窗口标题、菜单、关于、安装向导文案、`cfg.app.title` | 可视化编辑器 | **不变** | 品牌不动；「关于」里可加一行"标识：webedit" |
+| 静态服务器/MCP 客户端自报名 | `visual-editor-desktop` | **`webedit`** | `MCP_CLIENT_INFO.name`、日志前缀 |
+
+**落地改动清单**：
+
+1. `apps/desktop/package.json`：`name`、`productName`、`build.appId`；`copyright` 保持。
+2. `apps/desktop/main.js`：**在模块顶部**（早于任何 `app.getPath('userData')`、早于 `boot()`）调用
+   `app.setName('webedit')` —— 这样 **dev 与打包态的 userData 都是 `%APPDATA%\webedit`**，
+   不依赖 electron-builder 把 `productName` 注入到运行时。
+3. `apps/desktop/src/mcpSupervisor.js`：`MCP_CLIENT_INFO.name` → `webedit`。
+4. `apps/desktop/src/paths.js`：路径推导本身跟随 `app.getPath('userData')`（无需改），但注释与 README 里的
+   `%APPDATA%\可视化编辑器` 全改。
+5. `apps/desktop/scripts/verify-desktop.mjs` 与 `--selftest`：断言里的 exe 名、userData 名同步；
+   新增一条"userData 目录名必须是 `webedit`"的断言（防止以后有人改回中文名）。
+6. 文档：根 README、`apps/desktop/README.md`、`editor-mcp/README.md` 里出现的产物名
+   （`可视化编辑器-0.1.0-x64.exe` → `webedit-0.3.0-x64.exe`）、目录名、体积数字。
+7. `.dsh` 预设提示词与 skill 里的 `E:\可视化编辑器\...` 是**仓库路径**（不在本次改名范围），保持不变；
+   只在提"产品/安装包"的地方改成 `webedit`。
+
+**★必须一起做的数据迁移**（否则老用户的数据会被"看不见"）：
+
+- 首启时：若 `%APPDATA%\可视化编辑器` 存在且 `%APPDATA%\webedit` 不存在 →
+  **复制**（不移动，留回退余地）`workspace/`（活文档）、`组件/`、`logs/`、以及授权与设置文件；
+  写一个迁移标记（含时间与文件数），并在日志与界面提示条里说明"已从旧目录迁移 N 个文件"。
+- **旧目录保留一个版本周期**：读侧仍以新目录为准；若新目录缺某个文件，回退到旧目录读（写只写新目录）。
+- 不做删除；卸载/清理由用户决定。
+- 断言：造一个假的旧目录 → 首启后新目录内容齐全、标记存在、日志有记录；再启一次**不重复迁移**（幂等）。
+
+**安装器影响（要写进发行说明）**：`productName` 变化 → 安装目录与卸载项都变新名字，旧版（可视化编辑器）
+会留在机器上，属"两个应用"。发行说明里给一句：**装新版后可手动卸载旧版**；两版共用同一份用户数据
+（迁移后指向 `webedit`），所以不会出现"文档两份"。
+
 ---
 
 ## 7. 编辑器菜单与交互审计（改版方案）
@@ -398,6 +442,44 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 - 每条命令**唯一入口**；`…` 结尾的条目确实会打开对话框。
 - 快捷键表与菜单标注**一致**（例如菜单写 `Ctrl+Y` 就必须真能重做）。
 - Electron 标准动作都在（cut/copy/paste/delete/selectAll/zoomIn/zoomOut/resetZoom/togglefullscreen 的等价项）。
+
+### 7.5 格式谱系与导出契约（Word / PDF / Markdown 的定位与补齐）
+
+**缘起**：用户拿 B 站视频 [BV1G7Ky6wEy6](https://www.bilibili.com/video/BV1G7Ky6wEy6)（"为什么 PDF 转 Word 都做成付费"）
+的评论区说法来核对我们的实现。那条高赞评论说「word 本质是 xml，**pdf 本质是 postscript**，postscript 描述的就是结果」，
+配套高赞还说「PDF 只记录 (x,y) 渲染文字/画线，没有段落语义，所以 PDF→Word 像汇编转 C，要**猜意图**」。
+
+**谱系（我们的定位）**：
+
+| 格式 | 本质 | 语义层级 | 我们的角色 |
+|---|---|---|---|
+| **Word（.docx）** | OOXML：语义化文档模型（样式/大纲级别/表格/节属性） | 高 | **生产者**（真 OOXML，见下） |
+| **PDF** | 页面描述格式（PostScript 成像模型的后继；标准化为 ISO 32000）。**注意**：PostScript 是图灵完备的**编程语言**，PDF 是对象化**文档格式**，"本质就是 PostScript"是过度简化 | 低（渲染结果；带 Tagged 才有结构） | **消费者/委托方**：我们把流式文档交给 Chromium 打印成 PDF，**自己不写** PDF 对象，也**不做** PDF→文档的重建 |
+| **Markdown** | 更弱的语义投影（连"页"的概念都没有） | 中低 | **单向导出**（文档→MD） |
+
+**三条硬事实（代码证据，2026-09-28 核过）**：
+
+1. 我们的排版源是**流**：`docExport.ts:8` 写明"内容以流输出，**分页交给浏览器**（`@page` 用文档页边距）"。
+2. 我们**不产出 PDF 字节**：`liveMethods.ts:780-781` 的 `export.pdf` 直接回错误并提示"用「文件 → 打印 / 另存为 PDF」"；
+   `registry.ts:366` 注释："导出 HTML / React / PDF / Word：都只有编辑器里实现（浏览器渲染 / OOXML 打包 / 打印）"。
+3. Word 侧确实是语义 XML：`docx.ts` 写 `w:sectPr`(`w:pgSz`/`w:pgMar`)、`w:pStyle`、**`w:outlineLvl`**、
+   `w:tbl`+`w:tblGrid`、`w:rFonts w:eastAsia`；但**图片不内嵌**（`:13-14` 自认"已知取舍"，`:299-301` 写占位
+   `[图片：alt]`），也**没有**页眉页脚与 `PAGE`/`NUMPAGES` 域。
+
+**结论**：我们站在这条谱系的**"容易方向"**（语义 → 页面描述），这正是视频里说"Word 转 PDF 没技术难度"的那一侧；
+被收费的难方向（PDF → 可编辑文档的"猜意图"重建）**我们刻意不做**——所以 PDF 在我们这里必须是**终端交付物**。
+
+**要补齐的 4 件事**（本方案采纳）：
+
+| # | 事项 | 具体做法 | 断言 |
+|---|---|---|---|
+| **E1** | **Word 语义完整性** | `docx.ts` 补：图片内嵌（`w:drawing` + `word/media/*` 关系 + `w:blip`，含尺寸/alt）；页眉页脚与 `PAGE`/`NUMPAGES` **域**（`fldChar`+`instrText`，编辑部已有 COM 侧经验）；Heading 样式集（`Heading1..6` 对应 `outlineLvl`） | 导出的 docx 里存在 `word/media/`、`<w:fldChar>`、`w:pStyle w:val="Heading1"`；用 Word 打开导出件，图片可见、页脚显示"第 X 页 / 共 N 页" |
+| **E2** | **PDF 改为可程序产出** | 桌面版用 Electron `webContents.printToPDF`（参数：`pageSize` 跟文档纸张、`margins` 跟页边距、`printBackground: true`、可选 header/footer 模板）→ 落盘到 userData/workspace；MCP 的 `export.pdf` 从"只提示"升级为**真返回文件路径**（Live 与无头都能用） | `export.pdf` 返回的路径存在且以 `%PDF-` 开头、字节数 > 0；`agent-live-check.mjs` 增加一条 PDF 导出（无需人工点打印） |
+| **E3** | **Markdown 的预期管理** | 近期：导出时用 NoticeBar 明确提示"Markdown 是**有损**投影，A4/页边距/页脚页码不会保留"；并在对话框写清"不支持 MD → 文档"。可选（后续）：实现 MD→文档导入，但**必须**同样标注丢格式 | 导出 MD 时提示条出现（断言）；文档里有"单向/有损"说明 |
+| **E4** | **把谱系写进文档与界面** | 新增一节"格式谱系"（内容即本表）；导出菜单/对话框里对 PDF 加一句"PDF 是页面描述结果，**不能反向转回**可编辑文档" | 文档断言（关键词存在）；导出 PDF 的对话框文案断言 |
+
+> E1/E3 归 **P4（编辑器与导出体验）**；**E2 单独一小步**（它同时解决"MCP 的 `export.pdf` 只能提示人工打印"这个
+> 现存缺陷，是这一批里用户可感知收益最大的一条）；E4 归 **P7（文档冻结）**。
 
 ---
 
@@ -610,6 +692,8 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 | **MCP 工具** | `editor-mcp/src/tools/*` | 工具名 `<域>.<动作>` 稳定；**新增工具 = additive**；**新增参数必须可选**；错误码稳定；未知方法**降级不抛** | `tsc -b` + `--list` 数量断言 + `agent-live-check` / `multi-connection` / `session-revive` |
 | **桌面外壳** | `apps/desktop/**` | IPC 通道只增不改语义；配置键只增不重命名 | `npm run verify` + 打包 `--selftest` |
 | **工具箱 / 授权**（独立应用） | `apps/toolbox/**` + `tools/secure-config/**`（纯函数库） | 签发能力**只**在工具箱；请求/授权文件格式版本化（`v:1` 起），格式变更必须同时兼容旧版本校验；**时间字段只增不改语义**（§9.4） | 独立构建 + 独立 `--selftest`；**主应用 bundle 无签发/私钥符号**（字符串扫描断言）；负例断言：篡改 / 过期 / `notBefore` 未到 / 宽限内边界 / 时钟回拨 / 换机 |
+| **导出契约**（Word / PDF / MD） | `web-editor/src/utils/export/*`、`apps/desktop` 的 PDF 通道、`editor-mcp` 的 `export.*` 工具 | 导出**只降级不改语义**：docx 必须是真 OOXML（含 `word/media` 与页脚域）；PDF 由 `printToPDF` 产出、参数跟文档页设置；MD 是**有损单向**投影并在 UI 声明 | 导出件结构断言（`word/media/`、`<w:fldChar>`、`Heading1`）、`export.pdf` 产出 `%PDF-`、MD 导出提示条；`agent-live-check` 覆盖 HTML/DOCX/PDF 三条 |
+| **命名与路径**（§6.10） | `apps/desktop/{package.json,main.js,mcpSupervisor.js}` | 标识名 `webedit`（包名/exe/userData/appId/自报名），**界面显示名固定为「可视化编辑器」**；userData 改名必须带迁移与幂等 | 断言：userData 目录名 = `webedit`；界面标题/关于仍为「可视化编辑器」；旧目录迁移只发生一次且内容齐全 |
 
 ### 10.3 版本与兼容策略（写进 `contracts/`）
 
@@ -627,7 +711,8 @@ npm run verify        # 根编排：契约一致 + 版本一致 + 菜单结构 +
 
 当前已有：`tsc -b`、`vite build`、`?check=1`(295)、`audit:dark`、`verify`(77)、`--selftest`(9)、
 `bridge-status`、`agent-live-check`(5)、`multi-connection`(10)、`session-revive`(7)。
-本方案新增：契约/版本一致、清单形状、协议兼容、**Origin/鉴权**、**授权门**、菜单结构、路径解析（搬迁后）。
+本方案新增：契约/版本一致、清单形状、协议兼容、**Origin/鉴权**、**授权门**、菜单结构、路径解析（搬迁后）、
+**userData 目录名 = `webedit`**（§6.10）、**导出契约**（docx 含 `word/media` 与页脚域、`export.pdf` 真产出 `%PDF-`、MD 导出有损提示，§7.5）。
 
 ### 10.5 文档与提示词固化
 
@@ -684,26 +769,32 @@ npm run verify        # 根编排：契约一致 + 版本一致 + 菜单结构 +
 | **P1 单一来源** | ① 清单形状（§5.2）② 协议/能力协商 + 未知方法降级（§5.1）③ `tools/sync-contracts.mjs` 生成版本与方法清单 ④ 表格内核同源 | `editor-mcp/src/{tools/plugin.ts,bridge/*,engine/tableKit.ts}`、`web-editor/src/{registry/live.ts,mcp/*}`、新增 `tools/` | 四件套全绿 + 新断言；`?check=1` 与 108 工具数不变 | 低-中；每项独立提交 |
 | **P2 契约层 + 编排** | 根 `package.json`（`setup/build/verify/dist` 一条命令）、`contracts/` 落地（协议/组件契约/配置 schema/版本）、`bundle:mcp` 自带 esbuild | 根编排脚本、`contracts/`、各包脚本 | 一条命令跑完所有闸门；干净克隆可构建 | 中；不移动目录 |
 | **P3 目录重排**（§6） | M1–M9 逐条：交付物→`dist/`、发行物→`release/`、运行数据→`var/`、探针入库 `tools/cdp/`、生成物出库、活文档迁移、密钥出库 | 见 §6.5（每条自带"必须同步改"清单） | 每完成一个 M 号跑四件套；完成后走 §6.8 验收 | 高；**一条一个提交**，revert 即回滚 |
+| **P3.5 命名与 userData 迁移**（§6.10） | 包名/exe/安装包 → `webedit`；`app.setName('webedit')` 让 userData 变 `%APPDATA%\webedit`；**界面显示名不动**；首启从旧目录**复制**迁移（活文档/组件/日志/授权），幂等、留旧目录一版周期 | `apps/desktop/{package.json,main.js,src/mcpSupervisor.js,scripts/verify-desktop.mjs}` + 4 份 README | 断言：userData 目录名 = `webedit`；旧目录存在时首启迁移齐全且只迁一次；界面标题/关于仍是「可视化编辑器」；产物名 `webedit-0.3.0-x64.exe` | 中；改名可回滚（改回即可），迁移是**复制**不是移动，旧目录保留 |
 | **P4 菜单改版**（§7） | M-1…M-13：首选项归位、关于/更新归帮助、组件包归文件、补剪切/查找/全屏/Ctrl+Y/最近文档、模式入口 | `web-editor/src/components/layout/{MenuBar.tsx,useShortcuts.ts}` + 对应 store 动作 | 菜单结构断言 + 快捷键一致性断言 + `?check=1` 全绿 | 低-中；纯前端，独立提交 |
+| **P4.5 导出契约与格式补齐**（§7.5） | **E1** docx 补图片内嵌/页眉页脚与 `PAGE`·`NUMPAGES` 域/Heading 样式集；**E2** 桌面版用 `webContents.printToPDF` 让 `export.pdf` **真产出文件**（含页边距/背景）；**E3** MD 导出加"有损"提示（单向为设计） | `web-editor/src/utils/export/docx.ts`、`apps/desktop/{main.js,src/*}`（新增 PDF 通道）、`editor-mcp/src/tools/registry.ts`（`export.pdf` 语义）、`web-editor/src/components/panels/MarkdownDialog.tsx` | 导出的 docx 含 `word/media/`、`<w:fldChar>`、`Heading1`；`export.pdf` 返回真实路径且字节以 `%PDF-` 开头；`agent-live-check` 增加 PDF 一条；MD 导出提示条出现 | 中；E2 独立提交（同时修掉"MCP 只能提示人工打印"的现存缺陷），E1/E3 可各自独立 |
 | **P5 工具箱应用**（§8，**独立应用**） | `apps/toolbox`：配置 / 授权签发 / 诊断三页；独立构建与独立产物；**不进客户分发、不进更新通道**；`tools/secure-config` 作为纯函数库被两边引用 | 新增 `apps/toolbox/**`（自己的 `package.json` 与 electron-builder 目标）、`tools/secure-config` | 独立构建 + 独立 `--selftest`；客户 `release/` 里没有工具箱；主应用 bundle 无签发符号 | 中；全新目录，与主应用零耦合，删除即回滚 |
 | **P6 授权体系**（§9） | L1 指纹/契约 → L2 CLI 签发·校验 → L3 主应用（**只验证**：启动校验 + 功能门 + 生成请求 + 导入授权）→ L4 工具箱授权页 → L5 试用 → L6 运营台账 | `tools/secure-config/**`、主应用「关于」与导出门、`apps/toolbox/**` | 篡改一字节被拒、过期/未来时间被拒、换机被拒、无授权时导出 Word 被拒且提示可读；签发文件只能由工具箱产生 | 中-高；分 6 小步，每步可停 |
-| **P7 冻结** | `AGENTS.md`、skill 增补、README 索引化、CHANGELOG、断言全部并入 `npm run verify` | 文档 + 闸门 | 新人只读 AGENTS.md + 子 README 能上手 | 低 |
+| **P7 冻结** | `AGENTS.md`、skill 增补、README 索引化、CHANGELOG（含改名与迁移说明）、**格式谱系一节（E4）**、断言全部并入 `npm run verify` | 文档 + 闸门 | 新人只读 AGENTS.md + 子 README 能上手；文档含"格式谱系"关键词断言 | 低 |
 
 ### 13.2 依赖关系（为什么是这个顺序）
 
 ```
-P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）
-                 ├─▶ P4（菜单）      ← P4/P5 依赖 P2 的契约与编排
+P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userData 迁移）   ← 改名要和目录一起想清楚，但独立提交
+                 ├─▶ P4（菜单）─▶ P4.5（导出契约：E1/E2/E3）
                  ├─▶ P5（工具箱·独立应用）─▶ P6（授权：签发只在工具箱、主应用只验证）
-                 └─▶ P7（冻结）      ← 所有断言齐了再冻结文档
+                 └─▶ P7（冻结，含 E4 格式谱系）
 ```
 
 - **P0 不能等**：这是当前唯一的"可被外部网页利用"的口子。
 - **P1/P2 是 P3 的地基**：契约与版本先单一来源，再搬目录；否则搬迁期"两份实现 + 多个版本号"会互相掩盖错误。
+- **P3.5 紧跟 P3**：改名会同时影响 `release/` 产物名与 userData 路径，放在目录定型之后做，避免搬两次；
+  迁移做成"复制 + 幂等 + 留旧目录"，所以随时可回滚。
+- **P4.5 的 E2 是短板补强**：它把 PDF 从"人工打印"变成"程序可产出"，MCP 的 `export.pdf` 因此才能真正落盘；
+  这也让"格式谱系"（E4）在文档里说得通——我们是语义源，页面描述由渲染器产出、且由我们掌控参数。
 - **P5/P6 的硬约束**（用户 2026-09-28 明确）：工具箱是**独立应用**，且**签发能力不得进入主应用分发物**——
   所以 P5 先落地"独立应用 + 独立产物"，P6 再把"签发"放在工具箱、把"验证/请求/导入"放在主应用。
   这条约束决定了 P6 不能"先图省事塞进主应用、以后再拆"：一旦随客户包发出去，授权就废了。
-- 每个阶段内部都拆成可独立提交/回滚的小步（§6.5、§7.2、§9.7 各自成表）。
+- 每个阶段内部都拆成可独立提交/回滚的小步（§6.5、§7.2、§7.5、§9.7 各自成表）。
 
 ---
 
@@ -722,5 +813,10 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）
 11. **时效默认值**（§9.4）：起算方式取 **签发日**（推荐，台账清晰、可对账）还是**首次运行日**（对客户友好，但"首次运行时间"在客户端、可被重置）？
     默认档位给 **6 个月**（推荐）还是 12 个月？宽限期 **14 天**（推荐）还是 7/30 天？维护期默认"授权期 + 6 个月"（买半年也能升级到一年内的版本）是否可以？
 12. **到期后的降级力度**：宽限结束 → **只读**（推荐：数据不锁死，只挡导出/保存/写工具）还是完全不可用？
+13. **改名细节**（§6.10）：`appId` 用 `com.webedit.app`？安装包/exe 就用 `webedit`（→ `webedit-0.3.0-x64.exe`、`webedit.exe`）？
+    是否需要保留旧名安装包的"升级兼容标识"（NSIS GUID）？
+14. **旧 userData 迁移**：**复制**旧目录（推荐，可回退，留旧目录一版周期）还是移动？
+15. **Markdown 方向**：先做"UI 明确有损 + 保持单向"（推荐）还是直接做 MD→文档 双向导入？
+16. **PDF 产出方式**：改用 Electron `webContents.printToPDF`（推荐，MCP 的 `export.pdf` 从此能真落盘）还是维持人工打印？
 
 
