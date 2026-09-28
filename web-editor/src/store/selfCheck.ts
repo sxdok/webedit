@@ -5032,6 +5032,27 @@ async function interactionChecks(): Promise<Result[]> {
       `弹窗=${!!src}；统计=「${stats.trim()}」`,
     );
 
+    /* E3（§7.5）：Markdown 是**有损**投影 —— 弹窗里要说清，导出时还要弹提示条 */
+    const lossyText = document.querySelector('[data-md-lossy="1"]')?.textContent ?? '';
+    add(
+      'E3 弹窗常驻说明：写明 Markdown 是**单向 / 有损**、不保留 A4/页边距/页眉页脚/页码、且**不支持** MD → 文档',
+      lossyText.includes('有损') && lossyText.includes('单向') && lossyText.includes('不支持') && lossyText.includes('页边距'),
+      `说明：「${lossyText.replace(/\s+/g, ' ').trim().slice(0, 90)}…」`,
+    );
+    // 点「下载 .md」→ 提示条出现（导出动作被明确提醒；提示条是 window 事件驱动的浮层）
+    (document.querySelector('[data-md-download="1"]') as HTMLButtonElement | null)?.click();
+    await wait(260);
+    const bar = document.querySelector('[data-notice-bar="1"]') as HTMLElement | null;
+    const barText = (bar?.textContent ?? '').replace(/\s+/g, ' ');
+    add(
+      'E3 导出 Markdown 时弹提示条（说清"有损导出"）',
+      !!bar && barText.includes('有损'),
+      bar ? `提示条：「${barText.slice(0, 80)}」` : '没有提示条',
+    );
+    // 收掉浮层，免得影响后面的断言
+    (document.querySelector('[data-notice-bar-close="1"]') as HTMLButtonElement | null)?.click();
+    await wait(200);
+
     S().toggleUI('showMarkdown');
     await wait(280);
     add(
