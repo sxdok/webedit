@@ -61,8 +61,13 @@ export const config = {
   workspace: path.resolve(env('EDITOR_MCP_WORKSPACE', path.join(pkgRoot, 'workspace'))),
   /** 外部插件目录：默认指向编辑器工程的 public/组件 */
   pluginDir: path.resolve(env('EDITOR_MCP_PLUGIN_DIR', path.join(repoRoot, 'web-editor', 'public', '组件'))),
-  /** 写开关：false 时所有写操作返回 WRITE_DISABLED */
-  allowWrite: envBool('EDITOR_MCP_ALLOW_WRITE', true),
+  /**
+   * 写开关：false 时所有写操作返回 WRITE_DISABLED。
+   * ★决策 #2（2026-09-28）：**默认关** —— 分发版首次运行不允许写工作区/插件；
+   * 桌面版首选项里留开关（写入 `userData/prefs.json` 后由应用重启 MCP 生效）。
+   * 开发期可用 `EDITOR_MCP_ALLOW_WRITE=1` 直接打开。
+   */
+  allowWrite: envBool('EDITOR_MCP_ALLOW_WRITE', false),
 
   /**
    * 入站鉴权 token（P0）。桌面版启动时生成 `userData/bridge-token` 并注入自己拉起的 MCP；

@@ -9,7 +9,7 @@
  *
  * 密钥来源优先级（与工具一致）：
  *   `--key`（调用方显式传入） > 环境变量 EDITOR_DESKTOP_CONFIG_KEY（也支持 EDITOR_DESKTOP_CONFIG_KEY_FILE）
- *   > 配置目录下的 `config.key` > 构建期嵌进包的 `config/buildKey.js`
+ *   > 配置目录下的 `config.key` > 构建期嵌进包的 `config/buildKey.mjs`
  *
  * ⚠ 威胁模型：应用必须能自己解密，所以密钥必然随包分发。它防的是"改坏/一眼看穿更新地址"，
  *   不是有能力的攻击者。**别把真正的秘密写进配置文件。**
@@ -146,10 +146,16 @@ export function resolveSecretForConfig({ layout, env = process.env, explicitKey 
   return { secret: null, source: null };
 }
 
-/** 构建期嵌入的兜底密钥（`config/buildKey.mjs`，兼容老的 `buildKey.js`），可能不存在 */
+/**
+ * 构建期嵌入的兜底密钥（`config/buildKey.mjs`），可能不存在。
+ *
+ * P0 ⑥（2026-09-28）：**删掉了对老 `buildKey.js` 的回退分支** —— 仓库与安装包里只有 `buildKey.mjs`，
+ * 留一个永不命中的兼容分支只会让人以为"还有第二种形态"。真要轮换密钥：`npm run keygen` 重新生成
+ * `config.key`（本地优先），或用 `npm run embed-key` 重写 `buildKey.mjs`。
+ */
 export async function loadEmbeddedKey({ layout, env = process.env } = {}) {
   const explicit = env.EDITOR_DESKTOP_BUILD_KEY;
-  const candidates = [explicit, layout?.buildKeyPath, layout?.buildKeyLegacyPath].filter(Boolean);
+  const candidates = [explicit, layout?.buildKeyPath].filter(Boolean);
   const p = candidates.find((c) => existsSync(c)) ?? candidates[0] ?? null;
   if (!p || !existsSync(p)) return { key: null, fingerprint: null, path: p ?? null };
   const mod = await import(pathToFileURL(p).href);
@@ -201,7 +207,7 @@ export async function loadAppConfig({ layout, env = process.env, logger = null, 
     const secret = keyInfo.secret ?? embedded.key;
     const usedSource = keyInfo.secret ? keyInfo.source : embedded.key ? `build:${embedded.path}` : null;
     if (!secret) {
-      problems.push(`配置文件存在（${encPath}）但找不到密钥：环境变量 EDITOR_DESKTOP_CONFIG_KEY / config.key / 构建期 buildKey.js 都没有`);
+      problems.push(`配置文件存在（${encPath}）但找不到密钥：环境变量 EDITOR_DESKTOP_CONFIG_KEY / config.key / 构建期 buildKey.mjs 都没有`);
       source = 'defaults';
     } else {
       try {

@@ -1684,7 +1684,34 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 2. **token 持久化在文件而非每次随机**：`userData/bridge-token`，否则用户每次重启都要重新复制 agent 配置。
 3. **删掉了手写类型垫片 `editor-mcp/src/types/ws.d.ts`**，改用 `@types/ws`：垫片里 `close()` 只声明 0 参，导致本轮回调带 `1008` 时 `tsc` 报错（垫片自己的注释就写着"装了 `@types/ws` 后删掉本文件即可"）。
 4. **页面侧 token 取值优先级**：`?bridgeToken=…`（自检/开发）→ 桌面 `getStatus().mcp.token` → 不带。浏览器裸连且对方开了校验时**应当被拒**，这是设计而非缺陷。
-5. 本轮**未做**（下一轮）：⑤ `allowWrite` 默认 false + 首选项开关 + **autoBridge 三态联动**；⑥ `config.key` 出库断言（密钥已在 d99a95c 出库，`buildKey.js` 老分支未发现）；`agent-live-check` / `bridge-status` 适配桌面 token（桌面端已能发，脚本侧待接）。
+
+---
+
+### 15.6 P0 实际施工记录（第 2 轮：⑤ 写开关 + ⑥ 密钥出库收尾）
+
+| # | 计划项 | 落地位置 | 状态 |
+|---|---|---|---|
+| ⑤·默认 | `allowWrite` **默认关**（决策 #2） | `editor-mcp/src/config.ts`（`envBool('EDITOR_MCP_ALLOW_WRITE', false)`）；`apps/desktop/config/app-config.example.json` 改 false 并**重新加密 app-config.enc**（旧文件备份 `app-config.enc.bak-20260928`） | ✅ 实测新起 MCP 日志：`写开关 ALLOW_WRITE=false` |
+| ⑤·开关 | 首选项开关**真正作用到 MCP** | `main.js`：`userData/prefs.json` 读写 + `resolveAllowWrite()`（首选项优先，其次加密配置）+ IPC `desktop:set-allow-write`（写 prefs → `mcp.setAllowWrite()` → **重启 MCP**）；`mcpSupervisor.js` 新增 `allowWriteValue`/`setAllowWrite()`；`preload.cjs` 暴露 `setAllowWrite`；`desktopChrome.ts` 补类型 | ✅ |
+| ⑤·三态 | autoBridge **三态如实显示**（未启用 / 写已禁用 / 掉线） | `bridgeClient.ts`：`desktopWrite` + `refreshDesktopWriteState()`，`bridgeSummary()` 在 connected 且写禁用时输出 **"已连接 · 写已禁用（只读）"**，并进订阅快照；`PreferencesDialog` 切完开关主动刷新 | ✅ |
+| ⑤·界面 | 首选项里可切换 | `PreferencesDialog.tsx` 新增「允许 MCP 写操作」（桌面版才可操作；浏览器只读说明"由启动 MCP 的一方决定"） | ✅ |
+| ⑥ | `config.key` 出库断言 + 删 `buildKey.js` 老分支 | `verify-desktop.mjs` 新增两条断言（`git ls-files` 必须失败 + `git check-ignore` 必须命中；`paths.js`/`secureConfig.js` 不得再有 `buildKeyLegacyPath`）；删除 `paths.js` 的 `buildKeyLegacyPath` 与 `secureConfig.js` 的回退候选、文案统一为 `buildKey.mjs` | ✅ |
+| ④·入口 | 菜单入口接上 | `MenuBar.tsx`「工具」菜单新增 **「复制 MCP 客户端配置（含 token）」** → `copyMcpConfig`（并提示"token 等同密码"） | ✅ |
+| 脚本 | 诊断脚本适配 token | 新增 `scripts/lib/bridge-token.mjs`（`EDITOR_MCP_TOKEN` → `%APPDATA%\可视化编辑器\bridge-token` → `EDITOR_MCP_TOKEN_FILE`）；`bridge-status.mjs` / `agent-live-check.mjs` 带票并打印来源，401 时直接给出"三步取票"提示 | ✅ |
+
+**第 2 轮验证证据**
+
+| 闸门 | 结果 |
+|---|---|
+| `editor-mcp` `tsc -b` / `npm test` | 0 错 / **83/83** |
+| `node scripts/auth-check.mjs` | **12/12** |
+| `session-revive-check` / `multi-connection-check` | **7/7** / **10/10** |
+| `apps/desktop npm run verify` | **78/78**（新增 2 条密钥/老分支断言） |
+| `web-editor npm run build` | ✅ |
+| `bridge-status.mjs` 实测 | 无票 → 打印 401 + 三步取票提示；带票 → 正常读到 bridge status |
+| 写开关实测 | 新起 MCP 日志 `ALLOW_WRITE=false`；`app-config.enc` 解密后 `allowWrite: false` |
+
+**P0 剩余（第 3 轮）**：把 token 交给用户补 DSH 配置并重启 DSH（见 §15.5 的时点表）；`agent-live-check` 的 PDF 一条留到 P4.5-E2。
 
 ---
 

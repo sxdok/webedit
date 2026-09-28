@@ -67,6 +67,11 @@ export interface DesktopStatus {
   componentsDir: string | null;
   startupError: string | null;
   title: string;
+  /**
+   * 生效的"允许 MCP 写操作"（P0 决策 #2）：加密配置给默认值（分发版 false），
+   * 用户在首选项里的改动落在 userData/prefs.json。桥接菜单据此显示"已连接 · 写已禁用"。
+   */
+  mcpWriteEnabled?: boolean;
 }
 
 export interface DesktopApi {
@@ -83,7 +88,11 @@ export interface DesktopApi {
   openConfigDir: () => Promise<{ ok: boolean; path?: string; error?: string | null }>;
   mcpUrl: () => Promise<string | null>;
   copyMcpUrl: () => Promise<string | null>;
+  /** P0 决策 #1/#4：复制**含 Authorization 头**的 MCP 客户端配置（别的 AI 客户端要它才连得上） */
+  copyMcpConfig: () => Promise<string | null>;
   restartMcp: () => Promise<DesktopMcpStatus | null>;
+  /** P0 决策 #2：切换"允许 MCP 写操作"（写入 prefs.json 并重启 MCP，返回新状态） */
+  setAllowWrite: (value: boolean) => Promise<DesktopStatus>;
   probeMcp: () => Promise<{ ok: boolean; serverInfo?: { name?: string; version?: string } | null; protocolVersion?: string | null; error?: string } | null>;
   getConfig: () => Promise<DesktopStatus['config']>;
   log: (level: 'debug' | 'info' | 'warn' | 'error', message: string) => void;

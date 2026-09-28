@@ -18,7 +18,7 @@
  *   resources/web-editor/{dist/, public/组件/}
  *   resources/editor-mcp/{dist/, node_modules/}
  *   resources/tools/secure-config/secure-config.mjs
- *   resources/config/{app-config.enc, buildKey.js}      ← **明文文件**，换更新地址时直接替换
+ *   resources/config/{app-config.enc, buildKey.mjs}     ← **明文文件**，换更新地址时直接替换
  *   <app.asar>/apps/desktop/{main.js, preload.cjs, src/}
  *   用户数据（日志/文档/组件覆盖）→ %APPDATA%/可视化编辑器/…
  */
@@ -114,11 +114,9 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
      * 安装目录 / 免安装版解包出的临时目录 —— 那里向上找不到任何 `package.json`，
      * Node 会把 `.js` 当 CommonJS 解析，`import()` 直接 SyntaxError。
      * （真踩过：仓库里跑 win-unpacked 时恰好向上能找到 apps/desktop/package.json 而侥幸通过，
-     *   一到免安装版的 %TEMP% 解包目录就"找不到密钥"。）老的 buildKey.js 仍兼容读取。
+     *   一到免安装版的 %TEMP% 解包目录就"找不到密钥"。）
      */
     buildKeyPath: join(resolvedConfigDir, 'buildKey.mjs'),
-    /** 老版本（或手写脚本）留下的 buildKey.js；仍兼容读取 */
-    buildKeyLegacyPath: join(resolvedConfigDir, 'buildKey.js'),
     secureConfigCore,
     /** 用 Electron 自带的 Node 跑子进程（分发版机器上不一定装了系统 node） */
     nodeBin: nodeBin ?? process.execPath,

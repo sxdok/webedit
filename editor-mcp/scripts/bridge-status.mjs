@@ -10,11 +10,21 @@
  *   node scripts/bridge-status.mjs 37652 37653     # 自定义端口
  *
  * 需要 Node ≥22（内置 WebSocket，用来问 hub）。
+ *
+ * P0 起 MCP/hub 都校验 token：本脚本自动取 token（`EDITOR_MCP_TOKEN` → 桌面版
+ * `%APPDATA%\可视化编辑器\bridge-token`）；取不到会明确提示怎么拿，而不是只说"连不上"。
  */
+import { noTokenHint, resolveBridgeToken } from './lib/bridge-token.mjs';
+
 const MCP_PORT = Number(process.argv[2] ?? 37651);
 const HUB_PORT = Number(process.argv[3] ?? 37650);
 const MCP = `http://127.0.0.1:${MCP_PORT}/mcp`;
 const HUB = `ws://127.0.0.1:${HUB_PORT}/bridge`;
+
+// P0 起 MCP 强制 token：本脚本要连"应用正在跑的那个" MCP，所以按优先级找一个 token
+// （EDITOR_MCP_TOKEN → %APPDATA%\可视化编辑器\bridge-token → EDITOR_MCP_TOKEN_FILE）。
+const { token: BRIDGE_TOKEN, source: TOKEN_SOURCE } = resolveBridgeToken();
+const AUTH = BRIDGE_TOKEN ? { Authorization: `Bearer ${BRIDGE_TOKEN}` } : {};
 
 const parseRpc = (text) => {
   const payloads = [];
@@ -34,7 +44,7 @@ const parseRpc = (text) => {
   return null;
 };
 
-const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+const headers = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...AUTH };
 const post = async (body, sid) => {
   const res = await fetch(MCP, { method: 'POST', headers: { ...headers, ...(sid ? { 'mcp-session-id': sid } : {}) }, body: JSON.stringify(body) });
   return { sid: res.headers.get('mcp-session-id') ?? sid, status: res.status, body: parseRpc(await res.text()) };
@@ -79,7 +89,7 @@ function hubSide() {
     };
     const ws = new WebSocket(HUB);
     const timer = setTimeout(() => finish({ note: '超时：hub 没有回 hello 回执' }), 5000);
-    ws.addEventListener('open', () => ws.send(JSON.stringify({ id: 'bridge-status-1', method: 'bridge.hello', params: { role: 'verifier', version: '0.0.1' } })));
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ id: 'bridge-status-1', method: 'bridge.hello', params: { role: 'verifier', version: '0.0.1', ...(BRIDGE_TOKEN ? { token: BRIDGE_TOKEN } : {}) } })));
     ws.addEventListener('message', (ev) => {
       clearTimeout(timer);
       try {
@@ -97,8 +107,13 @@ function hubSide() {
 
 const mcp = await mcpSide();
 console.log('── MCP 侧（liveBridge → hub）──');
+console.log(`token 来源：${TOKEN_SOURCE ?? '(没找到 token，将按"未鉴权"访问)'}`);
 if (!mcp.reachable) {
   console.log(mcp.note);
+  // P0：缺 token 时 MCP 会回 401，这时候的"连不上"其实是"没带票"，要直接说清而不是让人去猜端口
+  if (/401|UNAUTHORIZED|服务器已开启 token 校验/.test(String(mcp.note))) {
+    console.log('\n' + noTokenHint(MCP));
+  }
 } else {
   console.log(`serverInfo=${JSON.stringify(mcp.serverInfo)}`);
   console.log(JSON.stringify(mcp.status ?? mcp.raw, null, 2));

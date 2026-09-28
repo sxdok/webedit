@@ -48,6 +48,28 @@ const listeners = new Set<(s: BridgeState) => void>();
  * 这正是"默认拒绝"该有的表现，不是 bug）。
  */
 let cachedToken: string | null | undefined;
+/** 桌面侧"允许 MCP 写操作"（决策 #2）：null = 不知道（浏览器/还没读到）→ 三态文案用 */
+let desktopWrite: boolean | null = null;
+
+/** 读一次桌面状态，刷新 token 与写开关；菜单据此显示"已连接 · 写已禁用" */
+async function refreshDesktopState(): Promise<void> {
+  const d = desktopApi();
+  if (!d) return;
+  try {
+    const s = await d.getStatus();
+    desktopWrite = s.mcpWriteEnabled === true;
+    if (s?.mcp?.token) cachedToken = s.mcp.token;
+    notify();
+  } catch {
+    /* 拿不到就保持不知道 */
+  }
+}
+
+/** 供首选项在切换写开关后主动刷新三态文案（不重连也能立刻更新） */
+export async function refreshDesktopWriteState(): Promise<void> {
+  await refreshDesktopState();
+}
+
 async function resolveBridgeToken(): Promise<string | null> {
   if (cachedToken !== undefined) return cachedToken;
   let token: string | null = null;
@@ -64,6 +86,7 @@ async function resolveBridgeToken(): Promise<string | null> {
       try {
         const s = await d.getStatus();
         if (s?.mcp?.token) token = s.mcp.token;
+        desktopWrite = s.mcpWriteEnabled === true;
       } catch {
         /* 拿不到就不带 token */
       }
@@ -73,8 +96,8 @@ async function resolveBridgeToken(): Promise<string | null> {
   return token;
 }
 
-export function bridgeStatus(): { state: BridgeState; url: string; reconnects: number; lastError: string | null; liveComponents: number } {
-  return { state, url, reconnects, lastError, liveComponents: getLiveTypes().length };
+export function bridgeStatus(): { state: BridgeState; url: string; reconnects: number; lastError: string | null; liveComponents: number; writeEnabled: boolean | null } {
+  return { state, url, reconnects, lastError, liveComponents: getLiveTypes().length, writeEnabled: desktopWrite };
 }
 
 export function onBridgeState(cb: (s: BridgeState) => void): () => void {
@@ -104,7 +127,7 @@ const getBridgeState = (): BridgeState => state;
  *   （让 React 认得出"真的变了"）。两件事缺一不可 —— 只做前者，React 仍然不重渲染。
  */
 function bridgeSnapshot(): string {
-  return `${shouldRun ? 'on' : 'off'}|${state}|${reconnects}`;
+  return `${shouldRun ? 'on' : 'off'}|${state}|${reconnects}|${desktopWrite === null ? '?' : desktopWrite ? 'w' : 'ro'}`;
 }
 
 /** 订阅桥接状态：状态一变（connecting/connected/off）就触发重渲染 */
@@ -127,11 +150,17 @@ export function bridgeSummary(): BridgeSummary {
   const s = bridgeStatus();
   if (!shouldRun) return { on: false, state: s.state, label: '未开启', detail: s.lastError ? `上次：${s.lastError}` : '' };
   if (s.state === 'connected') {
+    // ★三态之一：连上了、但 MCP 的写开关是关的 —— 必须如实说，否则用户会以为"能在 Live 里写"
+    const readonly = s.writeEnabled === false;
     return {
       on: true,
       state: s.state,
-      label: `已连接（${s.liveComponents} 个外部组件）`,
-      detail: s.reconnects > 0 ? `已重连 ${s.reconnects} 次 · ${s.url}` : s.url,
+      label: readonly ? `已连接 · 写已禁用（只读，${s.liveComponents} 个外部组件）` : `已连接（${s.liveComponents} 个外部组件）`,
+      detail: readonly
+        ? `${s.reconnects > 0 ? `已重连 ${s.reconnects} 次 · ` : ''}${s.url} · 写工具会被拒（首选项 → 允许 MCP 写操作）`
+        : s.reconnects > 0
+          ? `已重连 ${s.reconnects} 次 · ${s.url}`
+          : s.url,
     };
   }
   if (s.state === 'connecting') return { on: true, state: s.state, label: '连接中…', detail: s.url };

@@ -13,7 +13,7 @@
  * 受限沙箱提示：本脚本要 spawn 子进程并**捕获管道输出**（mcpSupervisor 收日志就是这么干的），
  * 沙箱下会报 `spawn EPERM`；此时请用放宽的文件沙箱跑一次，或直接接受 E 段跳过。
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, closeSync, copyFileSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -818,6 +818,21 @@ async function testStatic() {
   ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('web-editor')), pkg.build.extraResources.map((r) => r.to).join(', '));
   ok('不再把 editor-mcp/node_modules 打进包（它是符号链接拼的，装不进安装包），改为单文件 bundle', !pkg.build.extraResources.some((r) => String(r.to).includes('node_modules')) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle')) && /bundle:mcp/.test(pkg.scripts?.dist ?? ''), `extraResources 有 editor-mcp-bundle=${pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle'))}；dist 脚本先打包=${pkg.scripts?.dist}`);
   ok('加密配置与密钥都在（开箱即用）', existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.mjs')) && existsSync(join(APP_DIR, 'config', 'config.key')), 'config/{app-config.enc, buildKey.mjs, config.key}');
+  // P0 ⑥：明文密钥必须**只在本地**——曾经它被 git 跟踪过，首次推送 GitHub 前才移出（d99a95c）。
+  // 这条断言就是防它再被加回来（.gitignore 覆盖 + 不在索引里，两个条件都要满足）。
+  const trackedKey = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '--error-unmatch', 'apps/desktop/config/config.key'], { encoding: 'utf8', windowsHide: true });
+  const ignoredKey = spawnSync('git', ['-C', REPO_ROOT, 'check-ignore', 'apps/desktop/config/config.key'], { encoding: 'utf8', windowsHide: true });
+  ok(
+    '明文密钥 config.key 不在版本库里（status≠0）且已被 .gitignore 覆盖',
+    trackedKey.status !== 0 && ignoredKey.status === 0,
+    `git ls-files status=${trackedKey.status}；git check-ignore=${String(ignoredKey.stdout).trim() || '未命中'}`,
+  );
+  // P0 ⑥：老 buildKey.js 的回退分支已删（安装包里只有 buildKey.mjs）
+  ok(
+    '代码里没有老 buildKey.js 回退分支',
+    !/buildKeyLegacyPath/.test(text('src/paths.js')) && !/buildKeyLegacyPath/.test(text('src/secureConfig.js')),
+    'paths.js / secureConfig.js 均无 buildKeyLegacyPath',
+  );
 }
 
 /* ═══════════ 主流程 ═══════════ */

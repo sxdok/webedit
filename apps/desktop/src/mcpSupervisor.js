@@ -147,6 +147,8 @@ export function createMcpSupervisor({
   const url = `http://${host}:${port}/mcp`;
   /** 本实例实际使用的 token：调用方没给就随机生成（子进程环境与探测用同一把） */
   const bridgeToken = token && String(token).trim() ? String(token).trim() : newBridgeToken();
+  /** 生效的写开关（可被 setAllowWrite 改；重启子进程时生效） */
+  let allowWriteValue = allowWrite === true;
   const state = {
     state: 'stopped', // stopped | starting | ready | restarting | failed
     pid: null,
@@ -208,7 +210,7 @@ export function createMcpSupervisor({
       ...nodeEnv,
       EDITOR_MCP_BRIDGE_URL: `ws://${host}:${bridgePort}/bridge`,
       EDITOR_MCP_WORKSPACE: workspace,
-      EDITOR_MCP_ALLOW_WRITE: allowWrite ? 'true' : 'false',
+      EDITOR_MCP_ALLOW_WRITE: allowWriteValue ? 'true' : 'false',
       // P0：入站鉴权 token（决策 #1）。缺 token 时 MCP 会拒绝所有入站请求；agent 侧需补 headers.Authorization
       EDITOR_MCP_TOKEN: bridgeToken,
       EDITOR_MCP_REQUIRE_TOKEN: 'true',
@@ -383,5 +385,14 @@ export function createMcpSupervisor({
       state.restarts = 0;
       return start({ adopt: false });
     },
+    /**
+     * 改"允许写"开关（决策 #2）：只改内存里的值，**下次启动/重启子进程时生效**。
+     * 调用方（首选项开关）负责紧接着 `restart()`，否则界面上会显示新状态而 MCP 还是旧行为。
+     */
+    setAllowWrite(value) {
+      allowWriteValue = value === true;
+    },
+    /** 当前生效的写开关（供状态显示与断言） */
+    allowWrite: () => allowWriteValue,
   };
 }

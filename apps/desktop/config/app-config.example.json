@@ -15,7 +15,7 @@
     "bridgePort": 37650,
     "autoRestart": true,
     "readyTimeoutMs": 20000,
-    "allowWrite": true
+    "allowWrite": false
   },
   "update": {
     "enabled": true,

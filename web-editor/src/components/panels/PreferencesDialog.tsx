@@ -6,12 +6,13 @@
  *
  * 每一项都带 `data-pref="<key>"` 与 `data-pref-value`，便于自检逐项核对。
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RotateCcw } from 'lucide-react';
 import { useEditorStore, type UIState } from '../../store/editorStore';
 import { PERSIST_KEY } from '../../store/persistStorage';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
-import { useBridgeSummary } from '../../mcp/bridgeClient';
+import { useBridgeSummary, refreshDesktopWriteState } from '../../mcp/bridgeClient';
+import { desktopApi } from '../../utils/desktopChrome';
 import { Modal } from '../ui/Modal';
 import { SwitchControl } from '../property-controls/SwitchControl';
 import type { PropSchemaItem } from '../../registry/types';
@@ -124,6 +125,27 @@ export function PreferencesDialog() {
   const [reloadMsg, setReloadMsg] = useState('');
   /** MCP 桥接只读状态（订阅着，状态一变这里就跟着变） */
   const bridge = useBridgeSummary();
+  /**
+   * 「允许 MCP 写操作」（P0 决策 #2）：加密配置给默认值（分发版 **false**），
+   * 用户在这里的改动由桌面应用写进 `userData/prefs.json` 并**重启 MCP** 生效。
+   * 浏览器里没有桌面壳 → 只显示只读说明（写开关由启动 MCP 的那一方决定）。
+   */
+  const d = desktopApi();
+  const [allowWrite, setAllowWrite] = useState<boolean | null>(null);
+  const [writeBusy, setWriteBusy] = useState(false);
+  useEffect(() => {
+    if (!d) return;
+    let alive = true;
+    void d
+      .getStatus()
+      .then((s) => {
+        if (alive) setAllowWrite(s.mcpWriteEnabled === true);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [d]);
 
   const close = useMemo(() => () => toggleUI('prefsOpen'), [toggleUI]);
   /** 当前存档大小（只读展示；随手一读 localStorage，不订阅任何东西） */
@@ -257,6 +279,39 @@ export function PreferencesDialog() {
           </span>
           <span className="flex-none text-2xs text-gray-400">连接开关在 工具 → MCP 桥接</span>
         </div>
+        {/* 写开关（决策 #2）：只对桌面版显示可操作开关；浏览器里说明由谁决定 */}
+        {d ? (
+          <PrefSwitch
+            prefKey="mcpAllowWrite"
+            label="允许 MCP 写操作"
+            hint={
+              writeBusy
+                ? '正在重启 MCP 服务器…'
+                : `关 = MCP 的写工具一律被拒（默认，返回 WRITE_DISABLED）；开 = 允许写工作区与组件目录。改动会重启 MCP 服务器后生效。当前：${allowWrite === null ? '读取中' : allowWrite ? '开' : '关'}`
+            }
+            value={allowWrite === true}
+            onChange={(v) => {
+              if (!d || writeBusy) return;
+              setWriteBusy(true);
+              void d
+                .setAllowWrite(v === true)
+                .then((s) => {
+                  setAllowWrite(s.mcpWriteEnabled === true);
+                  // 让桥接菜单的三态文案立刻跟着变（"已连接 · 写已禁用"）
+                  return refreshDesktopWriteState();
+                })
+                .catch(() => undefined)
+                .finally(() => setWriteBusy(false));
+            }}
+          />
+        ) : (
+          <div className="flex items-center gap-2 py-1" data-pref="mcpAllowWrite" data-pref-value="managed">
+            <span className="w-32 shrink-0 text-[12px] text-gray-600">允许 MCP 写操作</span>
+            <span className="min-w-0 flex-1 truncate text-2xs text-gray-400" data-bridge-summary="1">
+              由启动 MCP 服务器的一方决定（浏览器模式不可改；桌面版在这里有开关，改动会重启 MCP）
+            </span>
+          </div>
+        )}
       </Section>
 
       <Section title="外观">

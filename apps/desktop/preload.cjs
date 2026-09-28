@@ -51,6 +51,8 @@ const api = {
   /** P0：一键复制**带 token** 的 MCP 客户端配置（给别的 AI 客户端用；不自动发放 token） */
   copyMcpConfig: () => ipcRenderer.invoke('desktop:copy-mcp-config'),
   restartMcp: () => ipcRenderer.invoke('desktop:restart-mcp'),
+  /** P0 决策 #2：写开关（写入 userData/prefs.json 并重启 MCP 生效） */
+  setAllowWrite: (value) => ipcRenderer.invoke('desktop:set-allow-write', value),
   probeMcp: () => ipcRenderer.invoke('desktop:mcp-probe'),
   getConfig: () => ipcRenderer.invoke('desktop:config'),
   /**

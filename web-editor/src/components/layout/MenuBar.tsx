@@ -249,6 +249,21 @@ export function MenuBar() {
           },
         },
         {
+          // P0 决策 #1/#4：MCP 现在**强制校验 token**，只复制地址不够用 —— 这一项复制的配置里
+          // 带 `headers.Authorization`，粘进其它 AI 客户端即可（我们**不会**替别的应用写配置）。
+          key: 'd-mcp-config',
+          label: '复制 MCP 客户端配置（含 token）',
+          onClick: () => {
+            void ds.copyMcpConfig().then((text: string | null) =>
+              setNotice(
+                text
+                  ? `已复制到剪贴板（含 Authorization 头）：\n${text}\n\n注意：token 等同密码，别发到不可信的地方；重置方式见「MCP 服务状态」。`
+                  : 'MCP 没启动或还没生成 token：先看「MCP 服务状态」。',
+              ),
+            );
+          },
+        },
+        {
           key: 'd-mcp-status',
           label: 'MCP 服务状态（现场握手探测）',
           onClick: () => {

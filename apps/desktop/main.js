@@ -113,6 +113,44 @@ function readOrCreateBridgeToken() {
   }
 }
 
+/**
+ * 用户首选项（`userData/prefs.json`）—— 目前只有"允许 MCP 写操作"（决策 #2）。
+ *
+ * 为什么不直接改加密配置：那是**分发物**（只读、随包带），运行期改它没法回滚也不好审计；
+ * 首选项是**用户数据**，放 userData 天经地义，且改完由应用重启 MCP 子进程真正生效。
+ * 读失败一律按"用配置默认值"处理，绝不因首选项坏了起不来。
+ */
+function prefsPath() {
+  return join(app.getPath('userData'), 'prefs.json');
+}
+
+function readPrefs() {
+  try {
+    const raw = JSON.parse(readFileSync(prefsPath(), 'utf8'));
+    return raw && typeof raw === 'object' ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function writePrefs(next) {
+  const merged = { ...readPrefs(), ...next };
+  try {
+    writeFileSync(prefsPath(), JSON.stringify(merged, null, 2), 'utf8');
+  } catch (e) {
+    runtime.log?.warn(`首选项写入失败（${prefsPath()}）：${e instanceof Error ? e.message : String(e)}`);
+  }
+  runtime.prefs = merged;
+  return merged;
+}
+
+/** 生效的写开关：首选项优先，其次加密配置；类型不对就回落到"关"（默认拒绝） */
+function resolveAllowWrite(prefs, fromConfig) {
+  const v = prefs?.mcp?.allowWrite;
+  if (typeof v === 'boolean') return v;
+  return fromConfig === true;
+}
+
 function buildStatus() {
   const cfg = runtime.cfg;
   const mcp = runtime.mcp?.status() ?? null;  return {
@@ -126,6 +164,8 @@ function buildStatus() {
     server: runtime.web ? { url: runtime.web.url, port: runtime.web.port, distDir: runtime.web.distDir } : null,
     mcp,
     mcpUrl: mcp?.url ?? null,
+    /** 生效的"允许 MCP 写操作"（决策 #2）：页面用它显示"已连接 · 写已禁用"三态 */
+    mcpWriteEnabled: runtime.allowWrite === true,
     update: runtime.updater?.status() ?? null,
     config: runtime.configResult ? redactConfig(runtime.configResult) : null,
     logDir: runtime.layout?.logDir ?? null,
@@ -156,6 +196,10 @@ async function boot() {
   // ② 加密配置
   runtime.configResult = await loadAppConfig({ layout: runtime.layout, logger: log });
   runtime.cfg = runtime.configResult.config;
+  // ②·补充：写开关（决策 #2）—— 加密配置给**默认值（分发版为 false）**，
+  // 用户在本应用「首选项」里的改动落在 userData/prefs.json（不改加密配置），重启 MCP 生效。
+  runtime.prefs = readPrefs();
+  runtime.allowWrite = resolveAllowWrite(runtime.prefs, runtime.cfg.mcp.allowWrite);
   // 日志器必须在配置之前就存在（配置可能读失败也要能记日志），所以这里再按 logging.level 调整落盘级别
   log.setLevel(runtime.cfg.logging.level);
   log.info(`落盘日志级别：${log.level()}（配置 logging.level；环形缓冲不受影响）`);
@@ -217,7 +261,7 @@ async function boot() {
       bridgePort: runtime.cfg.mcp.bridgePort,
       workspace: runtime.layout.mcpWorkspace,
       pluginDir: runtime.components.dir ?? runtime.layout.pluginDir,
-      allowWrite: runtime.cfg.mcp.allowWrite,
+      allowWrite: runtime.allowWrite,
       readyTimeoutMs: runtime.cfg.mcp.readyTimeoutMs,
       autoRestart: runtime.cfg.mcp.autoRestart,
       // P0 决策 #1：桌面版**自动发放** token —— 生成/复用 userData/bridge-token，
@@ -636,6 +680,27 @@ function registerIpc() {
     return text;
   });
   ipcMain.handle('desktop:restart-mcp', () => runtime.mcp?.restart() ?? null);
+  /**
+   * 「首选项 → 允许 MCP 写操作」开关（决策 #2）。
+   * 写入 userData/prefs.json 后**重启 MCP 子进程**，让 EDITOR_MCP_ALLOW_WRITE 真正生效 ——
+   * 只改界面不重启就是"假开关"，那正是审计里点名的"看着能用、实际没生效"。
+   */
+  ipcMain.handle('desktop:set-allow-write', async (_e, value) => {
+    const next = value === true;
+    writePrefs({ mcp: { ...(readPrefs().mcp ?? {}), allowWrite: next } });
+    runtime.allowWrite = next;
+    runtime.log?.info(`MCP 写开关 → ${next ? '开' : '关'}（已写入 prefs.json），重启 MCP 使其生效`);
+    if (runtime.mcp) {
+      runtime.mcp.setAllowWrite?.(next);
+      try {
+        await runtime.mcp.restart();
+      } catch (e) {
+        runtime.log?.warn(`重启 MCP 失败（写开关仍已保存，下次启动生效）：${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    publishStatus();
+    return buildStatus();
+  });
   ipcMain.handle('desktop:mcp-probe', () => (runtime.mcp ? runtime.mcp.probe({ timeoutMs: 2500 }) : null));
   ipcMain.handle('desktop:config', () => (runtime.configResult ? redactConfig(runtime.configResult) : null));
   ipcMain.handle('desktop:open-config-file', () => openPath(runtime.layout?.configDir));

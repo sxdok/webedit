@@ -12,10 +12,18 @@
  *
  * 前置：可视化编辑器正在运行（它才会拉 MCP + 中转，页面才会自动接入桥接）。
  * 退出码 0 = 全通；1 = 有失败。
+ *
+ * P0 起 MCP 校验 token：本脚本自动取票（`EDITOR_MCP_TOKEN` → 桌面版 userData 的 bridge-token），
+ * 并在开头打印来源；取不到 ticket 时会明说"401 = 没带票"而不是含糊地报"连不上"。
  */
+import { noTokenHint, resolveBridgeToken } from './lib/bridge-token.mjs';
+
 const MCP_PORT = Number(process.argv[2] ?? 37651);
 const HUB_PORT = Number(process.argv[3] ?? 37650);
 const MCP = `http://127.0.0.1:${MCP_PORT}/mcp`;
+
+// P0 起 MCP 与 hub 都校验 token；本脚本连的是"应用正在跑的那个"，所以自动取票
+const { token: BRIDGE_TOKEN, source: TOKEN_SOURCE } = resolveBridgeToken();
 
 const results = [];
 const ok = (name, pass, evidence = '') => {
@@ -41,7 +49,7 @@ const parseRpc = (text) => {
   return null;
 };
 
-const HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+const HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(BRIDGE_TOKEN ? { Authorization: `Bearer ${BRIDGE_TOKEN}` } : {}) };
 let sid = null;
 const post = async (body) => {
   const res = await fetch(MCP, { method: 'POST', headers: { ...HEADERS, ...(sid ? { 'mcp-session-id': sid } : {}) }, body: JSON.stringify(body) });
@@ -104,7 +112,7 @@ try {
     if (typeof WebSocket === 'undefined') return resolve({ note: `Node ${process.versions.node} 无内置 WebSocket` });
     const ws = new WebSocket(`ws://127.0.0.1:${HUB_PORT}/bridge`);
     const t = setTimeout(() => resolve({ note: 'hub 未回 hello' }), 5000);
-    ws.addEventListener('open', () => ws.send(JSON.stringify({ id: 'agent-check', method: 'bridge.hello', params: { role: 'verifier', version: '0.0.1' } })));
+    ws.addEventListener('open', () => ws.send(JSON.stringify({ id: 'agent-check', method: 'bridge.hello', params: { role: 'verifier', version: '0.0.1', ...(BRIDGE_TOKEN ? { token: BRIDGE_TOKEN } : {}) } })));
     ws.addEventListener('message', (ev) => {
       clearTimeout(t);
       try {
