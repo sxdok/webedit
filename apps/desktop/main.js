@@ -16,7 +16,9 @@
  * 站内导航被限制在本机地址，外链一律交给系统浏览器（`shell.openExternal`，且只放行 http/https）。
  */
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveLayout } from './src/paths.js';
 import { createLogger } from './src/logger.js';
@@ -82,10 +84,38 @@ function publishStatus() {
   }
 }
 
+/**
+ * 读取或生成 `userData/bridge-token`（P0 决策 #1）。
+ *
+ * 为什么放文件而不是每次随机：agent 侧的配置里要填**同一个值**，重启应用后不能变，
+ * 否则用户每次重启都得重新复制配置。文件权限随 userData（本机当前用户可读）。
+ *
+ * 只给**本应用自己**用：注入自己拉起的 MCP + 经 desktop:status 交给本应用页面；
+ * 绝不给其它 AI 客户端自动发放（那等于帮别人拿 token）—— 别的客户端由用户手工复制。
+ */
+function readOrCreateBridgeToken() {
+  try {
+    const file = join(app.getPath('userData'), 'bridge-token');
+    try {
+      const text = readFileSync(file, 'utf8').trim();
+      if (text) return text;
+    } catch {
+      /* 不存在 → 生成 */
+    }
+    const token = randomBytes(24).toString('base64url');
+    writeFileSync(file, token, { encoding: 'utf8', mode: 0o600 });
+    runtime.log?.info(`已生成 MCP 入站 token：${file}（agent 侧配置需要它，可在「工具 → MCP 桥接」一键复制）`);
+    return token;
+  } catch (e) {
+    // 拿不到可写目录时不能因此起不来：退化为本次进程的随机 token（页面仍能用，agent 侧需重启后重新复制）
+    runtime.log?.warn(`bridge-token 读写失败，改用本次进程的临时 token：${e instanceof Error ? e.message : String(e)}`);
+    return randomBytes(24).toString('base64url');
+  }
+}
+
 function buildStatus() {
   const cfg = runtime.cfg;
-  const mcp = runtime.mcp?.status() ?? null;
-  return {
+  const mcp = runtime.mcp?.status() ?? null;  return {
     desktop: true,
     version: app.getVersion(),
     electron: process.versions.electron,
@@ -190,6 +220,10 @@ async function boot() {
       allowWrite: runtime.cfg.mcp.allowWrite,
       readyTimeoutMs: runtime.cfg.mcp.readyTimeoutMs,
       autoRestart: runtime.cfg.mcp.autoRestart,
+      // P0 决策 #1：桌面版**自动发放** token —— 生成/复用 userData/bridge-token，
+      // 注入自己拉起的 MCP，并经 desktop:status 交给本应用页面（页面在 bridge.hello 里带上它）。
+      // ★只给本应用自己用：其它 AI 客户端不会被自动发 token，只能人工复制带 token 的配置。
+      token: readOrCreateBridgeToken(),
       logger: log,
     });
     runtime.mcp.onStatus(publishStatus);
@@ -579,6 +613,27 @@ function registerIpc() {
     const url = runtime.mcp?.status().url ?? null;
     if (url) clipboard.writeText(url);
     return url;
+  });
+  /**
+   * 「工具 → MCP 桥接」一键复制**带 token 的客户端配置**（P0 决策 #1/#4）。
+   * 只复制文本，由用户自己粘贴到其它 AI 客户端 —— 我们不替别的应用写配置，也不自动给它们发 token。
+   */
+  ipcMain.handle('desktop:copy-mcp-config', () => {
+    const st = runtime.mcp?.status();
+    if (!st?.url || !st.token) return null;
+    const cfg = {
+      mcpServers: {
+        'visual-editor': {
+          type: 'http',
+          url: st.url,
+          headers: { Authorization: `Bearer ${st.token}` },
+        },
+      },
+    };
+    const text = JSON.stringify(cfg, null, 2);
+    clipboard.writeText(text);
+    runtime.log?.info('已复制带 token 的 MCP 客户端配置（含 Authorization 头）');
+    return text;
   });
   ipcMain.handle('desktop:restart-mcp', () => runtime.mcp?.restart() ?? null);
   ipcMain.handle('desktop:mcp-probe', () => (runtime.mcp ? runtime.mcp.probe({ timeoutMs: 2500 }) : null));

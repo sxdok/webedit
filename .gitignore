@@ -31,6 +31,13 @@ __pycache__/
 .asar-probe/
 .probe-capabilities.mjs
 
+# agent 施工用的临时文件（提交信息 / 一次性改写脚本；写完即删，防止误入库）
+.commit-msg-*.txt
+.converge.cjs
+.renumber.cjs
+.fix-*.cjs
+.p0-*.cjs
+
 # 明文密钥不入库（2026-09-28，首次推送 GitHub 前移出跟踪）：
 #   · 本地保留该文件，程序照旧优先用它解密；仓库/干净克隆下回落到 config/buildKey.mjs（随安装包分发的那把）
 #   · 分发形态仍用 buildKey.mjs；若要轮换密钥：npm run keygen（会重新生成 config.key）

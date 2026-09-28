@@ -48,6 +48,8 @@ const api = {
   openConfigDir: () => ipcRenderer.invoke('desktop:open-config-file'),
   mcpUrl: () => ipcRenderer.invoke('desktop:mcp-url'),
   copyMcpUrl: () => ipcRenderer.invoke('desktop:copy-mcp-url'),
+  /** P0：一键复制**带 token** 的 MCP 客户端配置（给别的 AI 客户端用；不自动发放 token） */
+  copyMcpConfig: () => ipcRenderer.invoke('desktop:copy-mcp-config'),
   restartMcp: () => ipcRenderer.invoke('desktop:restart-mcp'),
   probeMcp: () => ipcRenderer.invoke('desktop:mcp-probe'),
   getConfig: () => ipcRenderer.invoke('desktop:config'),

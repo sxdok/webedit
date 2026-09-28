@@ -15,6 +15,7 @@
  *   ④ 用的是 Electron 自带的 Node（`ELECTRON_RUN_AS_NODE=1`），**分发版机器上不需要装 node**。
  */
 import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -31,8 +32,18 @@ export function setClientVersion(v) {
 }
 const PROTOCOL_VERSION = '2025-06-18';
 
+/**
+ * 入站 token（P0 决策 #1）。
+ *   · 桌面版：读/建 `userData/bridge-token` 后传进来（持久，agent 侧配置要用它）；
+ *   · 没传（verify / 单测等非 Electron 场景）：为本次进程生成一个随机 token，保证
+ *     「子进程环境」与「探测请求」用同一把，行为与生产一致。
+ */
+export function newBridgeToken() {
+  return randomBytes(24).toString('base64url');
+}
+
 /** 一次 JSON-RPC over Streamable HTTP 请求；返回 { ok, status, sessionId, body } */
-export async function mcpRequest(url, { body, sessionId, method = 'POST', timeoutMs = 4000, accept = 'application/json, text/event-stream' } = {}) {
+export async function mcpRequest(url, { body, sessionId, method = 'POST', timeoutMs = 4000, accept = 'application/json, text/event-stream', token } = {}) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -42,6 +53,8 @@ export async function mcpRequest(url, { body, sessionId, method = 'POST', timeou
         Accept: accept,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
         ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+        // P0：token 强制后，本应用自己的探测/会话也必须带上（缺了会 401）
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctl.signal,
@@ -84,9 +97,10 @@ export function parseRpcBody(text) {
 }
 
 /** 真握手：能拿到 result 才算"这个端口上跑着 MCP"；顺手把探测用的会话关掉 */
-export async function probeMcp(url, { timeoutMs = 4000 } = {}) {
+export async function probeMcp(url, { timeoutMs = 4000, token } = {}) {
   const init = await mcpRequest(url, {
     timeoutMs,
+    token,
     body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: mcpClientInfo() } },
   });
   const parsed = parseRpcBody(init.body);
@@ -94,7 +108,7 @@ export async function probeMcp(url, { timeoutMs = 4000 } = {}) {
     return { ok: false, status: init.status, error: init.error ?? (init.body ? init.body.slice(0, 200) : 'HTTP 已通但 initialize 没返回 result') };
   }
   const info = parsed.result;
-  if (init.sessionId) await mcpRequest(url, { method: 'DELETE', sessionId: init.sessionId, timeoutMs: 2000 });
+  if (init.sessionId) await mcpRequest(url, { method: 'DELETE', sessionId: init.sessionId, timeoutMs: 2000, token });
   return { ok: true, sessionId: init.sessionId, serverInfo: info?.serverInfo ?? null, protocolVersion: info?.protocolVersion ?? null };
 }
 
@@ -127,9 +141,12 @@ export function createMcpSupervisor({
   readyTimeoutMs = 20000,
   autoRestart = true,
   maxRestarts = 5,
+  token,
   logger,
 }) {
   const url = `http://${host}:${port}/mcp`;
+  /** 本实例实际使用的 token：调用方没给就随机生成（子进程环境与探测用同一把） */
+  const bridgeToken = token && String(token).trim() ? String(token).trim() : newBridgeToken();
   const state = {
     state: 'stopped', // stopped | starting | ready | restarting | failed
     pid: null,
@@ -173,6 +190,8 @@ export function createMcpSupervisor({
     startedAt: state.startedAt,
     url,
     bridgeUrl: `ws://${host}:${bridgePort}/bridge`,
+    /** 页面用它在 bridge.hello 里带 token；main.js 也用它生成「一键复制客户端配置」 */
+    token: bridgeToken,
     probe: state.probe,
   });
 
@@ -190,6 +209,9 @@ export function createMcpSupervisor({
       EDITOR_MCP_BRIDGE_URL: `ws://${host}:${bridgePort}/bridge`,
       EDITOR_MCP_WORKSPACE: workspace,
       EDITOR_MCP_ALLOW_WRITE: allowWrite ? 'true' : 'false',
+      // P0：入站鉴权 token（决策 #1）。缺 token 时 MCP 会拒绝所有入站请求；agent 侧需补 headers.Authorization
+      EDITOR_MCP_TOKEN: bridgeToken,
+      EDITOR_MCP_REQUIRE_TOKEN: 'true',
       ...(pluginDir ? { EDITOR_MCP_PLUGIN_DIR: pluginDir } : {}),
     };
     logger?.info(`拉起 editor-mcp：${nodeBin} ${mcpEntry} --http --port ${port}（workspace=${workspace}）`);
@@ -239,7 +261,7 @@ export function createMcpSupervisor({
     const deadline = Date.now() + readyTimeoutMs;
     let last = null;
     while (Date.now() < deadline) {
-      last = await probeMcp(url, { timeoutMs: 2500 });
+      last = await probeMcp(url, { timeoutMs: 2500, token: bridgeToken });
       state.probe = last;
       if (last.ok) return last;
       if (!child && state.state !== 'restarting') return last; // 进程已经死了，不用再等
@@ -265,7 +287,7 @@ export function createMcpSupervisor({
       }
 
       if (adopt) {
-        const found = await probeMcp(url, { timeoutMs: 1500 });
+        const found = await probeMcp(url, { timeoutMs: 1500, token: bridgeToken });
         if (found.ok) {
           /**
            * ★只有在**版本一致**时才接管。
@@ -350,7 +372,7 @@ export function createMcpSupervisor({
     start,
     stop,
     status,
-    probe: (opts) => probeMcp(url, opts),
+    probe: (opts) => probeMcp(url, { token: bridgeToken, ...opts }),
     onStatus: (fn) => {
       listeners.add(fn);
       return () => listeners.delete(fn);

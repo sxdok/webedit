@@ -10,6 +10,9 @@ import { log } from './log.js';
 import { config } from './config.js';
 
 export const ErrorCodes = {
+  // 传输 / 策略层（UNAUTHORIZED 与 ORIGIN_REJECTED 为 P0 安全新增）
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  ORIGIN_REJECTED: 'ORIGIN_REJECTED',
   BRIDGE_OFFLINE: 'BRIDGE_OFFLINE',
   DOC_NOT_FOUND: 'DOC_NOT_FOUND',
   NODE_NOT_FOUND: 'NODE_NOT_FOUND',

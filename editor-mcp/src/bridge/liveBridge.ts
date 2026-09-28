@@ -215,7 +215,13 @@ export class LiveBridge {
     try {
       const res = await this.send<{ version?: string; name?: string; editors?: number; editorVersion?: string | null }>(
         'bridge.hello',
-        { client: config.name, version: config.version, protocol: config.protocolVersion },
+        {
+          client: config.name,
+          version: config.version,
+          protocol: config.protocolVersion,
+          // P0：hub 侧 token 校验（决策 #1）。桌面版会在启动本进程时注入同一个 token。
+          token: config.token ?? undefined,
+        },
         1500,
       );
       // ★hello 只证明"中转可达"，**不等于编辑器在线**：

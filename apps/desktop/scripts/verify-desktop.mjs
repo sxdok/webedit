@@ -25,6 +25,13 @@ const APP_DIR = resolve(HERE, '..');
 const REPO_ROOT = resolve(APP_DIR, '..', '..');
 const WEB_ROOT = join(REPO_ROOT, 'web-editor');
 
+/**
+ * P0 起 MCP 强制 token：本脚本自带的子进程与所有探测用**同一把测试 token** ——
+ * 这样既跑通闸门，又顺带覆盖「带 token 能握手」这条路径（缺 token 的行为由
+ * editor-mcp/scripts/auth-check.mjs 专门验证 401/403）。
+ */
+const P0_TOKEN = `verify-${Date.now().toString(36)}-token`;
+
 const results = [];
 let group = '';
 const G = (t) => {
@@ -342,6 +349,7 @@ async function testMcp(dev) {
   const workspace = join(tmp, 'mcp-workspace');
 
   const sup = createMcpSupervisor({
+    token: P0_TOKEN,
     nodeBin: process.execPath,
     nodeEnv: {}, // 验证脚本是纯 Node，不要带 ELECTRON_RUN_AS_NODE
     mcpEntry: dev.mcpEntry,
@@ -362,30 +370,30 @@ async function testMcp(dev) {
   ok('拉起 editor-mcp --http 并在超时内就绪', st.state === 'ready' && !st.external && st.pid > 0, `state=${st.state} pid=${st.pid} url=${st.url}${st.lastError ? ` 错误=${st.lastError}` : ''}`);
   ok('无头文档目录被自动创建', existsSync(workspace), `workspace=${workspace}`);
 
-  const probe = await probeMcp(st.url, { timeoutMs: 4000 });
+  const probe = await probeMcp(st.url, { token: P0_TOKEN, timeoutMs: 4000 });
   ok('握手探测通过（initialize 返回 result）', probe.ok, `serverInfo=${JSON.stringify(probe.serverInfo)} 协议=${probe.protocolVersion}`);
 
   // 真跑一次 MCP 会话：initialize → initialized → tools/list
-  const init = await mcpRequest(st.url, {
+  const init = await mcpRequest(st.url, { token: P0_TOKEN,
     timeoutMs: 8000,
     body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-desktop', version: '0.1.0' } } },
   });
   const sid = init.sessionId;
-  await mcpRequest(st.url, {
+  await mcpRequest(st.url, { token: P0_TOKEN,
     timeoutMs: 8000,
     sessionId: sid,
     body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} },
   });
-  const list = await mcpRequest(st.url, { timeoutMs: 15000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+  const list = await mcpRequest(st.url, { token: P0_TOKEN, timeoutMs: 15000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
   const listJson = parseRpcBody(list.body);
   const tools = listJson?.result?.tools ?? [];
   ok('外部 AI 客户端能列出工具（tools/list 真的返回工具表）', Boolean(sid) && tools.length > 20, `session=${String(sid).slice(0, 8)}… 工具数=${tools.length} 例：${tools.slice(0, 3).map((t) => t.name).join(', ')}`);
-  await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
+  await mcpRequest(st.url, { token: P0_TOKEN, method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
 
   const pid1 = st.pid;
   const re = await sup.restart();
   ok('重启：状态回到 ready 且是新进程', re.state === 'ready' && re.pid > 0 && re.pid !== pid1, `旧 pid=${pid1} 新 pid=${re.pid}`);
-  const probeAfterRestart = await probeMcp(re.url, { timeoutMs: 4000 });
+  const probeAfterRestart = await probeMcp(re.url, { token: P0_TOKEN, timeoutMs: 4000 });
   ok('重启后仍能握手', probeAfterRestart.ok, `ok=${probeAfterRestart.ok}`);
 
   // 接管：先手动起一个，再让 supervisor 去 start()，应当"接管"而不是再起一个
@@ -407,7 +415,7 @@ async function testMcp(dev) {
   const adoptUrl = `http://127.0.0.1:${adoptPort}/mcp`;
   let adopted = null;
   for (let i = 0; i < 40 && !adopted; i += 1) {
-    const pr = await probeMcp(adoptUrl, { timeoutMs: 1500 });
+    const pr = await probeMcp(adoptUrl, { token: P0_TOKEN, timeoutMs: 1500 });
     if (pr.ok) adopted = pr;
     else await sleep(400);
   }
@@ -415,6 +423,7 @@ async function testMcp(dev) {
     skip('端口上已有可用 MCP 时"接管"而不是重复拉起', `手动起的那个 MCP 没能在 16s 内就绪（pid=${raw.pid}）`);
   } else {
     const sup2 = createMcpSupervisor({
+    token: P0_TOKEN,
       nodeBin: process.execPath,
       nodeEnv: {},
       mcpEntry: dev.mcpEntry,
@@ -429,7 +438,7 @@ async function testMcp(dev) {
     const st2 = await sup2.start();
     ok('端口上已有可用 MCP 时"接管"而不是重复拉起', st2.state === 'ready' && st2.external === true && st2.pid === null, `state=${st2.state} external=${st2.external} pid=${st2.pid}`);
     await sup2.stop();
-    const stillAlive = await probeMcp(adoptUrl, { timeoutMs: 2000 });
+    const stillAlive = await probeMcp(adoptUrl, { token: P0_TOKEN, timeoutMs: 2000 });
     ok('接管来的外部进程：应用停止时**不动它**（它不归本应用管）', stillAlive.ok, `stop() 后仍能握手=${stillAlive.ok}`);
   }
 
@@ -462,6 +471,7 @@ async function testMcp(dev) {
     await new Promise((r) => fake.listen(fakePort, '127.0.0.1', () => r()));
     try {
       const sup3 = createMcpSupervisor({
+    token: P0_TOKEN,
         nodeBin: process.execPath,
         nodeEnv: {},
         mcpEntry: dev.mcpEntry,
@@ -490,7 +500,7 @@ async function testMcp(dev) {
   await sup.stop();
   let gone = false;
   for (let i = 0; i < 20 && !gone; i += 1) {
-    const pr = await probeMcp(sup.url, { timeoutMs: 1000 });
+    const pr = await probeMcp(sup.url, { token: P0_TOKEN, timeoutMs: 1000 });
     gone = !pr.ok;
     if (!gone) await sleep(300);
   }
@@ -505,6 +515,7 @@ async function testMcp(dev) {
   const capLogger = createLogger({ logDir: join(tmp, 'logs') });
   capLogger.onLine((l) => lines.push(l));
   const sup3 = createMcpSupervisor({
+    token: P0_TOKEN,
     nodeBin: process.execPath,
     nodeEnv: {},
     mcpEntry: dev.mcpEntry,
@@ -517,16 +528,16 @@ async function testMcp(dev) {
     logger: capLogger,
   });
   const st3 = await sup3.start();
-  const list3 = await mcpRequest(st3.url, {
+  const list3 = await mcpRequest(st3.url, { token: P0_TOKEN,
     timeoutMs: 15000,
     body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-busy', version: '0.1.0' } } },
   });
   const sid3 = list3.sessionId;
-  await mcpRequest(st3.url, { timeoutMs: 8000, sessionId: sid3, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
-  const tools3 = await mcpRequest(st3.url, { timeoutMs: 15000, sessionId: sid3, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+  await mcpRequest(st3.url, { token: P0_TOKEN, timeoutMs: 8000, sessionId: sid3, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
+  const tools3 = await mcpRequest(st3.url, { token: P0_TOKEN, timeoutMs: 15000, sessionId: sid3, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
   const n3 = (parseRpcBody(tools3.body)?.result?.tools ?? []).length;
   ok('桥接端口被占时优雅降级：MCP 仍就绪、工具表照常返回，并把原因写进日志', st3.state === 'ready' && n3 > 20 && lines.some((l) => l.includes('桥接中转未能启动')), `state=${st3.state} 工具数=${n3}；日志里那句=${lines.find((l) => l.includes('桥接中转未能启动'))?.slice(-60) ?? '(没有)'}`);
-  await mcpRequest(st3.url, { method: 'DELETE', sessionId: sid3, timeoutMs: 3000 });
+  await mcpRequest(st3.url, { token: P0_TOKEN, method: 'DELETE', sessionId: sid3, timeoutMs: 3000 });
   await sup3.stop();
   await new Promise((r) => busyBridge.close(r));
 
@@ -589,6 +600,7 @@ async function testMcpBundle() {
     return p;
   };
   const sup = createMcpSupervisor({
+    token: P0_TOKEN,
     nodeBin: process.execPath,
     nodeEnv: {},
     mcpEntry: outfile,
@@ -601,16 +613,16 @@ async function testMcpBundle() {
     logger,
   });
   const st = await sup.start();
-  const init = await mcpRequest(st.url, {
+  const init = await mcpRequest(st.url, { token: P0_TOKEN,
     timeoutMs: 10000,
     body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'verify-bundle', version: '0.1.0' } } },
   });
   const sid = init.sessionId;
-  await mcpRequest(st.url, { timeoutMs: 8000, sessionId: sid, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
-  const tools = await mcpRequest(st.url, { timeoutMs: 15000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+  await mcpRequest(st.url, { token: P0_TOKEN, timeoutMs: 8000, sessionId: sid, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
+  const tools = await mcpRequest(st.url, { token: P0_TOKEN, timeoutMs: 15000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
   const names = (parseRpcBody(tools.body)?.result?.tools ?? []).map((t) => t.name);
   ok('打包后的单文件作为 MCP 对外服务：就绪 + tools/list 返回真实工具名', st.state === 'ready' && names.length > 100 && names.every((n) => typeof n === 'string' && n.length > 0), `state=${st.state} 工具数=${names.length} 例：${names.slice(0, 3).join(', ')}`);
-  await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
+  await mcpRequest(st.url, { token: P0_TOKEN, method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
   await sup.stop();
 }
 

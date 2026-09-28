@@ -37,6 +37,11 @@ export interface DesktopMcpStatus {
   serverInfo: { name?: string; version?: string } | null;
   url: string;
   bridgeUrl: string;
+  /**
+   * P0 决策 #1：桌面版自动发放的入站 token。页面在 `bridge.hello` 里带上它，
+   * hub 才会认这个"编辑器"；不带会被 1008 关闭。非桌面环境（浏览器）为 undefined。
+   */
+  token?: string;
 }
 
 export interface DesktopStatus {

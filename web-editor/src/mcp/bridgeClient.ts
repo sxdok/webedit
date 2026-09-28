@@ -39,6 +39,40 @@ let lastError: string | null = null;
 let editorVersion = '0.2.0';
 const listeners = new Set<(s: BridgeState) => void>();
 
+/**
+ * 入站 token（P0 决策 #1）：hub 现在要求 `bridge.hello` 带 token，否则拒绝握手。
+ * 取值优先级（与桥接地址同思路）：
+ *   ① URL 参数 `?bridgeToken=…`（自检脚本 / 开发者本机连自制 MCP 时用）；
+ *   ② 桌面版：`window.desktop.getStatus() → mcp.token`（应用启动时生成并注入自己拉起的 MCP）。
+ * 浏览器里两者都没有 → 不发 token（此时对方 MCP 必须关掉 token 校验，否则会被拒，
+ * 这正是"默认拒绝"该有的表现，不是 bug）。
+ */
+let cachedToken: string | null | undefined;
+async function resolveBridgeToken(): Promise<string | null> {
+  if (cachedToken !== undefined) return cachedToken;
+  let token: string | null = null;
+  try {
+    const q = new URLSearchParams(location.search);
+    const fromUrl = q.get('bridgeToken');
+    if (fromUrl) token = fromUrl;
+  } catch {
+    /* 非浏览器环境 */
+  }
+  if (!token) {
+    const d = desktopApi();
+    if (d) {
+      try {
+        const s = await d.getStatus();
+        if (s?.mcp?.token) token = s.mcp.token;
+      } catch {
+        /* 拿不到就不带 token */
+      }
+    }
+  }
+  cachedToken = token;
+  return token;
+}
+
 export function bridgeStatus(): { state: BridgeState; url: string; reconnects: number; lastError: string | null; liveComponents: number } {
   return { state, url, reconnects, lastError, liveComponents: getLiveTypes().length };
 }
@@ -221,10 +255,18 @@ function connect(): void {
   }
   ws.addEventListener('open', () => {
     backoff = 1000;
-    send({ id: 'hello-1', method: 'bridge.hello', params: { role: 'editor', version: editorVersion, protocol: '2025-06-18' } });
-    setState('connected');
-    subscribeStore(true);
-    log.info('bridge', `已连接 MCP 桥接：${url}`);
+    // 先解析 token 再发 hello（hub 侧 token 不对会直接 1008 关闭连接）。
+    void (async () => {
+      const token = await resolveBridgeToken();
+      send({
+        id: 'hello-1',
+        method: 'bridge.hello',
+        params: { role: 'editor', version: editorVersion, protocol: '2025-06-18', ...(token ? { token } : {}) },
+      });
+      setState('connected');
+      subscribeStore(true);
+      log.info('bridge', `已连接 MCP 桥接：${url}${token ? '（带 token）' : '（未带 token）'}`);
+    })();
   });
   ws.addEventListener('message', (ev) => {
     let msg: Record<string, unknown>;

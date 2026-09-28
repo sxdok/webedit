@@ -5,7 +5,9 @@
  * 拒绝 `../` 逃逸与绝对路径越界。写操作还受 `ALLOW_WRITE` 开关约束。
  */
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_ORIGIN_ALLOW, parseOriginAllow } from './security/guard.js';
 
 /** editor-mcp/ 目录（dist/config.js 或 src/config.ts 的上一级都指向包根） */
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +23,27 @@ function envBool(key: string, fallback: boolean): boolean {
   const v = process.env[key];
   if (v == null || v.trim() === '') return fallback;
   return !/^(0|false|no|off)$/i.test(v.trim());
+}
+
+/**
+ * 入站 token 的读取（决策 #1，P0 安全）：
+ *   `EDITOR_MCP_TOKEN` 直接给值 → 用它；
+ *   否则若给了 `EDITOR_MCP_TOKEN_FILE`（桌面版写 `userData/bridge-token` 后指过来）→ 读文件；
+ *   两者都没有 → null（此时 requireToken 打开会让所有入站请求被拒，各入口会打警告）。
+ */
+function readToken(): string | null {
+  const direct = process.env['EDITOR_MCP_TOKEN'];
+  if (direct && direct.trim()) return direct.trim();
+  const file = process.env['EDITOR_MCP_TOKEN_FILE'];
+  if (file && file.trim()) {
+    try {
+      const text = fs.readFileSync(file.trim(), 'utf8').trim();
+      return text || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 export const config = {
@@ -40,6 +63,17 @@ export const config = {
   pluginDir: path.resolve(env('EDITOR_MCP_PLUGIN_DIR', path.join(repoRoot, 'web-editor', 'public', '组件'))),
   /** 写开关：false 时所有写操作返回 WRITE_DISABLED */
   allowWrite: envBool('EDITOR_MCP_ALLOW_WRITE', true),
+
+  /**
+   * 入站鉴权 token（P0）。桌面版启动时生成 `userData/bridge-token` 并注入自己拉起的 MCP；
+   * 其它客户端（如 DSH 的 mcp-client）需手工把同一个值填进 `headers.Authorization: Bearer <token>`。
+   * 见「工具 → MCP 桥接」的一键复制配置。
+   */
+  token: readToken(),
+  /** 是否强制校验 token（默认 **true**；开发期可用 EDITOR_MCP_REQUIRE_TOKEN=0 临时关闭） */
+  requireToken: envBool('EDITOR_MCP_REQUIRE_TOKEN', true),
+  /** Origin 白名单（逗号分隔；默认只放行本机页面的任意端口） */
+  originAllow: parseOriginAllow(env('EDITOR_MCP_ORIGIN_ALLOW', DEFAULT_ORIGIN_ALLOW)),
   /** 单客户端速率限制（次/分钟，规格 §10） */
   rateLimitPerMinute: Number(env('EDITOR_MCP_RATE_LIMIT', '100')),
   /** 插件备份保留个数（规格 §5.12） */

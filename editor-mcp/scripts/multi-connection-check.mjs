@@ -18,6 +18,7 @@
  */
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -52,7 +53,8 @@ const parseRpc = (text) => {
   }
   return null;
 };
-const HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+const TOKEN = `tok-${randomBytes(12).toString('hex')}`;
+const HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${TOKEN}` };
 
 /** 一个极简 MCP over HTTP 会话 */
 function mcpHttp(port) {
@@ -88,6 +90,8 @@ function startMcp(port, tag, lines) {
     env: {
       ...process.env,
       EDITOR_MCP_BRIDGE_URL: HUB_URL,
+      EDITOR_MCP_TOKEN: TOKEN,
+      EDITOR_MCP_REQUIRE_TOKEN: '1',
       EDITOR_MCP_WORKSPACE: resolve(HERE, '..', 'workspace'),
       EDITOR_MCP_PLUGIN_DIR: resolve(HERE, '..', '..', 'web-editor', 'public', '组件'),
     },
@@ -123,7 +127,7 @@ async function fakeEditor(version, counter) {
       ws.send(JSON.stringify({ id: msg.id, ok: true, result: { echoed: msg.method } }));
     }
   });
-  ws.send(JSON.stringify({ id: 'editor-hello', method: 'bridge.hello', params: { role: 'editor', version } }));
+  ws.send(JSON.stringify({ id: 'editor-hello', method: 'bridge.hello', params: { role: 'editor', version, token: TOKEN } }));
   await sleep(300);
   return ws;
 }
@@ -143,7 +147,7 @@ async function fakeClient(tag) {
       /* 忽略 */
     }
   });
-  ws.send(JSON.stringify({ id: `${tag}-hello`, method: 'bridge.hello', params: { role: 'mcp', version: '0.0.1' } }));
+  ws.send(JSON.stringify({ id: `${tag}-hello`, method: 'bridge.hello', params: { role: 'mcp', version: '0.0.1', token: TOKEN } }));
   for (let i = 0; i < 20 && !inbox.some((m) => m.id === `${tag}-hello`); i += 1) await sleep(100);
   const hello = inbox.find((m) => m.id === `${tag}-hello`) ?? null;
   const call = async (method, id) => {

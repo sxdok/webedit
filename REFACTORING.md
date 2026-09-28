@@ -1652,6 +1652,42 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 
 ---
 
+### 15.5 P0 实际施工记录（2026-09-28，**进行中**）
+
+按"一步一提交、每步跑闸门"推进；本节记录**已落地**与**偏差/决策**，后续每轮追加。
+
+**已落地（P0.1 服务端 + P0.2 桌面端 token 闭环）**
+
+| # | 计划项 | 落地位置 | 状态 |
+|---|---|---|---|
+| ① | HTTP `Origin` 白名单 + `Host` 校验 + 缺 token 401 | `editor-mcp/src/security/guard.ts`（纯函数）、`src/http.ts`（Host→Origin→token 顺序判定，401/403 + 可编程错误码） | ✅ |
+| ② | WS hub `Origin` 校验 + hello 带 token | `src/bridge/host.ts`（升级期判 Origin，不过则 1008；hello 判 token，失败回错并关闭）、`src/bridge/liveBridge.ts`（MCP 侧 hello 带 token） | ✅ |
+| ③ | 桌面版生成/注入 `userData/bridge-token` + 页面取 token | `apps/desktop/main.js`（`readOrCreateBridgeToken()` 持久化）、`src/mcpSupervisor.js`（子进程 env 注入 + 探测带 Authorization）、`preload.cjs`、`web-editor/src/mcp/bridgeClient.ts`（`?bridgeToken=` → 桌面 `getStatus().mcp.token`）、`src/utils/desktopChrome.ts`（类型补 `token?`） | ✅ |
+| ④ | 一键复制带 token 的客户端配置 | `main.js` 新增 `desktop:copy-mcp-config`（只复制文本，**不替别的应用写配置、不自动发 token**）+ `preload.copyMcpConfig` | ✅（菜单入口待 P4 接） |
+| ⑦ | 新增错误码 | `src/errors.ts`：`UNAUTHORIZED`、`ORIGIN_REJECTED`（现状 18 → 20） | ✅ |
+
+**验证证据（本机实测，命令可复跑）**
+
+| 闸门 | 结果 |
+|---|---|
+| `editor-mcp` `tsc -b` | 0 错 |
+| `editor-mcp` `npm test` | **83/83**（新增 `tests/guard.test.ts` 18 例：跨源拒绝 / Origin=null / DNS rebinding Host / Bearer 解析 / 常量时间比较 / 组合顺序） |
+| `node scripts/auth-check.mjs`（新） | **12/12**：缺 token→401、token 错→401、跨源→403、Origin=null→403、坏 Host→403、本机 Origin+token→200、跨源 WS→1008、hello 无/错 token→拒绝、hello 正确→ok、日志有拒绝记录 |
+| `node scripts/session-revive-check.mjs` | 7/7（脚本改为自生成 token，覆盖带 token 路径） |
+| `node scripts/multi-connection-check.mjs` | 10/10（同上，含编辑器侧 hello 带 token） |
+| `apps/desktop` `npm run verify` | **76/76**（E/G 段现在真实走 token 路径） |
+| `web-editor` `npm run build` | ✅（tsc + vite） |
+
+**偏差与决策（写下来免得后人踩）**
+
+1. **`requireToken` 默认 `true` 已生效**：为让既有回归脚本与新闸门都跑通，`session-revive-check` / `multi-connection-check` 改为**自己生成 token**并全程带上；`verify-desktop.mjs` 用固定测试 token 贯穿所有 `createMcpSupervisor` 与探测。缺 token 的行为由 `auth-check.mjs` 专门验证（这才是"默认拒绝"的证明）。
+2. **token 持久化在文件而非每次随机**：`userData/bridge-token`，否则用户每次重启都要重新复制 agent 配置。
+3. **删掉了手写类型垫片 `editor-mcp/src/types/ws.d.ts`**，改用 `@types/ws`：垫片里 `close()` 只声明 0 参，导致本轮回调带 `1008` 时 `tsc` 报错（垫片自己的注释就写着"装了 `@types/ws` 后删掉本文件即可"）。
+4. **页面侧 token 取值优先级**：`?bridgeToken=…`（自检/开发）→ 桌面 `getStatus().mcp.token` → 不带。浏览器裸连且对方开了校验时**应当被拒**，这是设计而非缺陷。
+5. 本轮**未做**（下一轮）：⑤ `allowWrite` 默认 false + 首选项开关 + **autoBridge 三态联动**；⑥ `config.key` 出库断言（密钥已在 d99a95c 出库，`buildKey.js` 老分支未发现）；`agent-live-check` / `bridge-status` 适配桌面 token（桌面端已能发，脚本侧待接）。
+
+---
+
 ## 第 16 章 数据迁移指南
 
 ### 16.1 userData 迁移（P3.5）

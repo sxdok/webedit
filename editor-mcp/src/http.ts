@@ -19,6 +19,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { config } from './config.js';
 import { log } from './log.js';
 import { buildServer } from './server.js';
+import { guardRequest } from './security/guard.js';
 
 const ENDPOINT = '/mcp';
 
@@ -47,9 +48,13 @@ async function readBody(req: http.IncomingMessage): Promise<unknown> {
   }
 }
 
-const send = (res: http.ServerResponse, status: number, body: unknown): void => {
+const send = (res: http.ServerResponse, status: number, body: unknown, extraHeaders: Record<string, string> = {}): void => {
   const text = JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(text) });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(text),
+    ...extraHeaders,
+  });
   res.end(text);
 };
 
@@ -153,6 +158,32 @@ export async function startHttpServer(port: number, host = '127.0.0.1'): Promise
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? `${host}:${port}`}`);
       if (url.pathname !== ENDPOINT) {
         send(res, 404, { error: { code: 'NOT_FOUND', message: `只暴露 ${ENDPOINT}` } });
+        return;
+      }
+
+      // ── P0 安全闸门：Host（防 DNS rebinding）→ Origin（防本机网页 CSRF）→ token（鉴权）──
+      // 只绑回环挡不住浏览器：任意网页都能用 text/plain 简单请求打到 127.0.0.1:37651。
+      const verdict = guardRequest(
+        { host: req.headers.host, origin: req.headers.origin, authorization: req.headers.authorization },
+        { allow: config.originAllow, token: config.token, requireToken: config.requireToken },
+      );
+      if (!verdict.allowed) {
+        const status = verdict.code === 'UNAUTHORIZED' ? 401 : 403;
+        log.warn(`拒绝入站请求 [${verdict.code}] ${req.socket.remoteAddress ?? '?'} ${req.method} ${url.pathname} — ${verdict.reason}`);
+        send(
+          res,
+          status,
+          {
+            jsonrpc: '2.0',
+            error: {
+              code: status === 401 ? -32002 : -32003,
+              message: verdict.reason ?? '拒绝访问',
+              data: { code: verdict.code, hint: '见「工具 → MCP 桥接」一键复制带 token 的客户端配置' },
+            },
+            id: null,
+          },
+          status === 401 ? { 'WWW-Authenticate': 'Bearer realm="editor-mcp"' } : {},
+        );
         return;
       }
 

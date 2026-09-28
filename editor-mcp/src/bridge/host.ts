@@ -16,6 +16,7 @@
  * 只监听 127.0.0.1：桥接是"本机调试通道"，不对外。
  */
 import { WebSocketServer, type WebSocket } from 'ws';
+import { guardRequest, isAuthorized } from '../security/guard.js';
 import { config } from '../config.js';
 import { log } from '../log.js';
 
@@ -134,6 +135,22 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
   const inFlight = new Map<string, { from: Peer; clientId: string }>();
 
   wss.on('connection', (ws, req) => {
+    // ── P0 安全闸门（WS 不受 CORS 约束，任意网页都能 new WebSocket 连过来）──
+    // 先校验升级请求的 Host / Origin；不通过直接以 1008 关闭，连 hello 都不给机会。
+    const verdict = guardRequest(
+      { host: req.headers.host, origin: req.headers.origin },
+      { allow: config.originAllow, token: null, requireToken: false },
+    );
+    if (!verdict.allowed) {
+      log.warn(`拒绝桥接连接 [${verdict.code}] ${req.socket.remoteAddress ?? '?'} — ${verdict.reason}`);
+      try {
+        ws.close(1008, (verdict.code ?? 'REJECTED').slice(0, 120));
+      } catch {
+        /* 忽略关闭失败 */
+      }
+      return;
+    }
+
     const peer: Peer = { ws, role: 'unknown', connectedAt: Date.now() };
     peers.add(peer);
     log.info(`桥接接入：${req.socket.remoteAddress}（当前 ${peers.size} 个连接）`);
@@ -148,7 +165,23 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
 
       // ① 握手 / 身份
       if (msg.method === 'bridge.hello') {
-        const params = (msg.params ?? {}) as { role?: string; version?: string };
+        const params = (msg.params ?? {}) as { role?: string; version?: string; token?: string };
+        // token 校验：与 HTTP 同一把 token（决策 #1）。token 不对 → 不认这个对端，直接关闭。
+        const auth = isAuthorized(
+          params.token ? `Bearer ${params.token}` : undefined,
+          config.token,
+          config.requireToken,
+        );
+        if (!auth.allowed) {
+          log.warn(`拒绝桥接握手 [${auth.code}] role=${String(params.role ?? '?')} version=${String(params.version ?? '?')} — ${auth.reason}`);
+          send(peer, { id: msg.id ?? null, ok: false, error: { code: auth.code, message: auth.reason } });
+          try {
+            ws.close(1008, (auth.code ?? 'UNAUTHORIZED').slice(0, 120));
+          } catch {
+            /* 忽略关闭失败 */
+          }
+          return;
+        }
         const wasEditor = peer.role === 'editor';
         peer.role = params.role === 'editor' ? 'editor' : 'mcp';
         peer.version = params.version;

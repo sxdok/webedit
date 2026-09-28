@@ -15,6 +15,7 @@
  */
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +23,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const BUNDLE = resolve(HERE, '..', 'dist', 'editor-mcp.bundle.mjs');
 const PORT = 37753;
 const URL_ = `http://127.0.0.1:${PORT}/mcp`;
+/** P0 起 token 强制：本脚本自带 MCP 子进程，自己生成一把并全程带上 */
+const TOKEN = `tok-${randomBytes(12).toString('hex')}`;
 
 const results = [];
 const ok = (name, pass, evidence = '') => {
@@ -46,7 +49,7 @@ const parseRpc = (text) => {
   }
   return null;
 };
-const HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+const HEADERS = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${TOKEN}` };
 const post = async (body, sid) => {
   const res = await fetch(URL_, { method: 'POST', headers: { ...HEADERS, ...(sid ? { 'mcp-session-id': sid } : {}) }, body: JSON.stringify(body) });
   return { status: res.status, sid: res.headers.get('mcp-session-id'), body: parseRpc(await res.text()) };
@@ -55,7 +58,7 @@ const post = async (body, sid) => {
 const logs = [];
 const startMcp = () => {
   const child = spawn(process.execPath, [BUNDLE, '--http', '--port', String(PORT)], {
-    env: { ...process.env, EDITOR_MCP_BRIDGE_HUB: '0', EDITOR_MCP_WORKSPACE: resolve(HERE, '..', 'workspace') },
+    env: { ...process.env, EDITOR_MCP_BRIDGE_HUB: '0', EDITOR_MCP_WORKSPACE: resolve(HERE, '..', 'workspace'), EDITOR_MCP_TOKEN: TOKEN, EDITOR_MCP_REQUIRE_TOKEN: '1' },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   child.stderr.setEncoding('utf8');
