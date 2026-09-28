@@ -113,12 +113,12 @@ const kill = () => {
   }
 };
 
-/** 等 HTTP 就绪（带正确 token 能 initialize 即视为就绪） */
+/** 等 HTTP 就绪（带正确 token 能 initialize 即视为就绪）；返回会话 id 供后续 tools/call 复用 */
 const waitReady = async () => {
   for (let i = 0; i < 50; i += 1) {
     try {
       const r = await post({ Authorization: `Bearer ${TOKEN}` });
-      if (r.status === 200 && r.sid) return true;
+      if (r.status === 200 && r.sid) return r.sid;
     } catch {
       /* 还没起来 */
     }
@@ -163,7 +163,8 @@ const wsHello = (params, origin) =>
   });
 
 try {
-  const ready = await waitReady();
+  const sid = await waitReady();
+  const ready = Boolean(sid);
   ok('MCP 就绪（带正确 token 能 initialize）', ready);
   if (!ready) {
     console.log('\n--- 子进程日志（尾部）---');
@@ -189,6 +190,40 @@ try {
 
   const localOrigin = await post({ Origin: 'http://127.0.0.1:5179', Authorization: `Bearer ${TOKEN}` });
   ok('HTTP：本机 Origin + 正确 token → 200', localOrigin.status === 200 && Boolean(localOrigin.sid), `status=${localOrigin.status} sid=${localOrigin.sid ? '有' : '无'}`);
+
+  // ── 写开关（决策 #2）：默认关时必须"拒得掉 + 说得清" ──
+  // 这是 P0 验收口径里的一条：**写禁用时写工具被拒，且提示可读**（不是静默成功、也不是天书报错）。
+  const callWriteTool = async (name, args) => {
+    const headers = { Authorization: `Bearer ${TOKEN}`, 'mcp-session-id': sid, Origin: 'http://127.0.0.1:5179' };
+    const res = await fetch(URL_, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } }),
+    });
+    const text = await res.text();
+    for (const line of text.split(/\r?\n/)) {
+      const t = line.trim();
+      const payload = t.startsWith('data:') ? t.slice(5).trim() : t;
+      if (!payload.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(payload);
+        const inner = parsed?.result?.content?.[0]?.text;
+        if (inner) return JSON.parse(inner);
+        if (parsed?.error) return parsed;
+      } catch {
+        /* 继续找 */
+      }
+    }
+    return null;
+  };
+  const writeRes = await callWriteTool('doc.create', {});
+  const writeCode = writeRes?.error?.code ?? writeRes?.data?.error?.code ?? null;
+  const writeMsg = String(writeRes?.error?.message ?? writeRes?.data?.error?.message ?? '');
+  ok(
+    '写开关默认关：写工具被拒 WRITE_DISABLED 且提示可读',
+    writeCode === 'WRITE_DISABLED' && /写|WRITE|首选项/.test(writeMsg),
+    `code=${writeCode} message=${writeMsg.slice(0, 90)}`,
+  );
 
   // ── WS hub 面 ──
   const wsCross = await wsHello({ role: 'editor', version: '0.2.0', token: TOKEN }, 'http://evil.example');

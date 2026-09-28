@@ -1564,8 +1564,10 @@ Keep a Changelog 格式 + 语义化版本：
 | 前端构建 | `npm run build` | 成功 |
 | 页面自检 | `?check=1` | 295/295 |
 | 暗色审计 | `npm run audit:dark` | 108 类全覆盖 |
-| 桌面断言 | `npm run verify` | 77/77 |
-| 打包自检 | `--selftest` | 9/9 |
+| 桌面断言 | `npm run verify` | **78/78**（P0 新增 2 条：密钥不被跟踪 / 无老 buildKey.js 分支） |
+| 打包自检 | `--selftest` | **10/10**（P0 新增"不带 token 的客户端被拒 401"） |
+| 鉴权端到端 | `node scripts/auth-check.mjs` | **13/13**（P0 新增脚本：401/403 ×3/200/写禁用/WS 握手） |
+| 单元测试 | `npm test`（editor-mcp，vitest） | **83/83**（守卫 18 + 表格内核一致性 65） |
 
 ### 14.3 P0 后新增断言
 
@@ -1591,7 +1593,7 @@ Keep a Changelog 格式 + 语义化版本：
 ### 14.5 验收标准（重构完成的定义）
 
 - **干净克隆**：`git clone` → `npm run setup` → 三条命令内跑出可用的开发态；`npm run verify` 全绿；不需要手工把 `node_modules` 从别的包借过来。
-- **干净机器**：只装我们发的 exe → 首启自动种子组件、生成 token、起 MCP、页面接上桥接 → `--selftest` 9/9。
+- **干净机器**：只装我们发的 exe → 首启自动种子组件、生成 token、起 MCP、页面接上桥接 → `--selftest` **10/10**。
 - **没有第二份**：单文件 MCP 只 1 份生成路径；表格内核/转义/清单/静态服务器各 1 处实现；版本号 1 处来源。
 - **没有临时垃圾**：仓库内不存在 `.tmp-*`、`.asar-probe/`、包内 cache/报告；`git check-ignore` 断言全过。
 - **安全闭环**：跨源被拒 / 无 token 回 401 / 密钥出库 / 分发版无签发符号。

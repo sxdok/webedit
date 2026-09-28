@@ -48,7 +48,7 @@
 - 多实例共存：两个 MCP 进程共用一个 hub，**两边都能 Live**（multi-connection-check.mjs 10/10）
 - 会话自愈：编辑器重启换代后，旧 mcp-session-id 继续可用（session-revive-check.mjs 7/7）
 - 组件热加载：public/组件/*.js 改完点重载即生效
-- 回归闸门：verify 77/77、?check=1 295/295、打包 --selftest 9/9（命令与来源见 现状文档 §8）
+- 回归闸门：`npm test` 83/83（unit）、verify **78/78**、打包 `--selftest` **10/10**、`?check=1` 295/295（命令与来源见 现状文档 §8；P0 后数字见 REFACTORING §14.2）
 
 ### 1.2 实测出来的缺陷（本方案要逐个收口）
 
@@ -273,7 +273,7 @@ var/               # 运行数据：logs/caches/mcp-workspace/shots
 
 - **干净克隆**：`git clone` → 根一条命令（`npm run setup`）→ 三条命令内跑出可用的开发态；
   `npm run verify` 全绿；不需要手工把 `node_modules` 从别的包借过来。
-- **干净机器**：只装我们发的 exe → 首启自动种子组件、生成 token、起 MCP、页面接上桥接 → `--selftest` 9/9。
+- **干净机器**：只装我们发的 exe → 首启自动种子组件、生成 token、起 MCP、页面接上桥接 → `--selftest` **10/10**。
 - **没有第二份**：单文件 MCP 只 1 份生成路径；表格内核/转义/清单/静态服务器各 1 处实现；
   版本号 1 处来源；README 里"怎么跑"只在各自子 README。
 - **没有临时垃圾**：仓库内不存在 `.tmp-*`、`.asar-probe/`、包内 cache/报告；`git check-ignore` 断言全过。

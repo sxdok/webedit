@@ -550,16 +550,25 @@ async function runSelfTest() {
     add('MCP 服务就绪', st.state === 'ready', `状态=${st.state} pid=${st.pid ?? '(外部进程)'} 地址=${st.url}${st.lastError ? ` 错误：${st.lastError}` : ''}`);
     if (st.state === 'ready') {
       const { mcpRequest, parseRpcBody } = await import('./src/mcpSupervisor.js');
+      // P0：token 强制后，自检也必须带票（它是本应用自己的客户端）。
+      // 顺手多验一条：**不带 token 必须被拒（401）** —— 这才是"强制"的证据，而不是只看带票能通。
+      const token = st.token;
+      const noToken = await mcpRequest(st.url, {
+        timeoutMs: 8000,
+        body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'desktop-selftest-noauth', version: app.getVersion() } } },
+      });
+      add('不带 token 的客户端被拒（HTTP 401）', noToken.status === 401, `status=${noToken.status}（P0 决策 #1：缺 token 不服务）`);
       const init = await mcpRequest(st.url, {
         timeoutMs: 10000,
+        token,
         body: { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'desktop-selftest', version: app.getVersion() } } },
       });
       const sid = init.sessionId;
-      await mcpRequest(st.url, { timeoutMs: 8000, sessionId: sid, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
-      const tools = await mcpRequest(st.url, { timeoutMs: 20000, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
+      await mcpRequest(st.url, { timeoutMs: 8000, token, sessionId: sid, body: { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } });
+      const tools = await mcpRequest(st.url, { timeoutMs: 20000, token, sessionId: sid, body: { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } });
       const names = (parseRpcBody(tools.body)?.result?.tools ?? []).map((t) => t.name).filter(Boolean);
-      add('外部 AI 客户端能列出工具（tools/list）', names.length > 100, `工具数=${names.length}（例：${names.slice(0, 3).join(', ')}）会话=${String(sid).slice(0, 8)}…`);
-      if (sid) await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000 });
+      add('外部 AI 客户端（带 token）能列出工具（tools/list）', names.length > 100, `工具数=${names.length}（例：${names.slice(0, 3).join(', ')}）会话=${String(sid).slice(0, 8)}…`);
+      if (sid) await mcpRequest(st.url, { method: 'DELETE', sessionId: sid, timeoutMs: 3000, token });
       report.mcp = { url: st.url, tools: names.length, pid: st.pid, external: st.external, bridgeConflict: log.tail(400).some((l) => l.includes('桥接中转未能启动')) };
     } else {
       add('外部 AI 客户端能列出工具（tools/list）', false, 'MCP 没就绪，跳过');
