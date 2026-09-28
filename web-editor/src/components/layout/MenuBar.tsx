@@ -26,6 +26,7 @@ import { buildPluginPackage, installPluginPackage, packageFileName, validatePlug
 import { exportJsonFile, openJsonFile, openRecentFile, saveAsHtmlFile } from './fileActions';
 import { toggleFullscreen } from '../../utils/viewActions';
 import { clearRecents, recentDocs, refreshRecents, subscribeRecents } from '../../utils/recents';
+import { exportPdf } from '../../utils/export/pdf';
 import { bridgeSummary, isBridgeEnabled, setBridgeEnabled, useBridgeSummary, waitBridgeSettled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { desktopApi, formatUpdateResult } from '../../utils/desktopChrome';
@@ -160,6 +161,22 @@ export function MenuBar() {
       label: '导出',
       submenu: [
         { key: 'html', label: '导出 HTML', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
+        {
+          /* E2 / 决策 #9：#PDF 免费** —— 桌面版真产出文件（与导出 HTML 同源版式），浏览器版退回打印对话框 */
+          key: 'pdf',
+          label: '导出 PDF（免费）',
+          onClick: () => {
+            void exportPdf().then((r) =>
+              setNotice(
+                r.ok
+                  ? `已导出 PDF：\n${r.path}\n（${r.bytes ?? 0} 字节）\n\nPDF 是页面描述结果（渲染后的样子），**不能反向转回**可编辑文档。`
+                  : r.canceled
+                    ? '已取消导出 PDF。'
+                    : `导出 PDF 未完成：\n${r.error ?? '未知原因'}`,
+              ),
+            );
+          },
+        },
         { key: 'react', label: '导出 React 代码', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
         {
           key: 'docx',

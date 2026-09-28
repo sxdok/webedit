@@ -487,7 +487,19 @@ export async function setCanvasDevice(docId: string, device: string, width?: num
 
 /** 分页符：在文档流指定位置插入一个 pageBreak 节点 */
 export async function addPageBreak(docId: string, index?: number): Promise<{ node: ComponentNode; index: number }> {
-  const res = await addNode(docId, { type: 'pageBreak', index, props: {} });
+  /**
+   * ★B2（ARCHITECTURE §7.5 E2-补）：**缺省不再"追加到末尾"**。
+   * 追加到末尾必然在文档最后留下一个分页符 → 打印/导出 HTML/导出 Word **三个出口都多一张空白页**。
+   * 缺省位置改为"末尾分页符**之前**"（即规范化后的长度）：连续调两次也只会得到一个分页符。
+   */
+  let at = index;
+  if (at === undefined) {
+    const doc = await readDocument(docId);
+    const nodes: ComponentNode[] = doc.document.components;
+    at = nodes.length;
+    while (at > 0 && nodes[at - 1]?.type === 'pageBreak') at -= 1;
+  }
+  const res = await addNode(docId, { type: 'pageBreak', index: at, props: {} });
   return { node: res.node, index: res.index };
 }
 

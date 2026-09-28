@@ -19,6 +19,7 @@ import {
   type RenderContext,
 } from '../../registry/types';
 import { mmToPx, ptToPx } from '../units';
+import { normalizeBreaks } from '../pageBreak';
 import { asNumber, asString } from '../id';
 import { fontStack } from '../fonts';
 
@@ -121,11 +122,13 @@ export function buildExportHtml(doc: EditorDocument, topNodes?: ComponentNode[])
   const mode = doc.mode;
   const page = doc.document.page;
   const canvas = doc.web.canvas;
-  const body = buildBodyHtml(doc, mode, topNodes);
-  const size = mode === 'document' ? `${page.width}mm ${page.height}mm` : `${canvas.width}px ${canvas.height}px`;
+  // ★B2：导出前先把分页符规范化（末尾/连续/开头的分页符都会多出一张空白页）
+  const normalized = normalizeBreaks(topNodes ?? doc.document.components);
+  const body = buildBodyHtml(doc, mode, normalized);
+  const size = mode === 'document' ? `${mm(page.width)}mm ${mm(page.height)}mm` : `${pxToMm(canvas.width)}mm ${pxToMm(canvas.height)}mm`;
   const margin =
     mode === 'document'
-      ? `${page.margin.top}mm ${page.margin.right}mm ${page.margin.bottom}mm ${page.margin.left}mm`
+      ? `${mm(page.margin.top)}mm ${mm(page.margin.right)}mm ${mm(page.margin.bottom)}mm ${mm(page.margin.left)}mm`
       : '0';
   const canvasWrap =
     mode === 'web'
@@ -138,11 +141,14 @@ export function buildExportHtml(doc: EditorDocument, topNodes?: ComponentNode[])
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(asString(doc.title, '未命名文档'))}</title>
 <style>
+  /* ★打印模型（B1/B5 修法）：**纸张与页边距只由 @page 决定**。
+     原来这里同时写 @page margin 与 body margin → 双重边距，内容盒比预期小一圈，
+     末尾很容易溢出一页（正是"空白页"的一条根因）。 */
   @page { size: ${size}; margin: ${margin}; }
   *, *::before, *::after { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {
-    margin: ${mode === 'document' ? `${page.margin.top}mm ${page.margin.right}mm ${page.margin.bottom}mm ${page.margin.left}mm` : '0 auto'};
+    margin: 0; /* ← 边距交给 @page，不要再叠 */
     font-family: ${escapeHtml(page.defaultFont)}, serif;
     font-size: ${page.defaultFontSize}pt;
     line-height: ${page.lineHeight};
@@ -153,9 +159,17 @@ export function buildExportHtml(doc: EditorDocument, topNodes?: ComponentNode[])
   }
   img, svg { max-width: 100%; }
   table { border-collapse: collapse; }
-  /* 分页：整块不被切断 */
-  body > div > div, table, tr, figure, blockquote { break-inside: avoid; page-break-inside: avoid; }
+  /* ★B3：只对"放得下一页"的块禁止内部分页。表格/图/引用可能比一页还高——
+     对它们用 break-inside: avoid，Chromium 会把整块推到下一页，前一页留大片空白甚至整页空白。
+     表格改 auto + 表头组在跨页时重复（tr 仍不拆开，避免半行）。 */
+  body > div > div, tr { break-inside: avoid; page-break-inside: avoid; }
+  table, figure, blockquote { break-inside: auto; page-break-inside: auto; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
   h1, h2, h3, h4 { break-after: avoid; page-break-after: avoid; }
+  /* ★B4：末块的下边距会被算进页盒 → 内容正好填满时多一页 */
+  body > *:last-child, body > div > *:last-child { margin-bottom: 0 !important; }
+  body > *:last-child, body > div > *:last-child { break-after: auto; page-break-after: auto; }
 ${utilCss(body)}
 </style>
 </head>
@@ -165,6 +179,17 @@ ${canvasWrap}
 </html>
 `;
 }
+
+/** mm 统一保留 3 位小数（B5 修法的一半：取整口径一致，避免 mm↔px 误差触发多一页） */
+function mm(v: number): string {
+  return String(Math.round(Number(v) * 1000) / 1000);
+}
+
+/** px → mm（CSS 约定 96dpi）：Web 模式的画布是 px 尺寸，@page 不能用 px 当纸张尺寸 */
+function pxToMm(px: number): string {
+  return mm((Number(px) * 25.4) / 96);
+}
+
 
 /* 2026-09-23 用户要求：**移除导出 .doc**（HTML 版式的 Word，Word 打开是「网页文档」，纸张/分页不是 Word 对象模型）。
    现在只保留真 .docx（见 utils/export/docx.ts）。原来的 buildWordDoc / bandToWordHtml / wordBandElement 一并删除，避免死代码。 */

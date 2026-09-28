@@ -31,6 +31,7 @@ import {
   type CellStyle,
 } from '../registry/components/common/tableKit';
 import { buildExportHtml } from '../utils/export/docExport';
+import { exportPdf } from '../utils/export/pdf';
 import { buildDocx } from '../utils/export/docx';
 import { buildReactComponent } from '../utils/export/reactExport';
 import { buildComponentSpecSheet } from '../utils/specSheet';
@@ -777,8 +778,20 @@ export async function routeLive(method: string, params: Params): Promise<unknown
       const md = buildComponentSpecSheet();
       return { docId: now().doc.id, markdown: md, bytes: md.length, source: 'editor' };
     }
-    case 'export.pdf':
-      fail('IO_ERROR', '导出 PDF 要由浏览器打印完成：请在编辑器里用「文件 → 打印 / 另存为 PDF」（MCP 侧拿不到 PDF 字节）');
+    case 'export.pdf': {
+      /* E2（决策 #16）：**真产出 PDF 文件**——桌面版用 printToPDF 渲染「导出 HTML」，版式与 HTML 同源。
+         以前这里只回一句"请人工点打印"，agent 拿不到 PDF，等于这条能力不存在。 */
+      const r = await exportPdf();
+      if (!r.ok) {
+        fail(
+          'IO_ERROR',
+          r.canceled
+            ? '导出 PDF 被取消（桌面版会弹保存对话框；agent 调用请传 path）'
+            : `导出 PDF 失败：${r.error ?? '未知原因'}（需要桌面版：浏览器里拿不到"写文件"的能力）`,
+        );
+      }
+      return { ok: true, path: r.path, bytes: r.bytes ?? 0, source: 'editor' };
+    }
 
     /* ── 组件注册表（编辑器是唯一真源） ── */
     case 'component.list':

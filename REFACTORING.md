@@ -1811,6 +1811,29 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 
 **下一步：P4.5-E2** —— 桌面版 `webContents.printToPDF` 让 `export.pdf` 真产出文件 + 专项治空白页（根因 B1–B5 + 7 处修法 + PyMuPDF 自动检测脚本 `pdf-blank-check`），随后 E1（docx 图片/页眉页脚域/Heading）、E3（MD 有损提示）。
 
+### 15.8 P4.5-E2 实际施工记录（进行中）
+
+**E2 主链路已落地：PDF 真产出**
+
+| 项 | 落地 |
+|---|---|
+| 主进程 | `desktop:export-pdf`：**隐藏窗口加载「导出 HTML」→ `printToPDF({ preferCSSPageSize: true, printBackground: true, margins: { marginType: 'none' } })` → 落盘**（没给 path 就弹另存为），并记一条「最近打开」。★**为什么用隐藏窗口加载导出 HTML 而不是打印主窗口**：主窗口是**分页画布**（固定纸张盒 + 自带 padding、`@page{margin:0}`），导出 HTML 是**流**（`@page{size;margin}`）——两套打印模型（B1/B5）。让 PDF 由同一份导出 HTML 渲染，**PDF ≡ HTML 版式**就是构造性的，不再靠"两边都改对" |
+| 页面 | `utils/export/pdf.ts#exportPdf()`（菜单与 MCP 共用）；菜单 `文件 → 导出 → 导出 PDF（免费）`；MCP 的 `liveMethods` `export.pdf` 从**"请人工点打印"**升级为**真返回文件路径与字节数**（浏览器环境如实报"拿不到写文件能力"） |
+| 自动化出口 | `?exportPdf=<路径>` 启动钩子（与 `?check=1`/`?spec=1` 同一套约定）：导出后把结论写进 `document.title`（`pdf-export: ok <bytes> <path>`）——**没有它，"PDF 对不对"只能靠人眼看** |
+| 检查脚本 | `apps/desktop/scripts/pdf-export-check.mjs`（`npm run check:pdf`）：起独立 Electron + CDP 触发导出，再用 **PyMuPDF 逐页判定**（`get_text()` 与 `get_drawings()` 都为空才算空白页）。**实测 6/6 通过**：`%PDF-` 头、字节 > 0、页数 1、**空白页 0** |
+
+**空白页修法（B1–B5）已落地（导出侧）**
+
+| 根因 | 修法 |
+|---|---|
+| B1 两套 `@page` 模型 | 导出 HTML 里 `@page{size;margin}` 与 `body{margin:0}` **不再双重边距**（原来同时写了两份 → 内容盒比预期小一圈，末尾易溢出一页）；PDF 直接由这份 HTML 渲染 → 与 HTML 同源 |
+| B2 末尾/连续分页符 | 新增 `utils/pageBreak.ts#normalizeBreaks()`（开头丢、连续合并、末尾丢；**只动分页符，绝不删别的节点**——空段落也是用户内容）；**三个出口共用**：导出 HTML、导出 DOCX、以及 MCP `page.addBreak` 的缺省位置改为"末尾分页符**之前**"（原来无条件追加到末尾 = 必然多一张白纸） |
+| B3 `break-inside: avoid` 用在可能跨页的块 | `table/figure/blockquote` 改 `auto`，只保留 `body > div > div` 与 `tr` 不拆；补 `thead{display:table-header-group}`（跨页重复表头） |
+| B4 末块下边距被算进页盒 | 导出 CSS 新增 `body > *:last-child, body > div > *:last-child { margin-bottom: 0 }` |
+| B5 Web 模式 px 当纸张尺寸 | 导出 HTML 的 `@page size` 走 **px→mm 换算**（96dpi 约定），mm 统一保留 3 位小数（`mm()`/`pxToMm()` 单一口径） |
+
+**尚缺（下一轮）**：**固定样张矩阵**（①普通多页 ②末尾分页符 ③连续分页符 ④跨页长表 ⑤末页只有一张图 ⑥正好填满一页）——样张用 `.editor.json` 存 `apps/desktop/testdata/pdf-samples/`，由脚本按数据 URL 载入（`?loadJson=`），断言"实际页数 == 期望页数 且 空白页 == 0"；以及 **E1**（docx 图片/页眉页脚域/Heading）、**E3**（MD 有损提示）。
+
 ---
 
 ## 第 16 章 数据迁移指南

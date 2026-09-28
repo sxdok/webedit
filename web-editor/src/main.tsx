@@ -152,10 +152,32 @@ if (params.get('load')) {
           提示: result.warnings.slice(0, 5),
         });
         document.title = `${doc.title} · 可视化编辑器`;
+        queueMicrotask(() => void maybeAutoExportPdf());
       })
       .catch((e: unknown) => log.error('load', `?load=${src} 载入失败`, { error: String(e) }));
   }, 300);
 }
+
+/**
+ * `?exportPdf=<路径>` → 启动后（`?load=` 完成之后）**自动导出一份 PDF** 到指定路径，
+ * 并把结论写进 `document.title`（`pdf-export: ok <bytes> <path>` / `pdf-export: fail <原因>`）。
+ *
+ * 为什么要这个钩子：E2 的验收标准是"**空白页 = 0**、实际页数 == 期望页数"，而那必须对**固定样张**
+ * 反复跑（见 `apps/desktop/scripts/pdf-export-check.mjs`）。没有命令行出口时，"PDF 到底对不对"
+ * 就只能靠人眼看 —— 与 `?check=1` / `?spec=1` 同一套约定，让断言成为交付物。
+ */
+async function maybeAutoExportPdf(): Promise<void> {
+  const target = params.get('exportPdf');
+  if (!target) return;
+  try {
+    const { exportPdf } = await import('./utils/export/pdf');
+    const r = await exportPdf({ path: target });
+    document.title = r.ok ? `pdf-export: ok ${r.bytes ?? 0} ${r.path ?? ''}` : `pdf-export: fail ${r.error ?? '未知'}`;
+  } catch (e) {
+    document.title = `pdf-export: fail ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+if (params.get('exportPdf') && !params.get('load')) queueMicrotask(() => void maybeAutoExportPdf());
 
 // ?demo=1 → 灌入示例文档（两种模式各一页、含全部组件）；随后（无论是否 demo）应用 ?mode=
 // ?select=<type|index> → 启动后选中一个节点（截图/核对属性面板排版用，例如 ?select=table）

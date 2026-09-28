@@ -16,7 +16,7 @@
  * 站内导航被限制在本机地址，外链一律交给系统浏览器（`shell.openExternal`，且只放行 http/https）。
  */
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';import { randomBytes } from 'node:crypto';
 import { join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveLayout } from './src/paths.js';
@@ -729,6 +729,70 @@ function registerIpc() {
   ipcMain.handle('desktop:restart-mcp', () => runtime.mcp?.restart() ?? null);
   /* ── M-11「最近打开」：列表 / 打开旧文件（主进程读文本回传）/ 另存为 / 清除 ──
      桌面版才做得到"点一下就重开"：只有主进程能拿到本地路径、也才能读别的文件。 */
+  /**
+   * E2：**PDF 真产出**（`webContents.printToPDF`）。
+   *
+   * ★为什么用**隐藏窗口加载「导出 HTML」**，而不是直接打印主窗口：
+   *   主窗口是**分页画布**（固定纸张盒 + 自己带 padding、`@page{margin:0}`），导出 HTML 是**流**
+   *   （`@page{size;margin}`）。两者是两套打印模型（ARCHITECTURE §7.5 的 B1/B5）——
+   *   直接打印主窗口，PDF 与导出的 HTML/Word 版式会不一致。
+   *   让 PDF 由**同一份导出 HTML** 渲染，PDF ≡ HTML 版式就是构造性的，不再靠"两边都改对"。
+   *
+   * `preferCSSPageSize: true` 让 CSS 的 `@page` 决定纸张与页边距；`printBackground` 保证底色/表头色不丢。
+   */
+  ipcMain.handle('desktop:export-pdf', async (_e, opts) => {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const html = typeof o.html === 'string' ? o.html : '';
+    if (!html.trim()) return { ok: false, error: '没有可导出的内容（导出 HTML 为空）' };
+
+    let target = typeof o.path === 'string' && o.path ? o.path : null;
+    if (!target) {
+      const r = await dialog.showSaveDialog(runtime.win, {
+        title: '导出 PDF',
+        defaultPath: typeof o.suggestedName === 'string' && o.suggestedName ? o.suggestedName : 'document.pdf',
+        filters: [{ name: 'PDF 文件', extensions: ['pdf'] }],
+      });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+      target = r.filePath;
+    }
+
+    const tmp = join(app.getPath('temp'), `editor-export-${Date.now()}.html`);
+    let win = null;
+    try {
+      writeFileSync(tmp, html, 'utf8');
+      win = new BrowserWindow({
+        show: false,
+        width: 1024,
+        height: 768,
+        webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false },
+      });
+      await win.loadFile(tmp);
+      const pdf = await win.webContents.printToPDF({
+        preferCSSPageSize: true, // 纸张与页边距由 CSS @page 决定（与导出 HTML 同源）
+        printBackground: true, // 背景色/表头底色
+        margins: { marginType: 'none' }, // 边距已在 @page 里，别再叠一层
+      });
+      writeFileSync(target, pdf);
+      pushRecent({ path: target, title: basename(target), at: Date.now() });
+      runtime.log?.info(`已导出 PDF：${target}（${pdf.length} 字节）`);
+      return { ok: true, path: target, bytes: pdf.length };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      runtime.log?.error(`导出 PDF 失败：${msg}`);
+      return { ok: false, error: msg };
+    } finally {
+      try {
+        win?.destroy();
+      } catch {
+        /* 忽略 */
+      }
+      try {
+        if (existsSync(tmp)) rmSync(tmp, { force: true });
+      } catch {
+        /* 忽略 */
+      }
+    }
+  });
   ipcMain.handle('desktop:recent-list', () => readRecents());
   /** 写一条最近记录（页面侧一般不用，主要用于自检与将来的"记录非对话框来源的打开"） */
   ipcMain.handle('desktop:recent-push', (_e, entry) => {

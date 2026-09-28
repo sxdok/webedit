@@ -17,6 +17,7 @@ import { getForest } from '../../store/treeUtils';
 import { parseColWidths, parseRowHeight, parseRowHeights, parseTableData } from '../../registry/components/common/tableKit';
 import { asNumber, asString } from '../id';
 import { mmToPx } from '../units';
+import { normalizeBreaks } from '../pageBreak';
 import type { ComponentNode, EditorDocument, EditorMode } from '../../registry/types';
 
 /* ══════════════ ① ZIP（STORE） ══════════════ */
@@ -343,7 +344,8 @@ export interface DocxResult {
 export function buildDocx(doc: EditorDocument, topNodes?: ComponentNode[]): DocxResult {
   const mode: EditorMode = doc.mode;
   const page = doc.document.page;
-  const nodes = topNodes ?? getForest(doc);
+  // ★B2：Word 打开也会因为"末尾/连续分页符"多一张白纸 → 与 HTML/打印共用同一份规范化
+  const nodes = normalizeBreaks(topNodes ?? getForest(doc));
   const font = page.defaultFont || '宋体';
   const warnings: string[] = [];
   const blocks: string[] = [];

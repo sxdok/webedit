@@ -115,6 +115,8 @@ export interface DesktopApi {
   openRecent: (path: string) => Promise<{ ok: boolean; path?: string; name?: string; text?: string; error?: string }>;
   /** 另存为真实文件（桌面版比"下载"更符合桌面习惯，也能记住路径） */
   saveText: (opts: { suggestedName: string; text: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; name?: string; error?: string }>;
+  /** E2：导出 PDF（主进程用隐藏窗口加载导出 HTML → `printToPDF`，版式与导出 HTML 同源） */
+  exportPdf: (opts: { html: string; suggestedName?: string; path?: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; bytes?: number; error?: string }>;
   /** M-7：全屏（F11）——桌面版走窗口全屏，返回切换后的状态 */
   toggleFullscreen: () => Promise<boolean>;
   /** P0 决策 #2：切换"允许 MCP 写操作"（写入 prefs.json 并重启 MCP，返回新状态） */

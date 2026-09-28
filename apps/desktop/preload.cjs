@@ -58,6 +58,8 @@ const api = {
   pickAndRead: () => ipcRenderer.invoke('desktop:pick-and-read'),
   openRecent: (path) => ipcRenderer.invoke('desktop:open-recent', path),
   saveText: (opts) => ipcRenderer.invoke('desktop:save-text', opts),
+  /** E2：导出 PDF（主进程用隐藏窗口加载导出 HTML → printToPDF） */
+  exportPdf: (opts) => ipcRenderer.invoke('desktop:export-pdf', opts),
   /** M-7：全屏（F11）——窗口全屏，不用网页 Fullscreen API（那会带走标题栏覆盖层） */
   toggleFullscreen: () => ipcRenderer.invoke('desktop:toggle-fullscreen'),
   /** P0 决策 #2：写开关（写入 userData/prefs.json 并重启 MCP 生效） */

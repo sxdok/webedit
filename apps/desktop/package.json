@@ -13,6 +13,7 @@
     "dev": "electron . --dev",
     "check": "electron . --check",
     "check:page": "node scripts/check-page.mjs",
+    "check:pdf": "node scripts/pdf-export-check.mjs",
     "selftest": "electron . --selftest",
     "verify": "node scripts/verify-desktop.mjs",
     "bundle:mcp": "node scripts/bundle-mcp.mjs",
