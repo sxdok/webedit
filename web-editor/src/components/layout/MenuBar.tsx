@@ -22,14 +22,8 @@ import { log } from '../../utils/logger';
 import { saveDiagnosticReportToRunDir } from '../../utils/diagnostics';
 import { buildComponentSpecSheet } from '../../utils/specSheet';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
-import {
-  buildPluginPackage,
-  installPluginPackage,
-  packageFileName,
-  validatePluginPackage,
-  PACKAGE_FORMAT,
-  type PluginPackage,
-} from '../../utils/pluginPackage';
+import { buildPluginPackage, installPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FORMAT, type PluginPackage } from '../../utils/pluginPackage';
+import { exportJsonFile, openJsonFile, saveAsHtmlFile } from './fileActions';
 import { bridgeSummary, isBridgeEnabled, setBridgeEnabled, useBridgeSummary, waitBridgeSettled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { desktopApi, formatUpdateResult } from '../../utils/desktopChrome';
@@ -100,36 +94,124 @@ export function MenuBar() {
     },
     {
       key: 'open',
-      label: '打开（JSON）',
-      onClick: async () => {
-        const text = await pickTextFile('.json,application/json');
-        if (text == null) return;
-        // 与拖拽同一份逻辑：失败也走结果提示框（说清"缺什么"），不弹 window.alert
-        const r = (await import('../../utils/importDocument')).importJsonIntoEditor(text, '（本地文件）');
-        setNotice(`${r.summary}\n\n${r.detail}`);
+      label: '打开…（.editor.json）',
+      shortcut: 'Ctrl+O',
+      onClick: () => {
+        void openJsonFile().then((msg) => {
+          if (msg != null) setNotice(msg);
+        });
       },
     },
     { key: 'open-html', label: '打开 HTML（导入成组件）…', onClick: () => void openHtmlFile() },
     { key: 'load-html-url', label: '从 URL 载入 HTML…', onClick: () => void loadHtmlFromUrl() },
     { key: 's1', separator: true },
     {
-      key: 'save',
-      label: '保存（导出 JSON）',
-      onClick: () => downloadText(`${title || 'document'}.json`, S().exportJSON(), 'application/json'),
+      /* M-10 + 决策 #12 / Q3：**「保存」= 保存为可独立打开的 HTML 文件**。
+         复用已有 `exportHTML()`（含 `@page`），不新造实现；Ctrl+S 也指到这里；
+         「保存到浏览器」那个含糊入口去掉（它的老用途——只读态自救——正好由这条承担）。 */
+      key: 'save-html',
+      label: '保存为 HTML 文件',
+      shortcut: 'Ctrl+S',
+      onClick: () => setNotice(saveAsHtmlFile()),
+    },
+    {
+      key: 'save-json',
+      label: '导出 JSON…（可再编辑的工程文件）',
+      shortcut: 'Ctrl+Shift+S',
+      onClick: () => setNotice(exportJsonFile()),
     },
     { key: 's2', separator: true },
-    { key: 'html', label: '导出 HTML', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
-    { key: 'react', label: '导出 React 代码', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
     {
-      key: 'docx',
-      label: '导出 Word（.docx）',
-      onClick: () => {
-        void import('../../utils/export/docx').then((m) => {
-          const r = m.downloadDocx(S().doc, getForest(S().doc));
-          log.info('export', '导出 .docx', { 字节: r.bytes.length, 块数: r.blocks, 提示: r.warnings.length });
-        });
-      },
+      key: 'export-sub',
+      label: '导出',
+      submenu: [
+        { key: 'html', label: '导出 HTML', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
+        { key: 'react', label: '导出 React 代码', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
+        {
+          key: 'docx',
+          label: '导出 Word（.docx）',
+          onClick: () => {
+            void import('../../utils/export/docx').then((m) => {
+              const r = m.downloadDocx(S().doc, getForest(S().doc));
+              log.info('export', '导出 .docx', { 字节: r.bytes.length, 块数: r.blocks, 提示: r.warnings.length });
+            });
+          },
+        },
+        {
+          /* M-5：说明清单是**交付物**，原来在「帮助」里不合惯例 → 归到「文件 → 导出」。 */
+          key: 'specsheet',
+          label: '导出组件与属性说明清单（Markdown）',
+          onClick: () => {
+            const text = buildComponentSpecSheet();
+            void saveToRunDir('docs/组件与属性说明清单.md', text).then((r) => {
+              if (r?.ok) {
+                window.alert(`组件与属性说明清单已写入运行目录：\n${r.file}\n（${r.bytes} 字节）`);
+                log.info('spec', '组件与属性说明清单已导出', { file: r.file, bytes: r.bytes });
+              } else {
+                downloadText('组件与属性说明清单.md', text, 'text/markdown');
+                window.alert(
+                  r?.error ? `写入运行目录失败（${r.error}），已改为下载。` : '没有 /__save 接口（不是启动器托管）：已改为下载。',
+                );
+              }
+            });
+          },
+        },
+      ],
     },
+    {
+      /* M-5：组件包是**数据导入导出**，不是"帮助" → 归到「文件」。 */
+      key: 'pkg-sub',
+      label: '组件包',
+      submenu: [
+        {
+          key: 'pkg-export',
+          label: `导出组件包（当前 ${getLiveTypes().length} 个外部组件）`,
+          disabled: getLiveTypes().length === 0,
+          onClick: () => {
+            void buildPluginPackage().then(({ pkg, errors }) => {
+              downloadText(packageFileName(), JSON.stringify(pkg, null, 2), 'application/json');
+              setNotice(
+                `已导出 ${pkg.plugins.length} 个组件的源码：\n${pkg.plugins.map((p) => `· ${p.name}（${p.code.length} 字符）`).join('\n')}` +
+                  (errors.length ? `\n\n读取失败 ${errors.length} 个：${errors.map((e) => `${e.name}（${e.error}）`).join('、')}` : ''),
+              );
+            });
+          },
+        },
+        {
+          key: 'pkg-import',
+          label: '导入组件包（.json，写回组件目录）…',
+          onClick: () => {
+            void pickTextFile('.json,application/json').then(async (text) => {
+              if (text == null) return;
+              let parsed: unknown;
+              try {
+                parsed = JSON.parse(text);
+              } catch (e) {
+                setNotice(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
+                return;
+              }
+              const check = validatePluginPackage(parsed);
+              if (!check.ok) {
+                setNotice(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
+                return;
+              }
+              const r = await installPluginPackage(parsed as PluginPackage);
+              const reload = await loadRuntimeComponents(true);
+              S().bumpRegistry();
+              setNotice(
+                `组件包导入完成：写回组件目录 ${r.saved.length} 个` +
+                  (r.runtime.length ? `、仅本次会话注册 ${r.runtime.length} 个` : '') +
+                  (r.failed.length ? `、失败 ${r.failed.length} 个（${r.failed.map((f) => `${f.name}：${f.error}`).join('；')}）` : '') +
+                  `\n重新加载外部组件：${reload.ok}/${reload.total}` +
+                  (r.persisted ? '\n（已写盘，刷新后仍在）' : '\n（启动器没有 /__savePlugin 接口，或写盘失败 → 只在本会话生效，刷新会丢）'),
+              );
+            });
+          },
+        },
+      ],
+    },
+    { key: 's3', separator: true },
+    /* 打印是"另存为 PDF"的通路；P4.5-E2 会在这里再加「导出 PDF【免费】」（桌面版走 printToPDF 真落盘） */
     { key: 'print', label: '打印…', shortcut: 'Ctrl+P', onClick: () => window.print() },
   ];
 
@@ -152,10 +234,25 @@ export function MenuBar() {
         if (window.confirm('清空当前模式的全部组件？（可用 Ctrl+Z 撤销）')) S().clearAll();
       },
     },
+    { key: 'e3', separator: true },
+    /* M-1：首选项从「视图」移到「编辑」末项（Windows 惯例「工具→选项」或「编辑→首选项」；
+       Chrome / VS Code 亦在应用/文件级）。视图菜单从此只管"看什么"，不再混设置。 */
+    { key: 'prefs', label: '首选项…', shortcut: 'Ctrl+,', onClick: () => S().toggleUI('prefsOpen') },
   ];
 
   const viewMenu: MenuEntry[] = [
-    { key: 'prefs', label: '首选项…', onClick: () => S().toggleUI('prefsOpen') },
+    /* M-12：模式切换（Ctrl+Shift+M）原来只有快捷键、没有菜单入口 → 补「视图 → 模式」，并标出当前模式。
+       ★与 §7.3 写法的一处偏差：那里写「模式（文档/Web/PPT）」，但**编辑器实际只有两种模式**
+       （`EditorMode = 'document' | 'web'`）；PPT 是"两种模式都能用的组件类别"（MCP 的 mode.list 也这么解释）。
+       所以这里只列两个 → 免得菜单给出一个点了没用的入口。 */
+    {
+      key: 'mode-sub',
+      label: '模式',
+      submenu: [
+        { key: 'mode-document', label: '文档模式（A4 纸张 + 文档流）', shortcut: 'Ctrl+Shift+M', checked: mode === 'document', onClick: () => S().setMode('document') },
+        { key: 'mode-web', label: 'Web 模式（设备画布）', shortcut: 'Ctrl+Shift+M', checked: mode === 'web', onClick: () => S().setMode('web') },
+      ],
+    },
     { key: 'v0', separator: true },
     { key: 'grid', label: '显示网格', checked: ui.showGrid, onClick: () => S().toggleUI('showGrid') },
     { key: 'ruler', label: '显示标尺', checked: ui.showRuler, onClick: () => S().toggleUI('showRuler') },
@@ -171,13 +268,16 @@ export function MenuBar() {
     /* ★主题切换只留在「首选项 → 外观 → 界面主题」（用户 2026-09-24：视图菜单里不要重复一个深色模式） */
     { key: 'tree', label: '显示组件树', checked: ui.showTree, onClick: () => S().toggleUI('showTree') },
     { key: 'md', label: 'Markdown 源码', checked: ui.showMarkdown, onClick: () => S().toggleUI('showMarkdown') },
-    { key: 'autonum', label: '图表按章编号（图 X-Y / 表 X-Y）', checked: ui.autoNumber, onClick: () => S().toggleUI('autoNumber') },
+    /* M-2：「图表按章编号」改的是**输出内容**（图 X-Y / 表 X-Y），不是显示 → 移到「页面」菜单 */
     { key: 'preview', label: '预览模式（隐藏编辑态边框）', checked: ui.preview, onClick: () => S().toggleUI('preview') },
   ];
 
   const pageMenu: MenuEntry[] =
     mode === 'document'
       ? [
+          /* M-13：同一菜单在两种模式下内容不同是合理的（已按模式分派），但要让用户一眼看出现在是哪套 */
+          { key: 'pmode', label: '当前：文档模式（纸张 / 方向 / 页边距 / 编号）', disabled: true },
+          { key: 'pm0', separator: true },
           ...(Object.keys(PAGE_SIZES) as PageSizeKey[]).map((k) => ({
             key: `size-${k}`,
             label: `纸张 ${k === 'Custom' ? '自定义' : k}${k === 'Custom' ? '' : ` (${PAGE_SIZES[k].width}×${PAGE_SIZES[k].height}mm)`}`,
@@ -204,8 +304,13 @@ export function MenuBar() {
                   : { top: p.value, right: p.value, bottom: p.value, left: p.value },
               ),
           })),
+          { key: 'p3', separator: true },
+          /* M-2：从「视图」移来 —— 它改的是**输出内容**（图 X-Y / 表 X-Y），与纸张/页边距同属"页面的产出" */
+          { key: 'autonum', label: '图表按章编号（图 X-Y / 表 X-Y）', checked: ui.autoNumber, onClick: () => S().toggleUI('autoNumber') },
         ]
       : [
+          { key: 'pmode', label: '当前：Web 模式（设备画布 / 背景色）', disabled: true },
+          { key: 'pm0', separator: true },
           ...(Object.keys(DEVICE_PRESETS) as DeviceKey[]).map((k) => ({
             key: `dev-${k}`,
             label: `设备 ${k}${k === 'Custom' ? '' : ` (${DEVICE_PRESETS[k].width}×${DEVICE_PRESETS[k].height})`}`,
@@ -226,21 +331,6 @@ export function MenuBar() {
   const ds = desktopApi();
   const desktopMenu: MenuEntry[] = ds
     ? [
-        {
-          key: 'd-update',
-          label: '检查更新…',
-          onClick: () => {
-            void ds.checkUpdate().then((r) => setNotice(formatUpdateResult(r)));
-          },
-        },
-        {
-          key: 'd-download',
-          label: '打开更新下载页',
-          onClick: () => {
-            void ds.openDownload().then((r) => setNotice(r.ok ? `已在系统浏览器里打开：\n${r.url}` : `打不开下载页：\n${r.error ?? '当前没有可用的下载地址（先点「检查更新…」）'}`));
-          },
-        },
-        { key: 'd1', separator: true },
         {
           key: 'd-mcp-url',
           label: '复制 MCP 地址（给外部 AI 客户端）',
@@ -296,29 +386,6 @@ export function MenuBar() {
         { key: 'd-logdir', label: '打开日志目录', onClick: () => void ds.openLogDir().then((r) => setNotice(`日志目录：\n${r.path ?? '-'}${r.error ? `\n（打开失败：${r.error}）` : ''}`)) },
         { key: 'd-datadir', label: '打开数据目录（文档 / 组件）', onClick: () => void ds.openDataDir().then((r) => setNotice(`数据目录：\n${r.path ?? '-'}${r.error ? `\n（打开失败：${r.error}）` : ''}`)) },
         { key: 'd-confdir', label: '打开配置目录（加密配置）', onClick: () => void ds.openConfigDir().then((r) => setNotice(`配置目录：\n${r.path ?? '-'}${r.error ? `\n（打开失败：${r.error}）` : ''}`)) },
-        { key: 'd3', separator: true },
-        {
-          key: 'd-about',
-          label: '关于（版本 / 运行环境）',
-          onClick: () => {
-            void ds.getStatus().then((s) => {
-              setNotice(
-                [
-                  `可视化编辑器 ${s.version} —— By Sxdok\n（桌面版 · ${s.mode === 'packaged' ? '已安装' : '开发模式'}）`,
-                  `Electron ${s.electron} / Chromium ${s.chrome} / Node ${s.node}`,
-                  `页面地址：${s.server?.url ?? '(未启动)'}`,
-                  `MCP 地址：${s.mcpUrl ?? '(未启动)'}`,
-                  `日志目录：${s.logDir ?? '-'}`,
-                  `配置来源：${s.config?.meta.source ?? '-'}（密钥：${s.config?.meta.keySource ?? '-'}）`,
-                  s.config?.meta.warnings?.length ? `\n配置提醒：\n${s.config.meta.warnings.join('\n')}` : '',
-                  s.config?.meta.problems?.length ? `\n配置问题：\n${s.config.meta.problems.join('\n')}` : '',
-                ]
-                  .filter(Boolean)
-                  .join('\n'),
-              );
-            });
-          },
-        },
       ]
     : [];
 
@@ -373,52 +440,6 @@ export function MenuBar() {
     /* ★「重载外部组件」收进首选项（用户 2026-09-24）：帮助菜单与组件箱底部都不再放，
        入口统一在「首选项 → 组件箱 → 重载外部组件」。 */
     { key: 'logdump', label: '下载日志文件', onClick: () => downloadText(`editor-log-${Date.now()}.txt`, log.dump(), 'text/plain') },
-    /* ── 组件包（B14）：把 public/组件/*.js 打包导出 / 导入写回组件目录 ── */
-    {
-      key: 'pkg-export',
-      label: `导出组件包（当前 ${getLiveTypes().length} 个外部组件）`,
-      disabled: getLiveTypes().length === 0,
-      onClick: () => {
-        void buildPluginPackage().then(({ pkg, errors }) => {
-          downloadText(packageFileName(), JSON.stringify(pkg, null, 2), 'application/json');
-          setNotice(
-            `已导出 ${pkg.plugins.length} 个组件的源码：\n${pkg.plugins.map((p) => `· ${p.name}（${p.code.length} 字符）`).join('\n')}` +
-              (errors.length ? `\n\n读取失败 ${errors.length} 个：${errors.map((e) => `${e.name}（${e.error}）`).join('、')}` : ''),
-          );
-        });
-      },
-    },
-    {
-      key: 'pkg-import',
-      label: '导入组件包（.json，写回组件目录）',
-      onClick: () => {
-        void pickTextFile('.json,application/json').then(async (text) => {
-          if (text == null) return;
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(text);
-          } catch (e) {
-            setNotice(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
-            return;
-          }
-          const check = validatePluginPackage(parsed);
-          if (!check.ok) {
-            setNotice(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
-            return;
-          }
-          const r = await installPluginPackage(parsed as PluginPackage);
-          const reload = await loadRuntimeComponents(true);
-          S().bumpRegistry();
-          setNotice(
-            `组件包导入完成：写回组件目录 ${r.saved.length} 个` +
-              (r.runtime.length ? `、仅本次会话注册 ${r.runtime.length} 个` : '') +
-              (r.failed.length ? `、失败 ${r.failed.length} 个（${r.failed.map((f) => `${f.name}：${f.error}`).join('；')}）` : '') +
-              `\n重新加载外部组件：${reload.ok}/${reload.total}` +
-              (r.persisted ? '\n（已写盘，刷新后仍在）' : '\n（启动器没有 /__savePlugin 接口，或写盘失败 → 只在本会话生效，刷新会丢）'),
-          );
-        });
-      },
-    },
     {
       key: 'saverun',
       label: '保存诊断报告到运行目录',
@@ -429,25 +450,64 @@ export function MenuBar() {
         });
       },
     },
+    /* M-4：检查更新 / 下载页从前面的「工具」移来 —— 与「关于」相邻更符合惯例（Chrome / VS Code 都在帮助）。
+       组件包与说明清单（M-5）已移到「文件」；这里的帮助菜单只留"查资料 / 排故障 / 版本"三类。 */
+    ...(ds
+      ? ([
+          { key: 'h1', separator: true },
+          {
+            key: 'd-update',
+            label: '检查更新…',
+            onClick: () => {
+              void ds.checkUpdate().then((r) => setNotice(formatUpdateResult(r)));
+            },
+          },
+          {
+            key: 'd-download',
+            label: '打开更新下载页',
+            onClick: () => {
+              void ds.openDownload().then((r) => setNotice(r.ok ? `已在系统浏览器里打开：\n${r.url}` : `打不开下载页：\n${r.error ?? '当前没有可用的下载地址（先点「检查更新…」）'}`));
+            },
+          },
+        ] as MenuEntry[])
+      : []),
+    { key: 'h2', separator: true },
     {
-      key: 'specsheet',
-      label: '导出组件与属性说明清单（Markdown）',
+      /* M-3：**关于只留这一处**（原来「工具」里一个 + 帮助底部一行 disabled 文案）。
+         桌面版给全量运行环境 + 配置来源；网页版给一句话（含版本与构建时间口径一致的信息）。 */
+      key: 'about',
+      label: '关于（版本 / 运行环境 / 许可）',
       onClick: () => {
-        const text = buildComponentSpecSheet();
-        void saveToRunDir('docs/组件与属性说明清单.md', text).then((r) => {
-          if (r?.ok) {
-            window.alert(`组件与属性说明清单已写入运行目录：\n${r.file}\n（${r.bytes} 字节）`);
-            log.info('spec', '组件与属性说明清单已导出', { file: r.file, bytes: r.bytes });
-          } else {
-            downloadText('组件与属性说明清单.md', text, 'text/markdown');
-            window.alert(
-              r?.error ? `写入运行目录失败（${r.error}），已改为下载。` : '没有 /__save 接口（不是启动器托管）：已改为下载。',
-            );
-          }
+        if (!ds) {
+          setNotice(
+            [
+              `可视化编辑器 —— By Sxdok`,
+              `（网页版：${location.origin}${location.pathname}）`,
+              `布局参照 Qt Designer，双模式可视化编辑器。`,
+              `\n许可与授权状态在桌面版「帮助 → 关于」里显示。`,
+            ].join('\n'),
+          );
+          return;
+        }
+        void ds.getStatus().then((s) => {
+          setNotice(
+            [
+              `可视化编辑器 ${s.version} —— By Sxdok\n（桌面版 · ${s.mode === 'packaged' ? '已安装' : '开发模式'}）`,
+              `Electron ${s.electron} / Chromium ${s.chrome} / Node ${s.node}`,
+              `页面地址：${s.server?.url ?? '(未启动)'}`,
+              `MCP 地址：${s.mcpUrl ?? '(未启动)'}`,
+              `写入开关：${s.mcpWriteEnabled === true ? '允许（首选项可关）' : '已禁用（默认）'}`,
+              `日志目录：${s.logDir ?? '-'}`,
+              `配置来源：${s.config?.meta.source ?? '-'}（密钥：${s.config?.meta.keySource ?? '-'}）`,
+              s.config?.meta.warnings?.length ? `\n配置提醒：\n${s.config.meta.warnings.join('\n')}` : '',
+              s.config?.meta.problems?.length ? `\n配置问题：\n${s.config.meta.problems.join('\n')}` : '',
+            ]
+              .filter(Boolean)
+              .join('\n'),
+          );
         });
       },
     },
-    { key: 'about', label: '关于：布局参照 Qt Designer，双模式可视化编辑器 —— By Sxdok', disabled: true },
   ];
 
   return (

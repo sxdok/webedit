@@ -61,10 +61,17 @@ function makeDef(type: string, label: string, modes: ('document' | 'web')[]): Co
   };
 }
 
-function finish(): void {
+/**
+ * 发布结果。
+ * ★`finish()` 会被调用**两次**：第一次在同步段结束时（先给个阶段性结论，窗口里有反馈），
+ *   第二次在 DOM/交互段跑完后（**这才是全量**）。所以给"真正跑完"留一个机器可读的标记，
+ *   否则命令行探针（apps/desktop/scripts/check-page.mjs）会读到 17/17 那种中途数字。
+ */
+function finish(final = false): void {
   const good = results.filter((r) => r.pass).length;
   const title = `check: ${good}/${results.length}${good === results.length ? ' 全部通过' : ' 有失败'}`;
   document.title = title;
+  if (final) document.documentElement.dataset.selfcheckDone = '1';
   // eslint-disable-next-line no-console
   console.log(title, results);
   renderReport(title);
@@ -281,7 +288,7 @@ export function runSelfCheck(): void {
           results.push(...dom);
           void interactionChecks().then((list) => {
             results.push(...list);
-            finish();
+            finish(true); // ← 全量（含 DOM 与交互段）
           });
         }, 260);
       }, 260);
@@ -4421,13 +4428,31 @@ async function interactionChecks(): Promise<Result[]> {
       document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       await wait(140);
     };
+    /** 打开某个**子菜单**并取它的条目（§7.3 的 导出 ▸ / 组件包 ▸ / 模式 ▸；Menu.tsx 的 data-menu-sub） */
+    const openSub = async (menuLabel: string, subKey: string): Promise<string[]> => {
+      await openMenu(menuLabel);
+      const sub = document.querySelector(`[data-menu-sub="${subKey}"]`) as HTMLElement | null;
+      // SubMenu 触发器上绑了 onClick={show}（也支持 hover/focus），点一下最稳
+      sub?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(200);
+      return [...document.querySelectorAll('[data-menu-panel] [data-menu-item]')].map((el) => el.getAttribute('data-menu-item') ?? '');
+    };
+    /** 某个菜单里**有没有这个子菜单入口**（子菜单的父行是 data-menu-sub，不是 data-menu-item） */
+    const hasSub = async (menuLabel: string, subKey: string): Promise<boolean> => {
+      await openMenu(menuLabel);
+      const found = !!document.querySelector(`[data-menu-sub="${subKey}"]`);
+      await closeMenu();
+      return found;
+    };
 
+    const exportSub = await openSub('文件', 'export-sub');
+    await closeMenu();
     const fileItems = await openMenu('文件');
     await closeMenu();
     add(
-      '菜单：文件 → 导出 Word **只保留 .docx**（.doc 已移除）',
-      fileItems.includes('docx') && !fileItems.includes('word'),
-      `文件菜单项：${fileItems.join(' / ')}`,
+      '菜单：文件 → 导出 Word **只保留 .docx**（.doc 已移除；P4 起在「导出 ▸」子菜单里）',
+      exportSub.includes('docx') && !exportSub.includes('word') && !fileItems.includes('word'),
+      `导出 ▸：${exportSub.join(' / ') || '(打不开)'}`,
     );
     add(
       '菜单：文件 → 有 HTML 载入入口（打开 HTML / 从 URL 载入，就是 ?load= 的可视化入口）',
@@ -4437,10 +4462,13 @@ async function interactionChecks(): Promise<Result[]> {
 
     const viewItems = await openMenu('视图');
     await closeMenu();
+    const editItems = await openMenu('编辑');
+    await closeMenu();
+    /* M-1（2026-09-28 菜单改版）：首选项从「视图」移到「编辑」末项 —— 视图从此只管"看什么" */
     add(
-      '菜单：视图 → 首选项…（编辑器设置入口）',
-      viewItems[0] === 'prefs',
-      `视图菜单项：${viewItems.join(' / ')}`,
+      '菜单：首选项在「编辑」末项、且已从「视图」移出（M-1）',
+      editItems[editItems.length - 1] === 'prefs' && !viewItems.includes('prefs'),
+      `编辑末项=${editItems[editItems.length - 1] ?? '(空)'}；视图含 prefs=${viewItems.includes('prefs')}`,
     );
     add(
       '菜单：视图里不再重复放「深色模式」（用户 2026-09-24：主题只留在 首选项 → 外观）',
@@ -4465,8 +4493,107 @@ async function interactionChecks(): Promise<Result[]> {
       `工具菜单项：${toolsItems.join(' / ')}；帮助菜单项：${helpItems2.join(' / ')}`,
     );
 
+    /* ══════════ M-1…M-13 菜单改版（2026-09-28）结构断言 ══════════
+       §7.4 的要求：菜单顺序、每条命令唯一入口、会弹窗的条目、快捷键与标注一致。
+       `…` 结尾这一条只对"新改的这几项"断言（历史条目还有若干没加省略号，不在本次范围）。 */
+    const menuLabels = [...document.querySelectorAll('[data-menu]')].map((el) => el.getAttribute('data-menu') ?? '');
+    add(
+      '菜单顺序 = 文件 编辑 视图 页面 工具 帮助（§7.4）',
+      menuLabels.join(' ') === '文件 编辑 视图 页面 工具 帮助',
+      menuLabels.join(' / '),
+    );
+
+    /** 打开某个子菜单并取它的条目（子菜单是 M-13 之后的新能力：Menu.tsx 支持 `data-menu-sub`） */
+
+    const pageItems = await openMenu('页面');
+    await closeMenu();
+    const helpItems3 = await openMenu('帮助');
+    await closeMenu();
+    const fileItems2 = await openMenu('文件');
+    await closeMenu();
+    /* 子菜单内容先算出来（M-5 要用；也避免"先断言后声明"的 TDZ）。
+       `exportSub` 已在上面（docx 断言处）取过 —— 同一块作用域里只能声明一次。 */
+    const pkgSub = await openSub('文件', 'pkg-sub');
+    await closeMenu();
+    const modeSub = await openSub('视图', 'mode-sub');
+    await closeMenu();
+    const modeEntryInView = await hasSub('视图', 'mode-sub');
+
+    add(
+      'M-2：图表按章编号在「页面」（它改的是**输出内容**，不是显示）',
+      pageItems.includes('autonum') && !viewItems.includes('autonum'),
+      `页面含 autonum=${pageItems.includes('autonum')}；视图含 autonum=${viewItems.includes('autonum')}`,
+    );
+    add(
+      'M-3：关于**只留一处**在「帮助」（工具里不再有第二份）',
+      helpItems3.includes('about') && !toolsItems.includes('about'),
+      `帮助含 about=${helpItems3.includes('about')}；工具含 about=${toolsItems.includes('about')}`,
+    );
+    add(
+      'M-4：检查更新 / 下载页不在「工具」（归到帮助，且只在桌面版出现）',
+      !toolsItems.includes('d-update') && !toolsItems.includes('d-download'),
+      `工具菜单项：${toolsItems.join(' / ')}`,
+    );
+    add(
+      'M-5：组件包与说明清单在「文件」（数据导入导出不属于"帮助"）—— 分别在 导出 ▸ / 组件包 ▸ 子菜单里',
+      exportSub.includes('specsheet') && pkgSub.includes('pkg-export') && pkgSub.includes('pkg-import') && !helpItems3.includes('pkg-export') && !helpItems3.includes('specsheet'),
+      `导出 ▸ 含 specsheet=${exportSub.includes('specsheet')}；组件包 ▸ 含 export/import=${pkgSub.includes('pkg-export')}/${pkgSub.includes('pkg-import')}；帮助含 pkg=${helpItems3.includes('pkg-export')}/spec=${helpItems3.includes('specsheet')}`,
+    );
+    add(
+      'M-10：文件里有「保存为 HTML 文件」与「导出 JSON…」（语义拆开，旧的「保存（导出 JSON）」不再存在）',
+      fileItems2.includes('save-html') && fileItems2.includes('save-json') && !fileItems2.includes('save'),
+      `文件菜单项：${fileItems2.join(' / ')}`,
+    );
+    add(
+      'M-12：视图里有「模式」入口（Ctrl+Shift+M 不再是"快捷键孤儿"）',
+      modeEntryInView,
+      `视图菜单项：${viewItems.join(' / ')}；data-menu-sub=mode-sub=${modeEntryInView}`,
+    );
+    add(
+      'M-13：页面菜单首行标出当前是哪套（文档模式 / Web 模式），避免"同名菜单两种内容"的困惑',
+      pageItems.includes('pmode'),
+      `页面菜单项：${pageItems.join(' / ')}`,
+    );
+
+    /* ── 子菜单（§7.3 的 导出 ▸ / 组件包 ▸ / 模式 ▸）：防止退回平铺 ── */
+    add(
+      '子菜单：文件 → 导出 ▸ 含 HTML / React / Word / 说明清单',
+      ['html', 'react', 'docx', 'specsheet'].every((k) => exportSub.includes(k)),
+      `导出 ▸：${exportSub.join(' / ') || '(打不开)'}`,
+    );
+    add(
+      '子菜单：文件 → 组件包 ▸ 含 导出 / 导入',
+      pkgSub.includes('pkg-export') && pkgSub.includes('pkg-import'),
+      `组件包 ▸：${pkgSub.join(' / ') || '(打不开)'}`,
+    );
+    add(
+      '子菜单：视图 → 模式 ▸ 含 文档 / Web（编辑器实际只有两种模式；PPT 是组件类别，见 M-12 注）',
+      modeSub.includes('mode-document') && modeSub.includes('mode-web') && !modeSub.includes('mode-ppt'),
+      `模式 ▸：${modeSub.join(' / ') || '(打不开)'}`,
+    );
+
+    /* ── 快捷键与菜单标注一致（§7.4）：这里只断言**可观测**的那条（Ctrl+, 打开首选项） ──
+       其余（Ctrl+S / Ctrl+Shift+S / Ctrl+O）在 verify 里做"标注必须有实现"的静态核对。 */
+    const prefsBefore = useEditorStore.getState().ui.prefsOpen === true;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', ctrlKey: true, bubbles: true }));
+    await wait(220);
+    const prefsAfter = useEditorStore.getState().ui.prefsOpen === true;
+    if (prefsAfter) {
+      useEditorStore.getState().toggleUI('prefsOpen');
+      await wait(160);
+    }
+    add(
+      '快捷键一致性：菜单标注的 Ctrl+, **真能**打开首选项（M-1）',
+      prefsBefore === false && prefsAfter === true,
+      `按下前 open=${prefsBefore} → 按下后 open=${prefsAfter}`,
+    );
+
     /* MCP 桥接的状态文案（用户 2026-09-24：点开关弹窗说"已开启"，菜单里却还是「未开启」）
-       —— 原来 `state === 'off'` 同时表示"没开启"和"开了但没连上"，且菜单没人订阅状态 → 说了假话 + 不刷新。 */
+       —— 原来 `state === 'off'` 同时表示"没开启"和"开了但没连上"，且菜单没人订阅状态 → 说了假话 + 不刷新。
+       ★先强制关掉再取"基准"：本机可能真跑着 MCP（编辑器启动时会自动接入），
+         不先归零的话这条断言会随环境红/绿，等于没在验代码。 */
+    setBridgeEnabled(false);
+    await wait(320);
     const helpLabelsBefore = await openMenuLabels('工具');
     await closeMenu();
     const bridgeBefore = bridgeSummary();

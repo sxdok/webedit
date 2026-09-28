@@ -14,6 +14,7 @@ import {
   writeCellBlock,
 } from '../../registry/components/common/tableKit';
 import { log } from '../../utils/logger';
+import { exportJsonFile, openJsonFile, saveAsHtmlFile } from './fileActions';
 
 /** 单元格剪贴板（编辑器态，不进文档、不入持久化）；Ctrl+C/V 在表格选中单元格时优先作用于单元格 */
 let cellClipboard: string[][] | null = null;
@@ -183,6 +184,35 @@ export function useShortcuts() {
       if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         S.setMode(S.doc.mode === 'document' ? 'web' : 'document');
+        return;
+      }
+      /* ── 文件级快捷键（M-10；与菜单共用 components/layout/fileActions 的实现，
+            保证"菜单标了什么、按下去就真做什么"）── */
+      if (mod && e.shiftKey && e.key.toLowerCase() === 's') {
+        // Ctrl+Shift+S = 导出 JSON…（可再编辑的工程文件）
+        e.preventDefault();
+        const msg = exportJsonFile();
+        log.info('file', msg.split('\n')[0]);
+        return;
+      }
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 's') {
+        // Ctrl+S = 保存为 HTML 文件（决策 #12 / Q3）
+        e.preventDefault();
+        const msg = saveAsHtmlFile();
+        log.info('file', msg.split('\n')[0]);
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        void openJsonFile().then((msg) => {
+          if (msg != null) log.info('file', msg.split('\n')[0]);
+        });
+        return;
+      }
+      if (mod && e.key === ',') {
+        // Ctrl+, = 首选项（与「编辑 → 首选项…」同一入口）
+        e.preventDefault();
+        S.toggleUI('prefsOpen');
         return;
       }
       if (mod && (e.key === '=' || e.key === '+')) {

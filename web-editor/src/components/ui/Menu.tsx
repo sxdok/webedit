@@ -12,12 +12,90 @@ export interface MenuItem {
   checked?: boolean;
   danger?: boolean;
   onClick?: () => void;
+  /**
+   * 子菜单（§7.3 目标结构里的 `导出 ▸`、`最近打开 ▸`）。
+   * 有 `submenu` 时本项**不再触发 onClick**，鼠标悬停/聚焦时向右展开；靠近视口右缘自动向左翻。
+   */
+  submenu?: MenuEntry[];
 }
 
 export type MenuEntry = MenuItem | { key: string; separator: true };
 
 function isSeparator(e: MenuEntry): e is { key: string; separator: true } {
   return 'separator' in e;
+}
+
+const SUB_PANEL_W = 260;
+
+/** 子菜单：悬停/聚焦展开，右缘不够就向左翻；点中任一项后连同父菜单一起关 */
+function SubMenu({ entry, onPicked }: { entry: MenuItem; onPicked: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [flip, setFlip] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const show = (): void => {
+    const r = ref.current?.getBoundingClientRect();
+    if (r) setFlip(r.right + SUB_PANEL_W > window.innerWidth);
+    setOpen(true);
+  };
+
+  return (
+    <div ref={ref} className="relative" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
+      <button
+        type="button"
+        disabled={entry.disabled}
+        data-menu-sub={entry.key}
+        onClick={show}
+        onFocus={show}
+        className={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[13px] ${
+          entry.disabled ? 'cursor-not-allowed text-gray-300' : 'text-gray-700 hover:bg-gray-100'
+        }`}
+      >
+        <span className="w-3 text-primary">{entry.checked ? '✓' : ''}</span>
+        <span className="flex-1 pr-3">{entry.label}</span>
+        {entry.shortcut && <span className="flex-none text-2xs text-gray-400">{entry.shortcut}</span>}
+        <span className="flex-none text-2xs text-gray-400">▸</span>
+      </button>
+      {open && (
+        <div
+          data-menu-panel={entry.key}
+          className={`absolute top-0 z-[60] w-max min-w-[200px] max-w-[420px] rounded-md border border-line bg-white py-1 shadow-lg ${
+            flip ? 'right-full' : 'left-full'
+          }`}
+        >
+          {(entry.submenu ?? []).map((child) =>
+            isSeparator(child) ? (
+              <div key={child.key} className="my-1 h-px bg-line" />
+            ) : (
+              <button
+                key={child.key}
+                type="button"
+                disabled={child.disabled}
+                data-menu-item={child.key}
+                onClick={() => {
+                  onPicked();
+                  child.onClick?.();
+                }}
+                className={`flex w-full items-center gap-2 whitespace-nowrap px-3 py-1.5 text-left text-[13px] ${
+                  child.disabled
+                    ? 'cursor-not-allowed text-gray-300'
+                    : child.danger
+                      ? 'text-red-600 hover:bg-red-50'
+                      : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                <span className="w-2 shrink-0">
+                  {child.checked ? '✓' : child.danger ? '·' : ''}
+                </span>
+                <span className="flex-1 pr-3">{child.label}</span>
+                {child.shortcut && <span className="flex-none text-2xs text-gray-400">{child.shortcut}</span>}
+              </button>
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function DropdownMenu({ label, items }: { label: string; items: MenuEntry[] }) {
@@ -57,6 +135,8 @@ export function DropdownMenu({ label, items }: { label: string; items: MenuEntry
           {items.map((entry) =>
             isSeparator(entry) ? (
               <div key={entry.key} className="my-1 h-px bg-line" />
+            ) : entry.submenu ? (
+              <SubMenu key={entry.key} entry={entry} onPicked={() => setOpen(false)} />
             ) : (
               <button
                 key={entry.key}
