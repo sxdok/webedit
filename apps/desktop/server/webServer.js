@@ -808,22 +808,28 @@ export async function startWebServer({
   let inFlight = 0;
   let onAllIdle = null;
 
-  const server = http.createServer((req, res) => {
-    inFlight += 1;
-    res.on('close', () => {
-      inFlight -= 1;
-      if (inFlight === 0 && onAllIdle) onAllIdle();
-    });
-    try {
-      handleRequest(ctx, req, res);
-    } catch (e) {
+  const server = http.createServer(
+    // ★请求头上限：Node 默认 16KB，超过直接回 **431**（页面白屏、标题为空 —— 排查时极难看出是这个原因）。
+    //   本应用的页面 URL 会带长参数（`?load=<data:…>` 载入 HTML、`?loadJson=`、`?exportPdf=`），
+    //   PDF 样张回归时就撞上过：30KB 的 `?loadJson=` 让应用**根本没加载起来**。抬到 256KB。
+    { maxHeaderSize: 256 * 1024 },
+    (req, res) => {
+      inFlight += 1;
+      res.on('close', () => {
+        inFlight -= 1;
+        if (inFlight === 0 && onAllIdle) onAllIdle();
+      });
       try {
-        sendJson(ctx, req, res, 500, { ok: false, error: String((e && e.message) || e) });
-      } catch {
-        res.destroy();
+        handleRequest(ctx, req, res);
+      } catch (e) {
+        try {
+          sendJson(ctx, req, res, 500, { ok: false, error: String((e && e.message) || e) });
+        } catch {
+          res.destroy();
+        }
       }
-    }
-  });
+    },
+  );
 
   const actualPort = await listenFirstFree(server, host, port);
   server.on('error', (e) => {

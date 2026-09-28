@@ -158,8 +158,45 @@ if (params.get('load')) {
   }, 300);
 }
 
+// ?loadJson=<url|data-url> → 载入一份 **.editor.json**（本编辑器原生格式）
+//   用在哪：PDF 空白页回归的**固定样张**（apps/desktop/scripts/pdf-samples.mjs）——样张由脚本以
+//   `data:application/json` 传进来，于是不需要往仓库里塞样张文件、也不需要静态服务器额外路由。
+if (params.get('loadJson')) {
+  const src = String(params.get('loadJson'));
+  setTimeout(() => {
+    void fetch(src, { cache: 'no-store' })
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.text();
+      })
+      .then(async (text) => {
+        const { importJsonIntoEditor } = await import('./utils/importDocument');
+        const res = importJsonIntoEditor(text, '（?loadJson）');
+        const st = useEditorStore.getState();
+        const components = st.doc.document.components;
+        /* 给回归脚本一个"**真正载入了什么**"的读数。
+           为什么不能数画布 DOM：分页画布会把节点按页拆分/包裹（一张表可能变成多个元素），
+           于是"画布节点数 == 样张节点数"这种断言会假红；而"是否真的载入了那个分页符"又必须能证，
+           否则"末尾分页符不多出空白页"会**空过**（导入时就丢了也照样绿）。 */
+        (window as unknown as Record<string, unknown>).__dshLoaded = {
+          title: st.doc.title,
+          nodes: components.length,
+          breaks: components.filter((c) => c.type === 'pageBreak').length,
+          htmlBytes: st.exportHTML().length,
+        };
+        log.info('loadJson', 'JSON 已载入编辑器', { summary: res.summary });
+        document.title = `${st.doc.title} · 可视化编辑器`;
+        queueMicrotask(() => void maybeAutoExportPdf());
+      })
+      .catch((e: unknown) => {
+        document.title = `pdf-export: fail load ${e instanceof Error ? e.message : String(e)}`;
+        log.error('loadJson', `?loadJson 载入失败`, { error: String(e) });
+      });
+  }, 300);
+}
+
 /**
- * `?exportPdf=<路径>` → 启动后（`?load=` 完成之后）**自动导出一份 PDF** 到指定路径，
+ * `?exportPdf=<路径>` → 启动后（`?load=`/`?loadJson=` 完成之后）**自动导出一份 PDF** 到指定路径，
  * 并把结论写进 `document.title`（`pdf-export: ok <bytes> <path>` / `pdf-export: fail <原因>`）。
  *
  * 为什么要这个钩子：E2 的验收标准是"**空白页 = 0**、实际页数 == 期望页数"，而那必须对**固定样张**
@@ -177,7 +214,7 @@ async function maybeAutoExportPdf(): Promise<void> {
     document.title = `pdf-export: fail ${e instanceof Error ? e.message : String(e)}`;
   }
 }
-if (params.get('exportPdf') && !params.get('load')) queueMicrotask(() => void maybeAutoExportPdf());
+if (params.get('exportPdf') && !params.get('load') && !params.get('loadJson')) queueMicrotask(() => void maybeAutoExportPdf());
 
 // ?demo=1 → 灌入示例文档（两种模式各一页、含全部组件）；随后（无论是否 demo）应用 ?mode=
 // ?select=<type|index> → 启动后选中一个节点（截图/核对属性面板排版用，例如 ?select=table）
