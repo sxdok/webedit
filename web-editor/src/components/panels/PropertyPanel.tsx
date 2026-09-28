@@ -232,14 +232,14 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
         <span
           data-props-id="1"
           className="shrink-0 font-mono text-2xs text-gray-400"
-          title={`组件 ID：${node.id}\n本文档内唯一（读取/导入时会把重复或缺失的 ID 重新生成）；\n它写进文档 JSON，选中、撤销重做、组件树、MCP 的 node.* 都用它。`}
+          data-tip-text={`组件 ID：${node.id}\n本文档内唯一（读取/导入时会把重复或缺失的 ID 重新生成）；\n它写进文档 JSON，选中、撤销重做、组件树、MCP 的 node.* 都用它。`}
         >
           {node.id}
         </span>
         <button
           type="button"
           data-copy-id="1"
-          title="复制组件 ID"
+          data-tip-text="复制组件 ID"
           onClick={() => {
             void navigator.clipboard?.writeText(node.id);
             setCopied(true);
@@ -368,7 +368,7 @@ function NodeProperties({ node, mode }: { node: ComponentNode; mode: 'document' 
         {Object.entries(status).map(([k, v]) => (
           <div key={k} className="flex items-center gap-2 py-0.5 text-2xs text-gray-500" data-status-row={k}>
             <span className="w-24 shrink-0 truncate">{k}</span>
-            <span className="ml-auto truncate font-mono text-gray-600" title={v}>
+            <span className="ml-auto truncate font-mono text-gray-600" data-tip-text={v}>
               {v}
             </span>
           </div>

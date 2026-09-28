@@ -833,6 +833,66 @@ async function testStatic() {
     !/buildKeyLegacyPath/.test(text('src/paths.js')) && !/buildKeyLegacyPath/.test(text('src/secureConfig.js')),
     'paths.js / secureConfig.js 均无 buildKeyLegacyPath',
   );
+
+  /* ── D16（P4）：属性面板/控件里**不得再用原生 `title`**（规格 §7：统一走自研气泡） ──
+   * 做法：扫 web-editor/src 的 tsx，遇到 `title={` / `title="` 就**回溯找它的宿主 JSX 标签**
+   * （按大括号深度跳过箭头函数里的 `>`，遇到 depth 0 的 `>` 说明已走出该元素）：
+   *   · 小写标签（button/span/input/select…）= DOM 元素 → 违规；
+   *   · 大写标签（Modal / Section / ToolButton…）= 组件 prop → 放行。
+   * 这条断言是必要的：气泡改事件委托（`data-tip-text`）后，**误写回原生 title 不会有任何报错**，
+   * 只会悄悄退化回系统提示（丑且不一致）。
+   */
+  const hostTagOf = (lines, row) => {
+    const m = /(?<![-\w])title=\{/.exec(lines[row]) ?? /(?<![-\w])title="/.exec(lines[row]);
+    let col = m ? m.index : lines[row].length;
+    let depth = 0;
+    for (let k = row; k >= 0 && k >= row - 40; k -= 1) {
+      const lineText = lines[k];
+      for (let c = (k === row ? col - 1 : lineText.length - 1); c >= 0; c -= 1) {
+        const ch = lineText[c];
+        if (ch === '}') depth += 1;
+        else if (ch === '{') depth -= 1;
+        else if (depth === 0) {
+          if (ch === '>') return null; // 走出本元素（上一个兄弟/父级已闭合）
+          if (ch === '<') {
+            const t = /^([A-Za-z][\w.:-]*)/.exec(lineText.slice(c + 1));
+            return t ? t[1] : null;
+          }
+        }
+      }
+    }
+    return null;
+  };
+  const srcRoot = join(WEB_ROOT, 'src');
+  const tsxFiles = [];
+  const collectTsx = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) collectTsx(p);
+      else if (e.name.endsWith('.tsx')) tsxFiles.push(p);
+    }
+  };
+  collectTsx(srcRoot);
+  const titleViolations = [];
+  for (const f of tsxFiles) {
+    const lines = readFileSync(f, 'utf8').split(/\r?\n/);
+    lines.forEach((_l, i) => {
+      if (!/(?<![-\w])title=\{/.test(lines[i]) && !/(?<![-\w])title="/.test(lines[i])) return;
+      const tag = hostTagOf(lines, i);
+      if (tag && /^[a-z]/.test(tag)) titleViolations.push(`${relative(REPO_ROOT, f).replace(/\\/g, '/')}:${i + 1} <${tag}>`);
+    });
+  }
+  ok(
+    'D16：属性面板/控件里没有原生 `title`（DOM 元素一律走 `data-tip-text` + 自研气泡）',
+    titleViolations.length === 0,
+    titleViolations.length ? `违规 ${titleViolations.length} 处：${titleViolations.slice(0, 5).join('、')}` : `扫描 ${tsxFiles.length} 个 tsx，0 处原生 title`,
+  );
+  const appText = readFileSync(join(srcRoot, 'App.tsx'), 'utf8');
+  ok(
+    'D16：气泡事件委托层 `TooltipLayer` 已挂载（否则 data-tip-text 是死属性）',
+    /import\s*\{[^}]*TooltipLayer[^}]*\}/.test(appText) && /<TooltipLayer\s*\/>/.test(appText),
+    'App.tsx 有 import TooltipLayer 且渲染了 <TooltipLayer />',
+  );
 }
 
 /* ═══════════ 主流程 ═══════════ */

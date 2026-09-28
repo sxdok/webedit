@@ -44,7 +44,7 @@ export const stampComponent: ComponentDefinition = {
     const filled = props.filled === true;
     return (
       <div
-        title="印章"
+        data-tip-text="印章"
         style={{
           width: size,
           height: size,

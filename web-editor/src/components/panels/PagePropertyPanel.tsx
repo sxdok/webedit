@@ -472,7 +472,7 @@ export function PagePropertyPanel() {
         {Object.entries(status).map(([k, v]) => (
           <div key={k} className="flex items-center gap-2 py-0.5 text-2xs text-gray-500" data-status-row={k}>
             <span className="w-24 shrink-0 truncate">{k}</span>
-            <span className="ml-auto truncate font-mono text-gray-600" title={v}>
+            <span className="ml-auto truncate font-mono text-gray-600" data-tip-text={v}>
               {v}
             </span>
           </div>

@@ -78,7 +78,7 @@ export function ColorControl({ value, onChange }: ControlProps) {
         data-color-swatch="1"
         className="h-7 w-8 shrink-0 cursor-pointer rounded-md border border-line"
         style={{ background: cur }}
-        title={cur}
+        data-tip-text={cur}
         onClick={() => {
           const r = btnRef.current?.getBoundingClientRect();
           if (r) setPos({ x: Math.max(8, Math.min(r.left, window.innerWidth - 208)), y: r.bottom + 6 });
@@ -102,7 +102,7 @@ export function ColorControl({ value, onChange }: ControlProps) {
                 data-palette={c}
                 className="h-3.5 w-3.5 rounded-sm border border-line"
                 style={{ background: c }}
-                title={c}
+                data-tip-text={c}
                 onClick={() => pick(c)}
               />
             ))}
@@ -117,7 +117,7 @@ export function ColorControl({ value, onChange }: ControlProps) {
                     type="button"
                     className="h-3.5 w-3.5 rounded-sm border border-line"
                     style={{ background: c }}
-                    title={c}
+                    data-tip-text={c}
                     onClick={() => pick(c)}
                   />
                 ))}
@@ -136,7 +136,7 @@ export function ColorControl({ value, onChange }: ControlProps) {
               type="button"
               className="ml-auto flex h-6 items-center gap-0.5 rounded-md border border-line px-1 text-2xs hover:border-primary hover:text-primary disabled:opacity-40"
               disabled={!(window as unknown as { EyeDropper?: unknown }).EyeDropper}
-              title={(window as unknown as { EyeDropper?: unknown }).EyeDropper ? '吸管取色' : '当前浏览器不支持吸管'}
+              data-tip-text={(window as unknown as { EyeDropper?: unknown }).EyeDropper ? '吸管取色' : '当前浏览器不支持吸管'}
               onClick={() => void eyedrop()}
             >
               <Pipette className="h-3 w-3" />

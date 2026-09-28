@@ -263,7 +263,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
             className="h-6 min-w-0 flex-1 rounded border border-line bg-white px-1 text-2xs disabled:opacity-40"
             value={String(weightValue)}
             onChange={(e) => apply({ fontWeight: Number(e.target.value) })}
-            title="字重"
+            data-tip-text="字重"
           >
             <option value="400">常规</option>
             <option value="600">中粗</option>
@@ -301,7 +301,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
               data-cell-align={v}
               disabled={disabled}
               className={`${btnCls} ${alignValue === v ? 'border-primary bg-primary/10 text-primary' : ''} w-6 shrink-0 justify-center px-0`}
-              title={`水平对齐：${{ left: '左', center: '中', right: '右', justify: '两端' }[v]}`}
+              data-tip-text={`水平对齐：${{ left: '左', center: '中', right: '右', justify: '两端' }[v]}`}
               onClick={() => apply({ align: v })}
             >
               <Icon className="h-3 w-3" />
@@ -325,7 +325,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
         <div className="space-y-1">
           <div className="flex items-center gap-1.5">
             <span className="w-9 shrink-0 text-right text-2xs text-gray-400">边框</span>
-            <button type="button" className={`${btnCls} shrink-0`} onClick={() => setShowBorder((v) => !v)} title="单元格边框（四边各自设宽度）">
+            <button type="button" className={`${btnCls} shrink-0`} onClick={() => setShowBorder((v) => !v)} data-tip-text="单元格边框（四边各自设宽度）">
               {showBorder ? '收起 ▲' : '展开 ▼'}
             </button>
             {showBorder && (
@@ -336,7 +336,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
                 className="h-6 w-8 shrink-0 cursor-pointer rounded border border-line bg-white p-0.5"
                 value={borderColor}
                 onChange={(e) => apply({ border: { ...border, color: e.target.value } })}
-                title="边框颜色"
+                data-tip-text="边框颜色"
               />
             )}
           </div>
@@ -371,13 +371,13 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
           data-cell-merge="1"
           className={`${btnCls} justify-center`}
           disabled={disabled || (range ? range.r0 === range.r1 && range.c0 === range.c1 : true)}
-          title="合并选中的单元格"
+          data-tip-text="合并选中的单元格"
           onClick={merge}
         >
           <Combine className="mr-0.5 h-3 w-3" />
           合并单元格
         </button>
-        <button type="button" data-cell-split="1" className={`${btnCls} justify-center`} disabled={disabled} title="拆分（去掉合并与格式）" onClick={split}>
+        <button type="button" data-cell-split="1" className={`${btnCls} justify-center`} disabled={disabled} data-tip-text="拆分（去掉合并与格式）" onClick={split}>
           <Split className="mr-0.5 h-3 w-3" />
           拆分
         </button>
@@ -386,7 +386,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
           data-cell-apply-row="1"
           className={`${btnCls} justify-center`}
           disabled={disabled}
-          title="把左上角那格的格式复制到整行"
+          data-tip-text="把左上角那格的格式复制到整行"
           onClick={() => apply({ ...first }, range ? rowKeys(range) : undefined)}
         >
           <ArrowRightToLine className="mr-0.5 h-3 w-3" />
@@ -397,7 +397,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
           data-cell-apply-col="1"
           className={`${btnCls} justify-center`}
           disabled={disabled}
-          title="把左上角那格的格式复制到整列"
+          data-tip-text="把左上角那格的格式复制到整列"
           onClick={() => apply({ ...first }, range ? colKeys(range) : undefined)}
         >
           <ArrowDownToLine className="mr-0.5 h-3 w-3" />
@@ -411,7 +411,7 @@ export function TableCellsControl({ value, nodeId }: ControlProps) {
           disabled={!filled}
           className={btnCls}
           onClick={() => updateProps(nodeId ?? '', { cellStyles: {} })}
-          title="清空这张表上所有的单元格格式"
+          data-tip-text="清空这张表上所有的单元格格式"
         >
           <Paintbrush className="mr-0.5 h-3 w-3" />
           清空全部格式

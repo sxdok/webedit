@@ -82,7 +82,7 @@ export function MultiSelectPanel() {
             <button
               key={label}
               type="button"
-              title={label}
+              data-tip-text={label}
               className={smallBtnCls}
               onClick={() => each((id) => updateFrame(id, patch))}
             >
@@ -94,21 +94,21 @@ export function MultiSelectPanel() {
 
       <PropertyDrawer name="层级" open={open['层级'] !== false} onToggle={() => setOpen((s) => ({ ...s, 层级: s['层级'] === false }))}>
         <div className="flex flex-wrap gap-1 px-1">
-          <button type="button" title="置顶" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().bringToFront(id))}>
+          <button type="button" data-tip-text="置顶" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().bringToFront(id))}>
             <ArrowUpToLine className="h-3.5 w-3.5" />
           </button>
-          <button type="button" title="上移一层" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().bringForward(id))}>
+          <button type="button" data-tip-text="上移一层" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().bringForward(id))}>
             <ChevronUp className="h-3.5 w-3.5" />
           </button>
-          <button type="button" title="下移一层" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().sendBackward(id))}>
+          <button type="button" data-tip-text="下移一层" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().sendBackward(id))}>
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
-          <button type="button" title="置底" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().sendToBack(id))}>
+          <button type="button" data-tip-text="置底" className={smallBtnCls} onClick={() => each((id) => useEditorStore.getState().sendToBack(id))}>
             <ArrowDownToLine className="h-3.5 w-3.5" />
           </button>
           <button
             type="button"
-            title="删除选中的组件"
+            data-tip-text="删除选中的组件"
             className={`${smallBtnCls} border-red-200 text-red-500 hover:border-red-400`}
             onClick={() => each((id) => removeComponent(id))}
           >

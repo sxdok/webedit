@@ -140,7 +140,7 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
               type="button"
               data-image-row-rotate={i + 1}
               data-image-row-rot={r.rot}
-              title={`旋转这张图 90°（当前 ${r.rot}°；点 4 下回到 0°）`}
+              data-tip-text={`旋转这张图 90°（当前 ${r.rot}°；点 4 下回到 0°）`}
               onClick={() => patch(i, { rot: normRot(r.rot + 90) })}
               className={iconBtn}
             >
@@ -150,7 +150,7 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
               <button
                 type="button"
                 data-image-row-angle={i + 1}
-                title={`当前 ${r.rot}°，点一下归零`}
+                data-tip-text={`当前 ${r.rot}°，点一下归零`}
                 onClick={() => patch(i, { rot: 0 })}
                 className="h-6 shrink-0 rounded border border-line px-1 text-[10px] tabular-nums text-gray-500 hover:border-primary hover:text-primary"
               >
@@ -160,7 +160,7 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
             <button
               type="button"
               data-image-row-file={i + 1}
-              title="选这张图的本地文件（转 data:URL 填进地址）"
+              data-tip-text="选这张图的本地文件（转 data:URL 填进地址）"
               onClick={() => pickImageDataUrl((dataUrl) => patch(i, { src: dataUrl }))}
               className={iconBtn}
             >
@@ -190,7 +190,7 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
                 type="button"
                 data-image-row-add={i + 1}
                 disabled={rows.length >= IMAGE_ROWS_MAX}
-                title={rows.length >= IMAGE_ROWS_MAX ? `最多 ${IMAGE_ROWS_MAX} 张` : '加一张图（加在最后一行后面）'}
+                data-tip-text={rows.length >= IMAGE_ROWS_MAX ? `最多 ${IMAGE_ROWS_MAX} 张` : '加一张图（加在最后一行后面）'}
                 onClick={appendRow}
                 className={iconBtn}
               >
@@ -201,7 +201,7 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
               <button
                 type="button"
                 data-image-row-remove={i + 1}
-                title="删掉这一行"
+                data-tip-text="删掉这一行"
                 onClick={() => removeAt(i)}
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-line text-gray-500 hover:border-red-300 hover:text-red-500"
               >

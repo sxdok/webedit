@@ -390,7 +390,7 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
             key={i}
             data-col-handle="1"
             data-col-index={i}
-            title="拖动调整相邻两列列宽"
+            data-tip-text="拖动调整相邻两列列宽"
             onPointerDown={(e) => startDrag(e, i)}
             className="pointer-events-auto absolute"
             style={{
@@ -410,7 +410,7 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
         <>
           <div
             data-fill-handle="1"
-            title="拖动填充：数字递增、日期 +1 天、恒定差分继续等差，其它按源循环"
+            data-tip-text="拖动填充：数字递增、日期 +1 天、恒定差分继续等差，其它按源循环"
             onPointerDown={startFill}
             className="pointer-events-auto absolute"
             style={{
@@ -446,7 +446,7 @@ export function TableOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
             key={`row-${b.rowIndex}`}
             data-row-handle="1"
             data-row-index={b.rowIndex}
-            title={`拖动调整**第 ${b.rowIndex + 1} 行**的行高（单位 mm，只影响这一行）`}
+            data-tip-text={`拖动调整**第 ${b.rowIndex + 1} 行**的行高（单位 mm，只影响这一行）`}
             onPointerDown={(e) => startRowDrag(e, b.rowIndex, b.rowHeightPx)}
             className="pointer-events-auto absolute"
             style={{

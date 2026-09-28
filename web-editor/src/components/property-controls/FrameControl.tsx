@@ -25,7 +25,7 @@ export function FrameControl({ value, onChange }: ControlProps) {
           </label>
         ))}
       </div>
-      <label className="flex shrink-0 items-center gap-0.5" title="旋转角（度）">
+      <label className="flex shrink-0 items-center gap-0.5" data-tip-text="旋转角（度）">
         <span className="text-2xs text-gray-400">旋转</span>
         <input
           type="number"

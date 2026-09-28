@@ -1715,6 +1715,26 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 
 **P0 剩余（第 3 轮）**：把 token 交给用户补 DSH 配置并重启 DSH（见 §15.5 的时点表）；`agent-live-check` 的 PDF 一条留到 P4.5-E2。
 
+**P0 收尾实测（第 3 轮）**：真实桌面自检 `--selftest` **10/10**（新增"不带 token 的客户端被拒 401"一条，正好抓出旧自检没带票的 A 段问题）；`auth-check` 增补"写禁用时写工具被拒且提示可读" → **13/13**；三份文档的闸门数字已刷新（verify 78 / selftest 10 / unit 83 / auth 13）。
+
+另外查清一处**用户侧配置事故**（不是产品缺陷）：DSH 的 `mcp-mcp-editor` 条目把 `headers` 写成了字符串（schema 要求"头名→值"对象）→ 配置校验失败、插件挂载不了、工具全无。正确写法见 §15.4 的配置片段；现已修正并验证（工具注册 + 真调用成功）。
+
+---
+
+### 15.7 P4 实际施工记录（进行中）
+
+**D16（原生 `title` → 自研气泡）—— ✅ 已完成**
+
+| 项 | 内容 |
+|---|---|
+| 口径更正 | 审计报的是 **24 处**（只扫 `panels/` 与 `property-controls/`、用窄正则）；**全仓实际 88 处 DOM 原生 `title`**，分布 **32 个文件**（Canvas 缩放条 / 翻页标签 / 表格浮层拖拽柄 / 富文本工具条 12 处 / 表格控件 9 处 / 工具栏共用按钮…）。原正则还把 `data-new-doc-title="1"` 这类**误算**进来。 |
+| 方案选择 | **不逐个包 `<Tooltip>`**：它会多渲染一层 `<span>`，行内/弹性布局的宿主元素（按钮、色板、截断文本）会因此移位。改为给 Tooltip 加**事件委托层**（`TooltipLayer`）：元素只写 `data-tip-text="…"`，全局层在 `document` 上委托 `mouseover`/`focusin`，用与 Tooltip **完全相同**的气泡样式渲染（`position: fixed`、400ms 延迟、跟随鼠标、边缘翻转、多行首行加粗）→ **DOM 结构零变化**。 |
+| 落地 | `ui/Tooltip.tsx`（+`TIP_ATTR`、+`TooltipLayer`）；`App.tsx` 挂载一次；32 个文件 88 处 `title={` → `data-tip-text={`。**组件 prop 一律不碰**：`<Modal title>`、`<Section title>`、`<ToolButton title>` 保持原样，其中 ToolButton 内部那一处转成 `data-tip-text={title}` → 工具栏 15 个按钮一次性受益。 |
+| 防回潮断言 | `verify-desktop.mjs` +2 条：① JSX 感知扫描——`title` 的宿主标签若是**小写**（DOM 元素）即违规（按大括号深度跳过箭头函数里的 `>`）；② `TooltipLayer` 必须被 import 且渲染（否则 `data-tip-text` 是死属性）。 |
+| 验证 | `web-editor npm run build` ✅；`apps/desktop npm run verify` **80/80**（原 78 + 新增 2）；复核扫描：**DOM 原生 title 剩余 0 处**（剩余 29 处全是组件 prop）。 |
+
+**下一步（同一阶段）**：M-1…M-13 菜单改版（首选项归位、关于/更新归帮助、组件包归文件、补剪切/查找/全屏/Ctrl+Y/最近文档、模式入口），按 §7.3 目标结构分两次提交，并补"菜单结构断言"与"快捷键一致性断言"。
+
 ---
 
 ## 第 16 章 数据迁移指南

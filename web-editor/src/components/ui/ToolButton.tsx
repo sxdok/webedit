@@ -21,7 +21,7 @@ export function ToolButton({
   return (
     <button
       type="button"
-      title={title}
+      data-tip-text={title}
       disabled={disabled}
       onClick={onClick}
       className={`flex h-7 min-w-7 items-center justify-center gap-1 rounded px-1.5 text-[13px] transition-colors ${

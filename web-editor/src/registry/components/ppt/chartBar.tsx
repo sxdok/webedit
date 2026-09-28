@@ -53,7 +53,7 @@ export const chartBarComponent: ComponentDefinition = {
                 <div style={{ textAlign: 'center', color: '#5b6472', marginBottom: 2 }}>{d.value}</div>
               )}
               <div
-                title={`${d.label}：${d.value}`}
+                data-tip-text={`${d.label}：${d.value}`}
                 style={{
                   height: `${Math.max(2, (d.value / max) * 100)}%`,
                   background: accent,

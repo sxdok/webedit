@@ -246,7 +246,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
             onChange={(e) => setRowInput(e.target.value)}
             onBlur={commit}
             onKeyDown={onKey}
-            title="把整张表改成这么多行（含表头）；回车或失焦生效"
+            data-tip-text="把整张表改成这么多行（含表头）；回车或失焦生效"
           />
         </label>
         <label className="flex min-w-0 items-center gap-1">
@@ -261,7 +261,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
             onChange={(e) => setColInput(e.target.value)}
             onBlur={commit}
             onKeyDown={onKey}
-            title="把整张表改成这么多列；回车或失焦生效"
+            data-tip-text="把整张表改成这么多列；回车或失焦生效"
           />
         </label>
       </div>
@@ -280,7 +280,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
 
       {/* 插入 / 删除：2×2 网格，四颗按钮等宽对齐 */}
       <div className="grid grid-cols-2 gap-1">
-        <button type="button" data-table-ins-row="1" className={`${btn} justify-center`} disabled={!range} onClick={insertRowsAt} title="在选中行上方插入">
+        <button type="button" data-table-ins-row="1" className={`${btn} justify-center`} disabled={!range} onClick={insertRowsAt} data-tip-text="在选中行上方插入">
           插入行
         </button>
         {/* 删除会丢内容 → 两次点击确认（第一次只"待确认"，标签变红提示再点一次） */}
@@ -293,7 +293,7 @@ export function TableSizeControl({ nodeId }: ControlProps) {
         >
           {pending === 'row' ? '再点一次删除行' : '删除行'}
         </button>
-        <button type="button" data-table-ins-col="1" className={`${btn} justify-center`} disabled={!range} onClick={insertColsAt} title="在选中列左侧插入">
+        <button type="button" data-table-ins-col="1" className={`${btn} justify-center`} disabled={!range} onClick={insertColsAt} data-tip-text="在选中列左侧插入">
           插入列
         </button>
         <button
@@ -313,12 +313,12 @@ export function TableSizeControl({ nodeId }: ControlProps) {
           data-table-clear-content="1"
           className={pending === 'clear' ? `${btn} border-red-400 text-red-500` : btn}
           disabled={!dim.rows}
-          title="清空所有单元格的文字（行列数与格式保留）"
+          data-tip-text="清空所有单元格的文字（行列数与格式保留）"
           onClick={() => arm('clear', clearContent)}
         >
           {pending === 'clear' ? '再点一次清空' : '清空内容'}
         </button>
-        <button type="button" className={`${btn} ml-auto`} title="按内容重算各列宽度（整表操作）" onClick={autofit}>
+        <button type="button" className={`${btn} ml-auto`} data-tip-text="按内容重算各列宽度（整表操作）" onClick={autofit}>
           列宽自适应
         </button>
       </div>

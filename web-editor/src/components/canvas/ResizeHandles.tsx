@@ -63,7 +63,7 @@ export function ResizeHandles({
       {/* 旋转手柄：顶边上方（按住 Shift 吸附 15°） */}
       <div
         data-handle="rotate"
-        title="旋转（按住 Shift 吸附 15°）"
+        data-tip-text="旋转（按住 Shift 吸附 15°）"
         className="pointer-events-auto absolute z-40 rounded-full bg-white"
         style={{
           left: w / 2 - 5,

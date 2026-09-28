@@ -171,7 +171,7 @@ export function ReadonlyRow({ label, value }: { label: string; value: string }) 
   return (
     <div className="flex items-center gap-2 py-0.5 text-2xs text-gray-500">
       <span className="w-24 shrink-0 truncate">{label}</span>
-      <span className="ml-auto truncate font-mono text-gray-600" title={value}>
+      <span className="ml-auto truncate font-mono text-gray-600" data-tip-text={value}>
         {value}
       </span>
     </div>

@@ -39,7 +39,7 @@ export function TableSortControl({ value, nodeId, onChange }: ControlProps) {
         value={by}
         onChange={(e) => onChange(Number(e.target.value))}
         className="h-6 min-w-0 max-w-[150px] flex-1 rounded border border-line bg-white px-1 text-2xs"
-        title="选择排序依据的列（A/B/C…）"
+        data-tip-text="选择排序依据的列（A/B/C…）"
       >
         <option value={-1}>不排序</option>
         {Array.from({ length: cols }, (_, i) => {
@@ -62,7 +62,7 @@ export function TableSortControl({ value, nodeId, onChange }: ControlProps) {
           disabled={by < 0}
           onClick={() => updateProps(nodeId, { sortDir: dir === 'asc' ? 'desc' : 'asc' })}
           className={`${btnCls} disabled:opacity-40`}
-          title={dir === 'asc' ? '当前升序，点击改降序' : '当前降序，点击改升序'}
+          data-tip-text={dir === 'asc' ? '当前升序，点击改降序' : '当前降序，点击改升序'}
         >
           {dir === 'asc' ? <ArrowUpAZ className="h-3 w-3" /> : <ArrowDownAZ className="h-3 w-3" />}
           {dir === 'asc' ? '升序' : '降序'}
@@ -74,7 +74,7 @@ export function TableSortControl({ value, nodeId, onChange }: ControlProps) {
         disabled={by < 0}
         onClick={() => onChange(-1)}
         className={`${btnCls} disabled:opacity-40`}
-        title="清除排序（恢复原始行序）"
+        data-tip-text="清除排序（恢复原始行序）"
       >
         <X className="h-3 w-3" />
         清除

@@ -26,7 +26,7 @@ export const spacerComponent: ComponentDefinition = {
     const px = ctx.mode === 'document' ? ctx.mmToPx(mm) : mm * 3.78;
     return (
       <div
-        title={`间隔 ${mm}mm`}
+        data-tip-text={`间隔 ${mm}mm`}
         style={{
           height: px,
           borderLeft: props.showHint === true ? '2px dotted #d0d5dd' : undefined,

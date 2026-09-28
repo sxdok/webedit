@@ -709,12 +709,12 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           <button
             type="button"
             className="h-6 w-6 rounded hover:bg-gray-100"
-            title="缩小（Ctrl+- 或 Ctrl+滚轮）"
+            data-tip-text="缩小（Ctrl+- 或 Ctrl+滚轮）"
             onClick={() => setZoomAtCenter(Math.max(0.1, Math.round((zoom - 0.1) * 100) / 100))}
           >
             −
           </button>
-          <span className="w-10 text-center tabular-nums" data-zoom-label={Math.round(zoom * 100)} title={
+          <span className="w-10 text-center tabular-nums" data-zoom-label={Math.round(zoom * 100)} data-tip-text={
             narrowFit
               ? `窗口放不下 A4（${Math.round(paperW)}px），预览已自动缩到 ${Math.round(zoom * 100)}%（首选项 → 画布 可关掉；导出/打印不受影响）`
               : '画布预览缩放'
@@ -724,7 +724,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           <button
             type="button"
             className="h-6 w-6 rounded hover:bg-gray-100"
-            title="放大（Ctrl+= 或 Ctrl+滚轮）"
+            data-tip-text="放大（Ctrl+= 或 Ctrl+滚轮）"
             onClick={() => setZoomAtCenter(Math.min(4, Math.round((zoom + 0.1) * 100) / 100))}
           >
             ＋
@@ -733,7 +733,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           <button
             type="button"
             className="rounded px-1.5 py-0.5 hover:bg-gray-100"
-            title="适应宽度"
+            data-tip-text="适应宽度"
             onClick={() => {
               const z = fitWidth();
               useEditorStore.getState().setZoom(z);
@@ -751,7 +751,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           <button
             type="button"
             className="rounded px-1.5 py-0.5 hover:bg-gray-100"
-            title="实际大小并居中"
+            data-tip-text="实际大小并居中"
             onClick={() => {
               useEditorStore.getState().setZoom(1);
               const el = viewportRef.current;
@@ -770,7 +770,7 @@ export function Canvas({ onPointer }: { onPointer: (p: { x: number; y: number })
           <span className="mx-0.5 h-4 w-px bg-line" />
           <span
             className="whitespace-nowrap pr-0.5 text-2xs text-gray-400"
-            title={
+            data-tip-text={
               isDoc
                 ? '文档模式：滚轮 / 滚动条翻页，标尺固定在视口边缘（不再拖动画布）'
                 : '像 PS 的手抓工具：按住空格拖拽，或按住鼠标中键拖拽；滚轮也可平移'

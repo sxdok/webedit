@@ -25,7 +25,7 @@ export function EdgeControl({ value, onChange }: ControlProps) {
             key={k}
             type="number"
             data-edge={k}
-            title={k}
+            data-tip-text={k}
             className="h-7 w-full min-w-0 rounded-md border border-line bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-primary"
             value={asNumber(v[k])}
             onChange={(e) => set(k, Number(e.target.value))}
@@ -36,7 +36,7 @@ export function EdgeControl({ value, onChange }: ControlProps) {
         type="button"
         data-edge-lock={locked ? '1' : '0'}
         className={`${smallBtnCls} ${locked ? 'border-primary bg-primary/10 text-primary' : ''}`}
-        title={locked ? '已联动：改一边四边同步' : '联动锁：四边同步'}
+        data-tip-text={locked ? '已联动：改一边四边同步' : '联动锁：四边同步'}
         onClick={() => setLocked((x) => !x)}
       >
         {locked ? <Link className="h-3.5 w-3.5" /> : <Unlink className="h-3.5 w-3.5" />}

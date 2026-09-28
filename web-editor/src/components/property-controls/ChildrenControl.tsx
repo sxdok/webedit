@@ -48,7 +48,7 @@ export function ChildrenControl({ nodeId }: { nodeId?: string }) {
                 </span>
                 <button
                   type="button"
-                  title="选中"
+                  data-tip-text="选中"
                   className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-primary"
                   onClick={() => selectComponent([c.id])}
                 >
@@ -56,7 +56,7 @@ export function ChildrenControl({ nodeId }: { nodeId?: string }) {
                 </button>
                 <button
                   type="button"
-                  title="上移"
+                  data-tip-text="上移"
                   disabled={i === 0}
                   className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-primary disabled:opacity-30"
                   onClick={() => move(c.id, -1)}
@@ -65,7 +65,7 @@ export function ChildrenControl({ nodeId }: { nodeId?: string }) {
                 </button>
                 <button
                   type="button"
-                  title="下移"
+                  data-tip-text="下移"
                   disabled={i === children.length - 1}
                   className="rounded p-0.5 text-gray-400 hover:bg-gray-100 hover:text-primary disabled:opacity-30"
                   onClick={() => move(c.id, 1)}
@@ -74,7 +74,7 @@ export function ChildrenControl({ nodeId }: { nodeId?: string }) {
                 </button>
                 <button
                   type="button"
-                  title="删除"
+                  data-tip-text="删除"
                   className="rounded p-0.5 text-gray-400 hover:bg-red-50 hover:text-red-600"
                   onClick={() => removeComponent(c.id)}
                 >

@@ -130,3 +130,127 @@ export function Tooltip({
     </span>
   );
 }
+
+/* ══════════════ 事件委托层：给已有元素加气泡，**不改 DOM 结构** ══════════════
+ *
+ * 背景（D16，2026-09-28 审计）：属性面板与控件里散着 24 处**原生 `title`**（截断值、按钮说明、
+ * 色板、对齐按钮…）。规格 §7 明确"禁止用原生 title"（原生提示丑、延迟由系统定、不能带结构、
+ * 和自研气泡风格不一致）。但逐个用 `<Tooltip>` 包一层会**改变 DOM 结构与布局**
+ * （Tooltip 会多出一个 `<span>`，行内元素/弹性布局都会受影响）。
+ *
+ * 做法：元素上只写 `data-tip-text="…"`，本层在 document 上做**事件委托**，用与 Tooltip 完全相同的
+ * 气泡样式渲染（`position: fixed` → 不被滚动容器裁剪；`createPortal` 之外的方案都动 DOM，故不用）。
+ *   · 400ms 延迟、移出/按下/滚动立即消失、跟随鼠标右下 12px、边缘自动翻转；
+ *   · 多行文案用 `\n` 分隔：首行加粗（当作"名称"），其余行按说明逐行显示 —— 与结构化气泡一致；
+ *   · 键盘可达：`focusin`/`focusout` 同样触发（按钮的键盘用户也能看到说明）。
+ *
+ * 挂载点：`App.tsx` 里挂一次即可（verify 有断言盯它还在）。
+ */
+export const TIP_ATTR = 'data-tip-text';
+
+interface LayerState {
+  x: number;
+  y: number;
+  lines: string[];
+}
+
+export function TooltipLayer() {
+  const [state, setState] = useState<LayerState | null>(null);
+  const timer = useRef<number | null>(null);
+  const anchor = useRef<Element | null>(null);
+  const pointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const clear = (): void => {
+      if (timer.current != null) {
+        window.clearTimeout(timer.current);
+        timer.current = null;
+      }
+      anchor.current = null;
+      setState(null);
+    };
+
+    const estH = (lines: number): number => 16 + lines * 17;
+    const place = (x: number, y: number, lines: number): { x: number; y: number } => {
+      const h = estH(lines);
+      return {
+        x: x + OFFSET + MAX_W > window.innerWidth ? Math.max(8, x - OFFSET - MAX_W) : x + OFFSET,
+        y: y + OFFSET + h > window.innerHeight ? Math.max(8, y - OFFSET - h) : y + OFFSET,
+      };
+    };
+
+    const targetOf = (node: EventTarget | null): Element | null =>
+      node instanceof Element ? node.closest(`[${TIP_ATTR}]`) : null;
+
+    const schedule = (el: Element, x: number, y: number): void => {
+      if (anchor.current === el) return; // 同一元素（含其子元素间移动）不重排计时
+      clear();
+      anchor.current = el;
+      const text = el.getAttribute(TIP_ATTR) ?? '';
+      if (!text.trim()) return;
+      const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
+      timer.current = window.setTimeout(() => {
+        timer.current = null;
+        setState({ ...place(x, y, lines.length), lines });
+      }, DELAY_MS);
+    };
+
+    const onOver = (e: MouseEvent): void => {
+      pointer.current = { x: e.clientX, y: e.clientY };
+      const el = targetOf(e.target);
+      if (!el) {
+        if (anchor.current) clear();
+        return;
+      }
+      schedule(el, e.clientX, e.clientY);
+    };
+    const onMove = (e: MouseEvent): void => {
+      if (!state) return; // 只在气泡已显示时跟随，避免高频 setState
+      const lines = state.lines.length;
+      setState({ ...place(e.clientX, e.clientY, lines), lines: state.lines });
+    };
+    const onFocusIn = (e: FocusEvent): void => {
+      const el = targetOf(e.target);
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      schedule(el, r.left, r.top);
+    };
+
+    document.addEventListener('mouseover', onOver, true);
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('mouseout', clear, true);
+    document.addEventListener('focusout', clear, true);
+    document.addEventListener('mousedown', clear, true);
+    window.addEventListener('scroll', clear, true);
+    window.addEventListener('blur', clear);
+    return () => {
+      document.removeEventListener('mouseover', onOver, true);
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('mouseout', clear, true);
+      document.removeEventListener('focusout', clear, true);
+      document.removeEventListener('mousedown', clear, true);
+      window.removeEventListener('scroll', clear, true);
+      window.removeEventListener('blur', clear);
+      clear();
+    };
+  }, [state]);
+
+  if (!state) return null;
+  return (
+    <span
+      role="tooltip"
+      data-tooltip="1"
+      className="pointer-events-none fixed z-[9999] max-w-[280px] whitespace-normal rounded-md text-left text-[11px] leading-[17px] text-white shadow-lg"
+      style={{ left: state.x, top: state.y, background: 'rgba(0,0,0,.82)', padding: '8px 10px' }}
+    >
+      {state.lines.map((d, i) => (
+        <span key={i} className={i === 0 ? 'block font-semibold' : 'block opacity-95'}>
+          {d}
+        </span>
+      ))}
+    </span>
+  );
+}
+

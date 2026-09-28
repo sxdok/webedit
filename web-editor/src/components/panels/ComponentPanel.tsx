@@ -99,7 +99,7 @@ function Category({
         type="button"
         data-category-name={name}
         /* 面板显示短名（Word/Excel/PPT/布局）；契约里仍是全名，所以 title 里给出全名 */
-        title={`${categoryLabel(name)}（${name}）`}
+        data-tip-text={`${categoryLabel(name)}（${name}）`}
         onClick={onToggle}
         className="flex w-full items-center gap-1 rounded bg-gray-100 px-2 py-1 text-left text-xs font-semibold text-gray-600 hover:bg-gray-200/70"
       >
@@ -175,7 +175,7 @@ export function ComponentPanel() {
           type="button"
           data-comp-preview-toggle="1"
           data-comp-preview-state={preview ? '1' : '0'}
-          title={preview ? '隐藏缩略图（回到紧凑两列）' : '显示真渲染缩略图'}
+          data-tip-text={preview ? '隐藏缩略图（回到紧凑两列）' : '显示真渲染缩略图'}
           onClick={() => setCompPreview(!preview)}
           className="ml-auto rounded border border-line p-1 text-gray-400 hover:border-primary hover:text-primary"
         >

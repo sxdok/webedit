@@ -133,7 +133,7 @@ export function NoticeBar() {
           type="button"
           data-persist-overflow-close="1"
           data-notice-bar-close="1"
-          title="知道了"
+          data-tip-text="知道了"
           onClick={close}
           className="shrink-0 rounded p-0.5 hover:bg-black/5"
         >

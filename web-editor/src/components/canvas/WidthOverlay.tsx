@@ -112,7 +112,7 @@ export function WidthOverlay({ nodeId, zoom }: { nodeId: string | null; zoom: nu
           <div
             data-width-handle="1"
             data-width-node={nodeId}
-            title="拖动改宽度（文档模式按 mm）"
+            data-tip-text="拖动改宽度（文档模式按 mm）"
             onPointerDown={startDrag}
             className="pointer-events-auto absolute"
             style={{

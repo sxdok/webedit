@@ -58,40 +58,40 @@ export function RichTextControl({ item, value, onChange }: ControlProps) {
     <div>
       <div className="overflow-hidden rounded border border-line bg-white">
         <div className="flex flex-wrap items-center gap-0.5 border-b border-line bg-gray-50 px-1 py-0.5">
-          <button type="button" className={BTN} title="加粗" onClick={() => exec('bold')}>
+          <button type="button" className={BTN} data-tip-text="加粗" onClick={() => exec('bold')}>
             <Bold className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={BTN} title="斜体" onClick={() => exec('italic')}>
+          <button type="button" className={BTN} data-tip-text="斜体" onClick={() => exec('italic')}>
             <Italic className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={BTN} title="下划线" onClick={() => exec('underline')}>
+          <button type="button" className={BTN} data-tip-text="下划线" onClick={() => exec('underline')}>
             <Underline className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={BTN} title="删除线" onClick={() => exec('strikeThrough')}>
+          <button type="button" className={BTN} data-tip-text="删除线" onClick={() => exec('strikeThrough')}>
             <Strikethrough className="h-3.5 w-3.5" />
           </button>
           <span className="mx-0.5 h-4 w-px bg-line" />
-          <button type="button" className={BTN} title="项目符号" onClick={() => exec('insertUnorderedList')}>
+          <button type="button" className={BTN} data-tip-text="项目符号" onClick={() => exec('insertUnorderedList')}>
             <List className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={BTN} title="编号列表" onClick={() => exec('insertOrderedList')}>
+          <button type="button" className={BTN} data-tip-text="编号列表" onClick={() => exec('insertOrderedList')}>
             <ListOrdered className="h-3.5 w-3.5" />
           </button>
           <span className="mx-0.5 h-4 w-px bg-line" />
-          <button type="button" className={BTN} title="左对齐" onClick={() => exec('justifyLeft')}>
+          <button type="button" className={BTN} data-tip-text="左对齐" onClick={() => exec('justifyLeft')}>
             <AlignLeft className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={BTN} title="居中" onClick={() => exec('justifyCenter')}>
+          <button type="button" className={BTN} data-tip-text="居中" onClick={() => exec('justifyCenter')}>
             <AlignCenter className="h-3.5 w-3.5" />
           </button>
-          <button type="button" className={BTN} title="右对齐" onClick={() => exec('justifyRight')}>
+          <button type="button" className={BTN} data-tip-text="右对齐" onClick={() => exec('justifyRight')}>
             <AlignRight className="h-3.5 w-3.5" />
           </button>
           <span className="mx-0.5 h-4 w-px bg-line" />
           <button
             type="button"
             className={BTN}
-            title="插入链接"
+            data-tip-text="插入链接"
             onClick={() => {
               const url = window.prompt('链接地址', 'https://');
               if (url) exec('createLink', url);
@@ -101,11 +101,11 @@ export function RichTextControl({ item, value, onChange }: ControlProps) {
           </button>
           <input
             type="color"
-            title="文字颜色"
+            data-tip-text="文字颜色"
             className="h-6 w-6 cursor-pointer rounded border border-line bg-white p-0"
             onChange={(e) => exec('foreColor', e.target.value)}
           />
-          <button type="button" className={BTN} title="清除格式" onClick={() => exec('removeFormat')}>
+          <button type="button" className={BTN} data-tip-text="清除格式" onClick={() => exec('removeFormat')}>
             <RemoveFormatting className="h-3.5 w-3.5" />
           </button>
         </div>

@@ -91,7 +91,7 @@ export function PageTabs() {
               <button
                 type="button"
                 data-page-select={p.id}
-                title={`${p.title}（${p.mode === 'web' ? 'Web 模式' : '文档模式'}）—— 点击切换；双击 / F2 改名`}
+                data-tip-text={`${p.title}（${p.mode === 'web' ? 'Web 模式' : '文档模式'}）—— 点击切换；双击 / F2 改名`}
                 className="flex max-w-[180px] items-center gap-1 truncate py-1"
                 onClick={() => setActivePage(p.id)}
                 onDoubleClick={() => {
@@ -110,7 +110,7 @@ export function PageTabs() {
               <button
                 type="button"
                 data-page-close={p.id}
-                title="关闭这一页"
+                data-tip-text="关闭这一页"
                 className="rounded p-0.5 text-gray-300 opacity-0 hover:bg-gray-100 hover:text-red-500 group-hover:opacity-100"
                 onClick={() => closePage(p.id)}
               >
@@ -123,7 +123,7 @@ export function PageTabs() {
       <button
         type="button"
         data-page-add="1"
-        title="新建一页（先选模式 → 再填参数）"
+        data-tip-text="新建一页（先选模式 → 再填参数）"
         className="my-1 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-dashed border-line text-gray-400 hover:border-primary hover:text-primary"
         onClick={() => setNewDocOpen(true)}
       >

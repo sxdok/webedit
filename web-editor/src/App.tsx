@@ -18,6 +18,7 @@ import { NoticeBar } from './components/layout/NoticeBar';
 import { DropToImport } from './components/layout/DropToImport';
 import { PreferencesDialog } from './components/panels/PreferencesDialog';
 import { PropertyPanel } from './components/panels/PropertyPanel';
+import { TooltipLayer } from './components/ui/Tooltip';
 import { useEditorStore } from './store/editorStore';
 
 function CollapseBar({ side, onClick }: { side: 'left' | 'right'; onClick: () => void }) {
@@ -25,7 +26,7 @@ function CollapseBar({ side, onClick }: { side: 'left' | 'right'; onClick: () =>
     <button
       type="button"
       onClick={onClick}
-      title={side === 'left' ? '折叠/展开组件面板' : '折叠/展开属性面板'}
+      data-tip-text={side === 'left' ? '折叠/展开组件面板' : '折叠/展开属性面板'}
       className="no-print flex w-3 shrink-0 items-center justify-center border-line bg-white text-gray-400 hover:bg-gray-100 hover:text-primary"
       style={{ borderLeftWidth: side === 'right' ? 1 : 0, borderRightWidth: side === 'left' ? 1 : 0 }}
     >
@@ -47,7 +48,7 @@ function PanelResizer({ side, width, onResize }: { side: 'left' | 'right'; width
       aria-orientation="vertical"
       aria-label={side === 'left' ? '拖动调整组件面板宽度' : '拖动调整属性面板宽度'}
       data-panel-resizer={side}
-      title="拖动调整宽度（双击恢复默认）"
+      data-tip-text="拖动调整宽度（双击恢复默认）"
       className="no-print group relative z-10 w-1 shrink-0 cursor-col-resize bg-transparent"
       onDoubleClick={() => onResize(side === 'left' ? 240 : 300)}
       onPointerDown={(e) => {
@@ -187,6 +188,10 @@ export default function App() {
       {/* ★全局提示条（落盘被跳过 / 导入结果）与「拖文件进窗口即导入」 */}
       <NoticeBar />
       <DropToImport />
+
+      {/* ★自研气泡的**事件委托层**（D16）：任何元素写 `data-tip-text="…"` 即可有统一气泡，
+          不必包一层 span（避免改变 DOM 结构与布局）。挂一次，全局生效。 */}
+      <TooltipLayer />
     </div>
   );
 }

@@ -46,7 +46,7 @@ export function TableRowHeightsControl({ value, nodeId }: ControlProps) {
           key={e.row}
           data-row-height-item={e.row}
           className="flex items-center gap-0.5 rounded border border-line bg-white px-1 py-0.5 text-2xs text-gray-600"
-          title={`第 ${e.row} 行${e.row === 1 && node?.props.headerRow !== false ? '（表头行）' : ''}：${e.css}`}
+          data-tip-text={`第 ${e.row} 行${e.row === 1 && node?.props.headerRow !== false ? '（表头行）' : ''}：${e.css}`}
         >
           第 {e.row} 行 · {e.css.replace(/mm$/, '')}mm
           <button

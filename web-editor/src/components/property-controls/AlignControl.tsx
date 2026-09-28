@@ -22,7 +22,7 @@ export function AlignControl({ value, onChange }: ControlProps) {
           key={v}
           type="button"
           data-align={v}
-          title={v}
+          data-tip-text={v}
           onClick={() => onChange(v)}
           className={`${smallBtnCls} ${cur === v ? 'border-primary bg-primary/10 text-primary' : ''}`}
         >

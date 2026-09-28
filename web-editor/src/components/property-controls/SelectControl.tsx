@@ -59,7 +59,7 @@ export function FontControl({ value, onChange }: ControlProps) {
         style={{ fontFamily: cur ? `"${cur}", serif` : undefined }}
         value={cur}
         onChange={(e) => onChange(e.target.value)}
-        title={cur || '跟随页面默认字体'}
+        data-tip-text={cur || '跟随页面默认字体'}
       >
         <option value="" style={{ fontFamily: 'inherit' }}>
           跟随页面默认
@@ -87,7 +87,7 @@ export function FontControl({ value, onChange }: ControlProps) {
       <button
         type="button"
         data-font-refresh="1"
-        title={
+        data-tip-text={
           systemFontApiAvailable()
             ? '读系统字体清单（queryLocalFonts，会弹一次授权框）'
             : '本浏览器不支持读系统字体（Firefox/Safari），这里重新探测常用字体'

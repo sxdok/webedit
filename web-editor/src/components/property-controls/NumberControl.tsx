@@ -52,7 +52,7 @@ export function NumberControl({ item, value, onChange }: ControlProps) {
       max={item.max}
       step={step}
       value={local}
-      title={bad ? '值超出允许范围，未写入' : undefined}
+      data-tip-text={bad ? '值超出允许范围，未写入' : undefined}
       onFocus={() => {
         focused.current = true;
       }}

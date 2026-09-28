@@ -32,7 +32,7 @@ export function ImageControl({ value, onChange, item }: ControlProps) {
       <button
         type="button"
         className={smallBtnCls}
-        title="选择本地图片（转 data:URL）"
+        data-tip-text="选择本地图片（转 data:URL）"
         onClick={() => pickImageDataUrl((dataUrl) => onChange(dataUrl))}
       >
         <ImagePlus className="h-3.5 w-3.5" />

@@ -27,7 +27,7 @@ export const pageBreakComponent: ComponentDefinition = {
   render: (props) => (
     <div
       className="no-print"
-      title="分页符：以下内容从新的一页开始"
+      data-tip-text="分页符：以下内容从新的一页开始"
       style={{
         display: 'flex',
         alignItems: 'center',

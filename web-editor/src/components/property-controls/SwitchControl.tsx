@@ -15,7 +15,7 @@ export function SwitchControl({ value, onChange }: ControlProps) {
       className={`relative ml-auto h-4 w-8 shrink-0 rounded-full border transition-colors ${
         on ? 'border-primary bg-primary' : 'border-line bg-gray-200'
       }`}
-      title={on ? '开' : '关'}
+      data-tip-text={on ? '开' : '关'}
     >
       <span
         className="absolute top-[1px] h-3 w-3 rounded-full bg-white transition-all"
