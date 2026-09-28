@@ -72,6 +72,8 @@ export interface DesktopStatus {
    * 用户在首选项里的改动落在 userData/prefs.json。桥接菜单据此显示"已连接 · 写已禁用"。
    */
   mcpWriteEnabled?: boolean;
+  /** M-7：窗口是否处于全屏（F11 切换的结果，供自检观测） */
+  fullscreen?: boolean;
 }
 
 export interface DesktopApi {
@@ -91,6 +93,8 @@ export interface DesktopApi {
   /** P0 决策 #1/#4：复制**含 Authorization 头**的 MCP 客户端配置（别的 AI 客户端要它才连得上） */
   copyMcpConfig: () => Promise<string | null>;
   restartMcp: () => Promise<DesktopMcpStatus | null>;
+  /** M-7：全屏（F11）——桌面版走窗口全屏，返回切换后的状态 */
+  toggleFullscreen: () => Promise<boolean>;
   /** P0 决策 #2：切换"允许 MCP 写操作"（写入 prefs.json 并重启 MCP，返回新状态） */
   setAllowWrite: (value: boolean) => Promise<DesktopStatus>;
   probeMcp: () => Promise<{ ok: boolean; serverInfo?: { name?: string; version?: string } | null; protocolVersion?: string | null; error?: string } | null>;

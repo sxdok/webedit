@@ -893,6 +893,46 @@ async function testStatic() {
     /import\s*\{[^}]*TooltipLayer[^}]*\}/.test(appText) && /<TooltipLayer\s*\/>/.test(appText),
     'App.tsx 有 import TooltipLayer 且渲染了 <TooltipLayer />',
   );
+
+  /* ── §7.4：菜单上**标注**的快捷键必须有实现（防"标了 Ctrl+S、按下去什么也不发生"） ──
+   * 行为断言在页面自检里（selfCheck 会真按 Ctrl+, / Ctrl+X / Ctrl+Y / F11）；
+   * 这里做静态兜底：MenuBar 出现的每条 shortcut 都要能在处理端起对应键。 */
+  const menuSrc = readFileSync(join(srcRoot, 'components/layout/MenuBar.tsx'), 'utf8');
+  const handlersSrc = [
+    join(srcRoot, 'components/layout/useShortcuts.ts'),
+    join(srcRoot, 'components/layout/fileActions.ts'),
+    join(srcRoot, 'utils/viewActions.ts'),
+  ]
+    .map((f) => readFileSync(f, 'utf8'))
+    .join('\n');
+  const NEEDS = {
+    'Ctrl+Z': "'z'",
+    'Ctrl+Y': "'y'",
+    'Ctrl+X': "'x'",
+    'Ctrl+C': "'c'",
+    'Ctrl+V': "'v'",
+    'Ctrl+D': "'d'",
+    'Ctrl+A': "'a'",
+    'Ctrl+N': "'n'",
+    'Ctrl+S': "'s'",
+    'Ctrl+Shift+S': "'s'",
+    'Ctrl+O': "'o'",
+    'Ctrl+,': "','",
+    'Ctrl+=': "'='",
+    'Ctrl+-': "'-'",
+    'Ctrl+0': "'0'",
+    'Ctrl+Shift+M': "'m'",
+    F11: 'F11',
+    Delete: 'Delete',
+  };
+  const ALLOW_NATIVE = new Set(['Ctrl+P']); // 打印由浏览器负责
+  const declared = [...new Set([...menuSrc.matchAll(/shortcut:\s*'([^']+)'/g)].map((m) => m[1]))];
+  const unwired = declared.filter((s) => !ALLOW_NATIVE.has(s) && !(NEEDS[s] && handlersSrc.includes(NEEDS[s])));
+  ok(
+    '§7.4：菜单上标注的快捷键都有实现（Ctrl+P 由浏览器负责，豁免）',
+    unwired.length === 0,
+    unwired.length ? `缺实现：${unwired.join('、')}` : `${declared.length} 个快捷键全部有对应处理：${declared.join(' / ')}`,
+  );
 }
 
 /* ═══════════ 主流程 ═══════════ */

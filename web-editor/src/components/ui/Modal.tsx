@@ -42,10 +42,15 @@ export function Modal({
 
 export const SHORTCUTS: [string, string][] = [
   ['Ctrl/Cmd + N', '新建文档（先选模式 → 再填参数）'],
+  ['Ctrl/Cmd + O', '打开工程文件（.editor.json）'],
+  ['Ctrl/Cmd + S', '保存为 HTML 文件（可直接打开的交付物）'],
+  ['Ctrl/Cmd + Shift + S', '导出 JSON（可再编辑的工程文件）'],
+  ['Ctrl/Cmd + P', '打印 / 另存为 PDF（由浏览器对话框完成）'],
   ['空格 + 拖拽 / 中键拖拽', '平移画布（像 PS 的手抓工具）'],
   ['Delete / Backspace', '删除选中组件'],
   ['Ctrl/Cmd + Z', '撤销'],
-  ['Ctrl/Cmd + Shift + Z', '重做'],
+  ['Ctrl/Cmd + Y', '重做（Ctrl/Cmd + Shift + Z 亦可）'],
+  ['Ctrl/Cmd + X', '剪切（进剪贴板并删除，可粘贴回来）'],
   ['Ctrl/Cmd + C / V', '复制 / 粘贴'],
   ['Ctrl/Cmd + D', '原地复制'],
   ['Ctrl/Cmd + A', '全选'],
@@ -53,6 +58,8 @@ export const SHORTCUTS: [string, string][] = [
   ['Shift + ↑ / ↓', '快速移动（10px）'],
   ['Ctrl/Cmd + = / -', '放大 / 缩小'],
   ['Ctrl/Cmd + 0', '恢复 100%'],
+  ['F11', '全屏（桌面版为窗口全屏）'],
   ['Ctrl/Cmd + Shift + M', '切换模式'],
+  ['Ctrl/Cmd + ,', '首选项'],
   ['Esc', '取消选中'],
 ];

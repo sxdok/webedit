@@ -253,6 +253,8 @@ export interface EditorStore {
   bringToFront(id: string): void;
   sendToBack(id: string): void;
   copySelection(): void;
+  /** M-6（菜单改版）：剪切 = 复制首项进剪贴板 + **一步**删掉所有选中项（可 Ctrl+Z 撤销） */
+  cutSelection(): void;
   pasteClipboard(): void;
   clearAll(): void;
 
@@ -672,6 +674,30 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
         if (!id) return;
         const node = findNode(getForest(doc), id);
         if (node) set({ clipboard: structuredClone(node) });
+      },
+
+      cutSelection: () => {
+        const { doc } = get();
+        const id = doc.selectedIds[0];
+        if (!id) return;
+        // 剪贴板语义与「复制」一致：只放**首个**选中节点（粘贴时再按 24px 偏移生成新 id）
+        const node = findNode(getForest(doc), id);
+        if (node) set({ clipboard: structuredClone(node) });
+        log.action('cutSelection', { id, count: doc.selectedIds.length });
+        // 删除是**一步**历史：循环删除多个选中项时不能逐项 commit，否则要按好几次 Ctrl+Z
+        commit(set, get, (d) => {
+          let forest = getForest(d);
+          let changed = false;
+          for (const rid of d.selectedIds) {
+            const r = removeNode(forest, rid);
+            if (r.removed) {
+              forest = r.forest;
+              changed = true;
+            }
+          }
+          if (!changed) return d;
+          return { ...setForest(d, forest), selectedIds: [] };
+        });
       },
 
       pasteClipboard: () => {

@@ -24,6 +24,7 @@ import { buildComponentSpecSheet } from '../../utils/specSheet';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { buildPluginPackage, installPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FORMAT, type PluginPackage } from '../../utils/pluginPackage';
 import { exportJsonFile, openJsonFile, saveAsHtmlFile } from './fileActions';
+import { toggleFullscreen } from '../../utils/viewActions';
 import { bridgeSummary, isBridgeEnabled, setBridgeEnabled, useBridgeSummary, waitBridgeSettled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { desktopApi, formatUpdateResult } from '../../utils/desktopChrome';
@@ -217,8 +218,11 @@ export function MenuBar() {
 
   const editMenu: MenuEntry[] = [
     { key: 'undo', label: '撤销', shortcut: 'Ctrl+Z', disabled: !canUndo, onClick: () => S().undo() },
-    { key: 'redo', label: '重做', shortcut: 'Ctrl+Shift+Z', disabled: !canRedo, onClick: () => S().redo() },
+    /* M-8：Windows 惯例显示 Ctrl+Y（Ctrl+Shift+Z 也继续支持，两者都真绑上了） */
+    { key: 'redo', label: '重做', shortcut: 'Ctrl+Y', disabled: !canRedo, onClick: () => S().redo() },
     { key: 'e1', separator: true },
+    /* M-6：Electron 标准 Edit 必备的「剪切」（原来菜单与快捷键都没有） */
+    { key: 'cut', label: '剪切', shortcut: 'Ctrl+X', disabled: !selectedIds().length, onClick: () => S().cutSelection() },
     { key: 'copy', label: '复制', shortcut: 'Ctrl+C', disabled: !selectedIds().length, onClick: () => S().copySelection() },
     { key: 'paste', label: '粘贴', shortcut: 'Ctrl+V', onClick: () => S().pasteClipboard() },
     { key: 'dup', label: '原地复制', shortcut: 'Ctrl+D', disabled: !selectedIds().length, onClick: () => selectedIds().forEach((id) => S().duplicateComponent(id)) },
@@ -259,11 +263,22 @@ export function MenuBar() {
     { key: 'guides', label: '显示辅助线', checked: ui.showGuides, onClick: () => S().toggleUI('showGuides') },
     { key: 'snap', label: '对齐吸附', checked: ui.snap, onClick: () => S().toggleUI('snap') },
     { key: 'v1', separator: true },
-    { key: 'z50', label: '缩放 50%', onClick: () => S().setZoom(0.5) },
-    { key: 'z75', label: '缩放 75%', onClick: () => S().setZoom(0.75) },
-    { key: 'z100', label: '缩放 100%', checked: zoom === 1, onClick: () => S().setZoom(1) },
-    { key: 'zfitw', label: '适应宽度', onClick: () => S().setZoom(fitZoom(mode, page, canvas, 'width')) },
-    { key: 'zfitp', label: '适应页面', onClick: () => S().setZoom(fitZoom(mode, page, canvas, 'page')) },
+    /* M-7：缩放收进子菜单并**标出快捷键**（原来菜单不标，用户不知道 Ctrl+=/-/0 存在） */
+    {
+      key: 'zoom-sub',
+      label: `缩放（当前 ${Math.round(zoom * 100)}%）`,
+      submenu: [
+        { key: 'zin', label: '放大', shortcut: 'Ctrl+=', onClick: () => S().setZoom(S().zoom + 0.1) },
+        { key: 'zout', label: '缩小', shortcut: 'Ctrl+-', onClick: () => S().setZoom(S().zoom - 0.1) },
+        { key: 'z100', label: '实际大小 100%', shortcut: 'Ctrl+0', checked: zoom === 1, onClick: () => S().setZoom(1) },
+        { key: 'z50', label: '50%', checked: zoom === 0.5, onClick: () => S().setZoom(0.5) },
+        { key: 'z75', label: '75%', checked: zoom === 0.75, onClick: () => S().setZoom(0.75) },
+        { key: 'zfitw', label: '适应宽度', onClick: () => S().setZoom(fitZoom(mode, page, canvas, 'width')) },
+        { key: 'zfitp', label: '适应页面', onClick: () => S().setZoom(fitZoom(mode, page, canvas, 'page')) },
+      ],
+    },
+    /* M-7：Electron 标准 View 的 togglefullscreen；桌面版走窗口全屏（见 utils/viewActions.ts） */
+    { key: 'fullscreen', label: '全屏', shortcut: 'F11', onClick: () => void toggleFullscreen() },
     { key: 'v2', separator: true },
     /* ★主题切换只留在「首选项 → 外观 → 界面主题」（用户 2026-09-24：视图菜单里不要重复一个深色模式） */
     { key: 'tree', label: '显示组件树', checked: ui.showTree, onClick: () => S().toggleUI('showTree') },

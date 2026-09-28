@@ -51,6 +51,8 @@ const api = {
   /** P0：一键复制**带 token** 的 MCP 客户端配置（给别的 AI 客户端用；不自动发放 token） */
   copyMcpConfig: () => ipcRenderer.invoke('desktop:copy-mcp-config'),
   restartMcp: () => ipcRenderer.invoke('desktop:restart-mcp'),
+  /** M-7：全屏（F11）——窗口全屏，不用网页 Fullscreen API（那会带走标题栏覆盖层） */
+  toggleFullscreen: () => ipcRenderer.invoke('desktop:toggle-fullscreen'),
   /** P0 决策 #2：写开关（写入 userData/prefs.json 并重启 MCP 生效） */
   setAllowWrite: (value) => ipcRenderer.invoke('desktop:set-allow-write', value),
   probeMcp: () => ipcRenderer.invoke('desktop:mcp-probe'),

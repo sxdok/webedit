@@ -166,6 +166,8 @@ function buildStatus() {
     mcpUrl: mcp?.url ?? null,
     /** 生效的"允许 MCP 写操作"（决策 #2）：页面用它显示"已连接 · 写已禁用"三态 */
     mcpWriteEnabled: runtime.allowWrite === true,
+    /** M-7：窗口是否处于全屏（F11 的行为要能被自检观测到，否则"按了没反应"验不出来） */
+    fullscreen: runtime.win && !runtime.win.isDestroyed() ? runtime.win.isFullScreen() : false,
     update: runtime.updater?.status() ?? null,
     config: runtime.configResult ? redactConfig(runtime.configResult) : null,
     logDir: runtime.layout?.logDir ?? null,
@@ -689,6 +691,17 @@ function registerIpc() {
     return text;
   });
   ipcMain.handle('desktop:restart-mcp', () => runtime.mcp?.restart() ?? null);
+  /**
+   * M-7：全屏（F11）。用**窗口全屏**而不是网页 Fullscreen API —— 后者会把无边框窗口的
+   * 标题栏覆盖层一起带走（最小化/最大化/关闭按钮消失），用户会以为应用坏了。
+   */
+  ipcMain.handle('desktop:toggle-fullscreen', () => {
+    if (!runtime.win || runtime.win.isDestroyed()) return false;
+    const next = !runtime.win.isFullScreen();
+    runtime.win.setFullScreen(next);
+    runtime.log?.info(`窗口全屏：${next ? '开' : '关'}`);
+    return next;
+  });
   /**
    * 「首选项 → 允许 MCP 写操作」开关（决策 #2）。
    * 写入 userData/prefs.json 后**重启 MCP 子进程**，让 EDITOR_MCP_ALLOW_WRITE 真正生效 ——

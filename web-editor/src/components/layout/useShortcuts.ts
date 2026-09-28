@@ -14,6 +14,7 @@ import {
   writeCellBlock,
 } from '../../registry/components/common/tableKit';
 import { log } from '../../utils/logger';
+import { toggleFullscreen } from '../../utils/viewActions';
 import { exportJsonFile, openJsonFile, saveAsHtmlFile } from './fileActions';
 
 /** 单元格剪贴板（编辑器态，不进文档、不入持久化）；Ctrl+C/V 在表格选中单元格时优先作用于单元格 */
@@ -159,6 +160,24 @@ export function useShortcuts() {
         e.preventDefault();
         if (e.shiftKey) S.redo();
         else S.undo();
+        return;
+      }
+      /* M-8：Windows 惯例还认 Ctrl+Y 重做（菜单里显示 Ctrl+Y，Ctrl+Shift+Z 也继续支持） */
+      if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        S.redo();
+        return;
+      }
+      /* M-6：剪切（Electron 标准 Edit 必备项；原来菜单与快捷键都没有） */
+      if (mod && e.key.toLowerCase() === 'x') {
+        e.preventDefault();
+        S.cutSelection();
+        return;
+      }
+      /* M-7：全屏（F11，Electron 标准 View 项）。桌面版走窗口全屏 IPC；浏览器退回 DOM Fullscreen API。 */
+      if (e.key === 'F11') {
+        e.preventDefault();
+        void toggleFullscreen();
         return;
       }
       if (mod && e.key.toLowerCase() === 'c') {

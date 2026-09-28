@@ -19,6 +19,7 @@ import { mmToPx } from '../utils/units';
 const RULER_W = 18;
 const RULER_H = 18;
 import { log, planPost } from '../utils/logger';
+import { desktopApi } from '../utils/desktopChrome';
 import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 import { buildDemoPages } from './demo';
@@ -4587,6 +4588,64 @@ async function interactionChecks(): Promise<Result[]> {
       prefsBefore === false && prefsAfter === true,
       `按下前 open=${prefsBefore} → 按下后 open=${prefsAfter}`,
     );
+
+    /* ── M-6 剪切 / M-8 Ctrl+Y / M-7 全屏：三条都做**行为**断言（菜单标了就得真能用） ── */
+    /** 数当前森林里的节点数（selfCheck 里已有 `findNode`/`getForest`，没有 flatten → 这里就地递归） */
+    const countNodes = (): number => {
+      const walk = (list: ComponentNode[]): number => list.reduce((n, node) => n + 1 + walk(node.children ?? []), 0);
+      return walk(getForest(S().doc));
+    };
+    const cutId = S().addComponent('paragraph');
+    if (cutId) S().selectComponent([cutId]);
+    await wait(120);
+    const nodesBeforeCut = countNodes();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'x', ctrlKey: true, bubbles: true }));
+    await wait(200);
+    const nodesAfterCut = countNodes();
+    const clipFilled = !!S().clipboard;
+    S().pasteClipboard();
+    await wait(200);
+    const nodesAfterPaste = countNodes();
+    add(
+      'M-6：Ctrl+X 剪切 = 进剪贴板 + 删掉（且能粘贴回来）',
+      nodesAfterCut === nodesBeforeCut - 1 && clipFilled && nodesAfterPaste === nodesBeforeCut,
+      `节点 ${nodesBeforeCut} →（Ctrl+X）${nodesAfterCut}（剪贴板=${clipFilled}）→（粘贴）${nodesAfterPaste}`,
+    );
+
+    const redoId = S().addComponent('paragraph');
+    if (redoId) S().selectComponent([redoId]);
+    S().undo();
+    await wait(120);
+    const afterUndo = countNodes();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y', ctrlKey: true, bubbles: true }));
+    await wait(200);
+    const afterRedo = countNodes();
+    add(
+      'M-8：Ctrl+Y 能重做（Windows 惯例；Ctrl+Shift+Z 亦保留）',
+      afterRedo === afterUndo + 1,
+      `撤销后 ${afterUndo} →（Ctrl+Y）${afterRedo}`,
+    );
+    S().undo();
+    await wait(120);
+
+    {
+      /* M-7：桌面版走窗口全屏 IPC —— 用 desktop:status 的 fullscreen 字段观测（无头下也能验）。
+         浏览器里退回 DOM Fullscreen API，无头不可靠 → 只标注跳过，不假通过。 */
+      const d = desktopApi();
+      if (d) {
+        const before = (await d.getStatus()).fullscreen === true;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F11', bubbles: true }));
+        await wait(420);
+        const after = (await d.getStatus()).fullscreen === true;
+        if (after !== before) {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'F11', bubbles: true }));
+          await wait(420);
+        }
+        add('M-7：F11 真能切换窗口全屏（桌面版）', after !== before, `fullscreen ${before} → ${after}`);
+      } else {
+        add('M-7：F11 切换全屏（浏览器环境：走 DOM Fullscreen API，无头下不作断言）', true, '已跳过（非桌面版）');
+      }
+    }
 
     /* MCP 桥接的状态文案（用户 2026-09-24：点开关弹窗说"已开启"，菜单里却还是「未开启」）
        —— 原来 `state === 'off'` 同时表示"没开启"和"开了但没连上"，且菜单没人订阅状态 → 说了假话 + 不刷新。
