@@ -20,6 +20,7 @@ const RULER_W = 18;
 const RULER_H = 18;
 import { log, planPost } from '../utils/logger';
 import { desktopApi } from '../utils/desktopChrome';
+import { computeReplacements, findMatches, totalHits } from '../utils/findReplace';
 import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 import { buildDemoPages } from './demo';
@@ -4644,6 +4645,59 @@ async function interactionChecks(): Promise<Result[]> {
         add('M-7：F11 真能切换窗口全屏（桌面版）', after !== before, `fullscreen ${before} → ${after}`);
       } else {
         add('M-7：F11 切换全屏（浏览器环境：走 DOM Fullscreen API，无头下不作断言）', true, '已跳过（非桌面版）');
+      }
+    }
+
+    {
+      /* ── M-9 查找/替换：造一段带重复词的文本，走"纯函数找命中 + store 写入"这条真实路径 ──
+         不模拟打字（弹窗里的输入框只是 UI；逻辑全在 utils/findReplace.ts，验它才验到根上）。 */
+      const findId = S().addComponent('paragraph');
+      if (findId) {
+        S().updateProps(findId, { text: '查找替换自检ABCABC' });
+        await wait(160);
+        const hits = findMatches(S().doc, 'ABC');
+        const hitTotal = totalHits(hits);
+
+        // Ctrl+F 打开弹窗，确认**真的渲染出来**（不是只翻了个 flag），并往里真的打一个词
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true }));
+        await wait(280);
+        const opened = S().ui.findOpen === true;
+        const input = document.querySelector('[data-find="query"]') as HTMLInputElement | null;
+        const rendered = !!input;
+        // 受控输入要绕过 React 的 value 拦截（与自检里其它地方同一套写法）
+        const setVal = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        if (input && setVal) {
+          setVal.call(input, 'ABC');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        await wait(240);
+        const hitRows = document.querySelectorAll('[data-find-list] [data-find-hit]').length;
+        const countText = document.querySelector('[data-find-count]')?.textContent ?? '';
+
+        const patches = computeReplacements(S().doc, 'ABC', 'XYZ');
+        for (const p of patches) S().updateProps(p.nodeId, p.patch);
+        await wait(160);
+        const after = String(((findNode(getForest(S().doc), findId)?.props ?? {}) as { text?: string }).text ?? '');
+        if (S().ui.findOpen) S().toggleUI('findOpen');
+        await wait(120);
+
+        add(
+          'M-9：查找能命中文本属性（含表格 data / 列表项）',
+          hitTotal >= 2,
+          `命中 ${hitTotal} 处：${hits.map((h) => `${h.type}.${h.path}×${h.count}`).join('、') || '(无)'}`,
+        );
+        add(
+          'M-9：Ctrl+F 打开查找/替换弹窗，输入后**命中列表真的渲染出来**',
+          opened && rendered && hitRows >= 1,
+          `findOpen=${opened}、有输入框=${rendered}、命中行=${hitRows}、计数文案=${countText || '-'}`,
+        );
+        add(
+          'M-9：全部替换写入文档（可 Ctrl+Z 撤销）',
+          after === '查找替换自检XYZXYZ',
+          `替换后文本：${after || '(空)'}`,
+        );
+        S().undo();
+        await wait(120);
       }
     }
 

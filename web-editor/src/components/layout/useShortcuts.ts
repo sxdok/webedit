@@ -200,6 +200,12 @@ export function useShortcuts() {
         S.selectComponent(flatten(getForest(S.doc)).map((f) => f.node.id));
         return;
       }
+      /* M-9：Ctrl+F 打开查找/替换（已开着就不再切换，避免"按一下开了、再按一下关了"的迷惑） */
+      if (mod && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        if (!S.ui.findOpen) S.toggleUI('findOpen');
+        return;
+      }
       if (mod && e.shiftKey && e.key.toLowerCase() === 'm') {
         e.preventDefault();
         S.setMode(S.doc.mode === 'document' ? 'web' : 'document');

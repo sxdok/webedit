@@ -17,6 +17,7 @@ import { NewDocDialog } from './components/layout/NewDocDialog';
 import { NoticeBar } from './components/layout/NoticeBar';
 import { DropToImport } from './components/layout/DropToImport';
 import { PreferencesDialog } from './components/panels/PreferencesDialog';
+import { FindReplaceDialog } from './components/panels/FindReplaceDialog';
 import { PropertyPanel } from './components/panels/PropertyPanel';
 import { TooltipLayer } from './components/ui/Tooltip';
 import { useEditorStore } from './store/editorStore';
@@ -181,6 +182,9 @@ export default function App() {
 
       {/* 首选项（视图 → 首选项…）：编辑器各项设置集中在这里 */}
       <PreferencesDialog />
+
+      {/* 查找 / 替换（M-9：编辑 → 查找/替换… / Ctrl+F） */}
+      <FindReplaceDialog />
 
       {/* 新建文档（文件 → 新建 / Ctrl+N）：先选模式 → 再按模式填参数 */}
       <NewDocDialog />

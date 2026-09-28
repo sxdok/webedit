@@ -97,6 +97,8 @@ export interface UIState {
   fitWhenNarrow: boolean;
   /** Markdown 源码视图（B10，视图菜单打开；只读弹窗） */
   showMarkdown: boolean;
+  /** 查找/替换弹窗（M-9，编辑菜单 / Ctrl+F 打开） */
+  findOpen: boolean;
   /**
    * 图表按章编号（B11）：打开后图片/柱状图显示「图 X-Y」、表格显示「表 X-Y」
    * （章号 = `heading(level=1)` 的序号，章内图/表各自计数）。默认关，随 ui 持久化。
@@ -159,6 +161,7 @@ export const initialUI: UIState = {
   autoSave: false,
   fitWhenNarrow: true,
   showMarkdown: false,
+  findOpen: false,
   autoNumber: false,
   registryVersion: 0,
   theme: 'light',

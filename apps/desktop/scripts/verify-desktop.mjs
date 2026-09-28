@@ -913,6 +913,7 @@ async function testStatic() {
     'Ctrl+V': "'v'",
     'Ctrl+D': "'d'",
     'Ctrl+A': "'a'",
+    'Ctrl+F': "'f'",
     'Ctrl+N': "'n'",
     'Ctrl+S': "'s'",
     'Ctrl+Shift+S': "'s'",

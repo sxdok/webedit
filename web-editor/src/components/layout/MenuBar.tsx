@@ -229,6 +229,8 @@ export function MenuBar() {
     { key: 'del', label: '删除', shortcut: 'Delete', danger: true, disabled: !selectedIds().length, onClick: () => selectedIds().forEach((id) => S().removeComponent(id)) },
     { key: 'e2', separator: true },
     { key: 'all', label: '全选', shortcut: 'Ctrl+A', disabled: !allIds().length, onClick: () => S().selectComponent(allIds()) },
+    /* M-9：文档编辑器的基本盘（长文档 / 表格内容 / Markdown 视图都要） */
+    { key: 'find', label: '查找/替换…', shortcut: 'Ctrl+F', onClick: () => S().toggleUI('findOpen') },
     {
       key: 'clear',
       label: '清空当前模式内容',
