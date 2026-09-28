@@ -75,6 +75,10 @@ function finish(final = false): void {
   const title = `check: ${good}/${results.length}${good === results.length ? ' 全部通过' : ' 有失败'}`;
   document.title = title;
   if (final) document.documentElement.dataset.selfcheckDone = '1';
+  /* 机器可读的结果数组：命令行探针读它取失败明细。
+     ★为什么不能从浮层 DOM 反推：断言名里可能带 HTML/换行，`querySelectorAll('div')` + startsWith
+     会把条目挤掉，出现"标题说 3 条失败、明细只列出 2 条"的错位（排查时真的踩过）。 */
+  (window as unknown as Record<string, unknown>).__dshCheckResults = results.map((r) => ({ name: r.name, pass: r.pass }));
   // eslint-disable-next-line no-console
   console.log(title, results);
   renderReport(title);
@@ -104,7 +108,10 @@ function renderReport(title: string): void {
     results
       .map(
         (r) =>
-          `<div style="color:${r.pass ? '#16a34a' : '#dc2626'}">${r.pass ? 'PASS' : 'FAIL'}  ${r.name}` +
+          /* `data-check-fail`：命令行探针按它精确取失败明细。
+             原来探针靠 `textContent.startsWith('FAIL')` 猜 —— 断言名里带 HTML/换行时会把条目挤掉，
+             出现"标题说 3 条失败、明细只列出 2 条"的错位（排查时踩过）。 */
+          `<div${r.pass ? '' : ' data-check-fail="1"'} style="color:${r.pass ? '#16a34a' : '#dc2626'}">${r.pass ? 'PASS' : 'FAIL'}  ${r.name}` +
           (r.note ? `  → ${r.note}` : '') +
           '</div>',
       )
@@ -5317,6 +5324,44 @@ async function interactionChecks(): Promise<Result[]> {
         asText.includes('第一章 docx 验证'),
       `含 sectPr=${asText.includes('<w:pgSz')}、Heading1=${asText.includes('Heading1')}、表格=${asText.includes('<w:tbl>')}、列表编号=${asText.includes('w:numId w:val="1"')}、块数 ${docx.blocks}`,
     );
+
+    /* §E1：图片内嵌 / 1–6 级标题 / 页眉页脚**域** —— 这三条决定"导出的 Word 能不能交付" */
+    {
+      const e1Img = S().addComponent('image');
+      if (e1Img) {
+        S().updateProps(e1Img, {
+          // 1×1 PNG（内嵌 data:，不依赖网络）
+          src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+          alt: 'E1 内嵌图片自检',
+          width: 40,
+        });
+      }
+      /* 6 个层级都要出现在同一个文档里，这条断言才有意义（B15 段已有一个 level=1 的标题） */
+      for (const lv of [2, 3, 4, 5, 6]) {
+        const h = S().addComponent('heading');
+        if (h) S().updateProps(h, { level: lv, text: `${lv} 级标题` });
+      }
+      await wait(420);
+
+      const e1 = buildDocx(S().doc, getForest(S().doc));
+      const e1Parts = docxParts(e1.bytes);
+      const e1Text = new TextDecoder('utf-8').decode(e1.bytes);
+      add(
+        'E1 图片内嵌：.docx 里有 `word/media/*` 部件与 `<w:drawing>` + `r:embed`（不再是 [图片：alt] 占位）',
+        e1Parts.some((p) => p.startsWith('word/media/')) && e1Text.includes('<w:drawing>') && /r:embed="rId\d+"/.test(e1Text) && !e1Text.includes('[图片：'),
+        `media 部件：${[...new Set(e1Parts)].filter((p) => p.includes('media')).join('、') || '(无)'}；含 drawing=${e1Text.includes('<w:drawing>')}`,
+      );
+      add(
+        'E1 标题样式：1–6 级都写 `w:pStyle w:val="HeadingN"`（原来 5/6 级会退化成粗体段落）',
+        [1, 2, 3, 4, 5, 6].every((l) => e1Text.includes(`w:pStyle w:val="Heading${l}"`)),
+        `命中：${[1, 2, 3, 4, 5, 6].filter((l) => e1Text.includes(`w:pStyle w:val="Heading${l}"`)).join(',') || '(无)'}`,
+      );
+      add(
+        'E1 页脚用 `fldChar` + PAGE/NUMPAGES 域（页码随 Word 重算，不是写死的文字）',
+        e1Parts.includes('word/footer1.xml') && e1Text.includes('<w:fldChar') && e1Text.includes('PAGE') && e1Text.includes('NUMPAGES'),
+        `footer 部件=${e1Parts.includes('word/footer1.xml')}；域=${e1Text.includes('<w:fldChar')}；PAGE/NUMPAGES=${e1Text.includes('PAGE')}/${e1Text.includes('NUMPAGES')}`,
+      );
+    }
 
     // 把字节用 base64 存到运行目录 docs/ 下，便于用 python-docx 在**编辑器之外**再验一次
     const b64 = (() => {

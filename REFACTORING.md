@@ -1852,6 +1852,28 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 于是白屏 —— 这不是测试专属问题：本应用自己的 `?load=<data:…>`（载入一份导出的 HTML）**同样会踩**，
 而现象（白屏、无报错）极难归因。已抬到 256KB。
 
+### 15.9 P4.5-E1 施工记录（Word 语义完整性）
+
+| 项 | 落地 |
+|---|---|
+| **图片内嵌** | `docx.ts` 新增 `word/media/*` 部件 + `w:drawing`（`wp:inline` + `pic:blipFill` + `r:embed`）+ `document.xml.rels` 的 image 关系 + `[Content_Types]` 的扩展名声明。`data:` 图（粘贴/导入的图绝大多数是这种）**真的内嵌**；尺寸优先取组件 `width`（mm→EMU），否则读 PNG/GIF/BMP/JPEG 固有像素（96dpi 换算），并**夹到版心宽度**（不然一张 4000px 截图会冲出页面）。同一张图多处引用只存一份字节。远程 `http(s)://` 图仍只能占位 —— 但**有话直说**（warnings 里写明"把图片拖进来再导出即可"） |
+| **页眉页脚 + 域** | `word/header1.xml` / `word/footer1.xml` 部件 + `sectPr` 的 `headerReference`/`footerReference`；三段（左/中/右）用制表位排开；**`{page}`/`{total}`/`{date}` 变成真正的域**（`fldChar` begin → `instrText PAGE/NUMPAGES/DATE` → separate（带缓存值）→ end），所以页码会随 Word 重算；`numbering.hideFirstPage` → `<w:titlePg/>`（封面不显示页眉页脚）、`bodyRestart` → `<w:pgNumType w:start>`。★如实记一条限制：**"封面后 N 页用罗马数字"需要多节结构**，当前按单节输出 → 写进 warnings |
+| **Heading 样式集** | `styles.xml` 生成 `Heading1..6`（`w:name w:val="heading N"` 让 Word 认成内置标题、`w:outlineLvl` 带大纲级别 → 导航窗格可出目录）；`blocksOf` 的层级夹取从 1–4 放宽到 **1–6**（原来 5/6 级标题会退化成粗体段落） |
+| **验收物** | 新增 `apps/desktop/scripts/docx-sample.mjs`（1–6 级标题 + **zlib 现造的有内容 PNG** + 带域页脚，内容跨两页）与 `docx-word-check.mjs`；页面加 `?exportDocx=<路径>` 钩子 + 主进程 `desktop:save-binary`（给 path 不弹框，便于脚本化） |
+
+**E1 实测 12/12 通过**（`node apps/desktop/scripts/docx-word-check.mjs`）：
+
+- 包结构含 `word/media/image1.png` / `word/header1.xml` / `word/footer1.xml`；
+- `document.xml` 里 `Heading1..6` 全命中、有 `<w:drawing>` + `r:embed`、**没有** `[图片：` 占位；
+- `footer1.xml` 是 `fldChar` + `PAGE`/`NUMPAGES` 域，`header1.xml` 有 `DATE` 域；
+- **用 Word（COM）打开并导出 PDF** → PyMuPDF 复核：**2 页**、页脚分别为「第 1 页 / 共 2 页」「第 2 页 / 共 2 页」（**两页不同 → 证明是域而非写死文字**）、每页都有绘图对象（图片真的渲染出来）。
+
+**顺带修好两个"工具不可靠"的地方**（都是排查中被咬出来的）：
+1. `?exportDocx` 一度在 `?loadJson` **完成之前**就导出 → 产物是空默认文档（"看着成功、其实没内容"）。现已与 `?exportPdf` 对齐：**载入完成后**才导出。
+2. 自检失败明细原来靠浮层 DOM 反推（`startsWith('FAIL')` + `querySelectorAll('div')`），断言名带 HTML/换行时会丢条目 —— 出现过"标题说 3 条失败、明细只列出 2 条"。现在 `finish()` 暴露 `window.__dshCheckResults`（机器可读），探针读它；浮层条目也加了 `data-check-fail`。
+
+**页面自检 317/319**（新增 E1 三条断言全过；失败 2 条仍是既有画布几何问题）。
+
 ---
 
 ## 第 16 章 数据迁移指南

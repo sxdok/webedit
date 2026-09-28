@@ -115,6 +115,8 @@ export interface DesktopApi {
   openRecent: (path: string) => Promise<{ ok: boolean; path?: string; name?: string; text?: string; error?: string }>;
   /** 另存为真实文件（桌面版比"下载"更符合桌面习惯，也能记住路径） */
   saveText: (opts: { suggestedName: string; text: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; name?: string; error?: string }>;
+  /** E1：二进制落盘（.docx；给 path 就不弹对话框，便于脚本化验收） */
+  saveBinary: (opts: { base64: string; path?: string; suggestedName?: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; bytes?: number; error?: string }>;
   /** E2：导出 PDF（主进程用隐藏窗口加载导出 HTML → `printToPDF`，版式与导出 HTML 同源） */
   exportPdf: (opts: { html: string; suggestedName?: string; path?: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; bytes?: number; error?: string }>;
   /** M-7：全屏（F11）——桌面版走窗口全屏，返回切换后的状态 */

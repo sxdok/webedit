@@ -139,7 +139,7 @@ function readTitle(wsUrl) {
 /** 读报告浮层里的 FAIL 行（`data-check-report` 由 selfCheck.renderReport 写） */
 function readFails(wsUrl) {
   return new Promise((resolvePromise) => {
-    const expression = `JSON.stringify([...document.querySelectorAll('[data-check-report] div')].map((d)=>d.textContent||'').filter((t)=>t.startsWith('FAIL')))`;
+    const expression = `JSON.stringify((window.__dshCheckResults || []).filter((r) => !r.pass).map((r) => r.name))`;
     let settled = false;
     const done = (v) => {
       if (settled) return;
@@ -302,7 +302,8 @@ const total = Number(m[2]);
 if (good !== total) {
   const fails = await readFails(target.webSocketDebuggerUrl);
   console.error(`\n失败 ${total - good} 条：`);
-  for (const f of fails) console.error('  ✗ ' + f);
+  // 压成一行：断言名里可能带换行/HTML，直接打印会把后面的条目挤掉（排查时踩过）
+  for (const f of fails) console.error('  ✗ ' + String(f).replace(/\s+/g, ' ').slice(0, 300));
 }
 finished = true;
 if (KEEP) {

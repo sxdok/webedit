@@ -152,7 +152,10 @@ if (params.get('load')) {
           提示: result.warnings.slice(0, 5),
         });
         document.title = `${doc.title} · 可视化编辑器`;
-        queueMicrotask(() => void maybeAutoExportPdf());
+        queueMicrotask(() => {
+          void maybeAutoExportPdf();
+          void maybeAutoExportDocx();
+        });
       })
       .catch((e: unknown) => log.error('load', `?load=${src} 载入失败`, { error: String(e) }));
   }, 300);
@@ -186,7 +189,11 @@ if (params.get('loadJson')) {
         };
         log.info('loadJson', 'JSON 已载入编辑器', { summary: res.summary });
         document.title = `${st.doc.title} · 可视化编辑器`;
-        queueMicrotask(() => void maybeAutoExportPdf());
+        // ★载入完成之后才导出（否则导出的是空默认文档：实测踩过，产物"看着像成功"但其实没内容）
+        queueMicrotask(() => {
+          void maybeAutoExportPdf();
+          void maybeAutoExportDocx();
+        });
       })
       .catch((e: unknown) => {
         document.title = `pdf-export: fail load ${e instanceof Error ? e.message : String(e)}`;
@@ -194,6 +201,35 @@ if (params.get('loadJson')) {
       });
   }, 300);
 }
+
+/**
+ * `?exportDocx=<路径>` → 启动后导出一份 **.docx** 到指定路径，结论写进 `document.title`
+ * （`docx-export: ok <字节> <路径>`）。
+ *
+ * 为什么也要这条：E1 的验收标准是"**用 Word 打开**导出的 docx，图片可见、页脚显示第 X 页 / 共 N 页"，
+ * 那就得先把文件产出来（`apps/desktop/scripts/docx-word-check.mjs` 会接着用 Word COM 转 PDF + PyMuPDF 复核）。
+ */
+async function maybeAutoExportDocx(): Promise<void> {
+  const target = params.get('exportDocx');
+  if (!target) return;
+  try {
+    const [{ buildDocx }, { desktopApi }] = await Promise.all([import('./utils/export/docx'), import('./utils/desktopChrome')]);
+    const st = useEditorStore.getState();
+    const d = desktopApi();
+    if (!d) {
+      document.title = 'docx-export: fail 非桌面环境（无法写文件）';
+      return;
+    }
+    const r = buildDocx(st.doc);
+    let bin = '';
+    for (let i = 0; i < r.bytes.length; i += 1) bin += String.fromCharCode(r.bytes[i]);
+    const saved = await d.saveBinary({ base64: btoa(bin), path: target, suggestedName: `${st.doc.title || 'export'}.docx` });
+    document.title = saved?.ok ? `docx-export: ok ${saved.bytes ?? r.bytes.length} ${saved.path ?? ''}` : `docx-export: fail ${saved?.error ?? '未知'}`;
+  } catch (e) {
+    document.title = `docx-export: fail ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+if (params.get('exportDocx') && !params.get('load') && !params.get('loadJson')) queueMicrotask(() => void maybeAutoExportDocx());
 
 /**
  * `?exportPdf=<路径>` → 启动后（`?load=`/`?loadJson=` 完成之后）**自动导出一份 PDF** 到指定路径，

@@ -58,6 +58,8 @@ const api = {
   pickAndRead: () => ipcRenderer.invoke('desktop:pick-and-read'),
   openRecent: (path) => ipcRenderer.invoke('desktop:open-recent', path),
   saveText: (opts) => ipcRenderer.invoke('desktop:save-text', opts),
+  /** E1：二进制落盘（.docx 验收用；给 path 就不弹对话框） */
+  saveBinary: (opts) => ipcRenderer.invoke('desktop:save-binary', opts),
   /** E2：导出 PDF（主进程用隐藏窗口加载导出 HTML → printToPDF） */
   exportPdf: (opts) => ipcRenderer.invoke('desktop:export-pdf', opts),
   /** M-7：全屏（F11）——窗口全屏，不用网页 Fullscreen API（那会带走标题栏覆盖层） */

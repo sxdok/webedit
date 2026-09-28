@@ -793,6 +793,31 @@ function registerIpc() {
       }
     }
   });
+  /** 二进制落盘（E1 的 .docx 验收用；给了 path 就不再弹对话框，便于脚本化） */
+  ipcMain.handle('desktop:save-binary', async (_e, opts) => {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const base64 = typeof o.base64 === 'string' ? o.base64 : '';
+    const buf = Buffer.from(base64, 'base64');
+    if (!buf.length) return { ok: false, error: '没有要写入的字节' };
+    let target = typeof o.path === 'string' && o.path ? o.path : null;
+    if (!target) {
+      const r = await dialog.showSaveDialog(runtime.win, {
+        title: '另存为',
+        defaultPath: typeof o.suggestedName === 'string' ? o.suggestedName : 'document.docx',
+        filters: [{ name: 'Word 文档', extensions: ['docx'] }],
+      });
+      if (r.canceled || !r.filePath) return { ok: false, canceled: true };
+      target = r.filePath;
+    }
+    try {
+      writeFileSync(target, buf);
+      pushRecent({ path: target, title: basename(target), at: Date.now() });
+      runtime.log?.info(`已写入 ${target}（${buf.length} 字节）`);
+      return { ok: true, path: target, bytes: buf.length };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
   ipcMain.handle('desktop:recent-list', () => readRecents());
   /** 写一条最近记录（页面侧一般不用，主要用于自检与将来的"记录非对话框来源的打开"） */
   ipcMain.handle('desktop:recent-push', (_e, entry) => {
