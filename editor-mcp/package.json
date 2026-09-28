@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b",
+    "test": "vitest run",
     "start": "node dist/index.js --stdio",
     "start:http": "node dist/index.js --http --port 37651",
     "dev": "node --experimental-strip-types src/index.ts --stdio"
@@ -26,7 +27,8 @@
     "@types/node": "^22.10.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^5.0.2"
   },
   "engines": {
     "node": ">=20.11"

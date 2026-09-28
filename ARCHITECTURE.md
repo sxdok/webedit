@@ -866,8 +866,8 @@ REFACTORING.md 的**基线与能力描述准确**（三包 0.2.0、108/23/12、8
 
 | ID | 内容 | 现状证据 | 建议动作 |
 |---|---|---|---|
-| D16 | §7.3.3 "禁止用原生 `title`" 未执行 | 全仓 **24 处** `title={`：`PropertyPanel.tsx:235,371`、`PagePropertyPanel.tsx:475`、`ComponentPanel.tsx:102,178`、`MultiSelectPanel.tsx:85`、`ColorControl.tsx:81,105,120,139`、`ImageRowsControl.tsx:143,153,193`、`EdgeControl.tsx:28,39`、`SelectControl.tsx:62,90`、`AlignControl.tsx:25`、`NumberControl.tsx:55`、`SwitchControl.tsx:18`、`TableCellsControl.tsx:304`、`TableRowHeightsControl.tsx:49`、`TableSortControl.tsx:65`、`property-controls/index.tsx:174`（自研 `ui/Tooltip.tsx` 已存在并在用） | 逐步替换为 `Tooltip`；补一条断言"属性面板/控件里不得出现原生 `title=`" |
-| D17 | §14.1 单元测试层（`node:test`/`vitest`） | 三个包**均无测试框架、无 `test` 脚本**（`web-editor/package.json` 等） | 需你决策：是否引入 vitest（建议随 P2 编排一起引入，只测纯函数：`tableKit`/`escape`/`term.mjs`/`license-format`） |
+| D16 | §7.3.3 "禁止用原生 `title`" 未执行 | 全仓 **24 处** `title={`：`PropertyPanel.tsx:235,371`、`PagePropertyPanel.tsx:475`、`ComponentPanel.tsx:102,178`、`MultiSelectPanel.tsx:85`、`ColorControl.tsx:81,105,120,139`、`ImageRowsControl.tsx:143,153,193`、`EdgeControl.tsx:28,39`、`SelectControl.tsx:62,90`、`AlignControl.tsx:25`、`NumberControl.tsx:55`、`SwitchControl.tsx:18`、`TableCellsControl.tsx:304`、`TableRowHeightsControl.tsx:49`、`TableSortControl.tsx:65`、`property-controls/index.tsx:174`（自研 `ui/Tooltip.tsx` 已存在并在用） | **已排期 P4**（与菜单改版同批做，UI 面一次改完 + 补断言"属性面板/控件里不得出现原生 `title=`"）：24 处分散在 15 个文件，且要逐处判断气泡语义（截断值提示 vs 属性说明），单独做容易与菜单改版叠加出一轮额外回归 |
+| D17 | §14.1 单元测试层（`node:test`/`vitest`） | 三个包**均无测试框架、无 `test` 脚本** | ✅ **2026-09-28 落地（提前于 P2）**：`editor-mcp` 引入 vitest 5.0.2 + `npm test`；首个测试是**两份表格内核的一致性测试**（`tests/tablekit-parity.test.ts`，65 例全绿）——把"两份实现语义必须一致"从注释变成断言；后续在 P2 编排里把 `npm test` 并入统一闸门，并补 `escape`/`term.mjs`/`license-format` 的纯函数测试 |
 
 ### 16.5 需要加"现状 / P0 后"标记的表（目标项混进了现状表述）
 
