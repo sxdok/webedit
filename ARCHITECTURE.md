@@ -4,6 +4,9 @@
 > **施工蓝图以 [REFACTORING.md](REFACTORING.md) 为准**（它同时承担 16 条决策与施工步骤）；
 > 现状快照见 [现状文档.md](现状文档.md)。三份并列：**REFACTORING 讲怎么做、本文讲为什么、现状文档讲现在是什么**。
 > 若两份的决策表述冲突，**以 REFACTORING.md 为准**；本文只保留背景、证据与取舍理由（含 §14 决策记录与 §15 工时估算）。
+>
+> **§16 = REFACTORING.md 修订清单**（文档↔代码一致性核对结论，17 条）：按用户要求，**不直接改 REFACTORING.md**，
+> 它需要改的地方**收敛在本文 §16**；修订落地后本节删除或只留指针。
 
 > 目标：把「Web 编辑器 + MCP 服务器 + Electron 桌面分发版 + 加密配置工具」这四块收成**一个安全、
 > 不冗余、边界清晰**的产品。本文只写**能落到文件和断言上的设计**，不写口号。
@@ -974,5 +977,87 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 | P3 的 M1/M2 相对路径改动最易漏（只在运行时炸） | +0.5–1 人日 |
 | P2 静态服务器归一（Python 启动器与 Node 版契约测试） | +0.5 人日 |
 | 若改主意要做"彻底版目录"（#4）或 MD 双向（#15） | 各 +1.5–2 人日 |
+
+---
+
+## 16. REFACTORING.md 修订清单（文档 ↔ 代码一致性核对结论）
+
+> **为什么在这里**：2026-09-28 起 **REFACTORING.md 是主文档**（讲怎么做），本文是"决策与理由"记录。
+> 按用户要求：**不直接改 REFACTORING.md**，把它**需要改的地方收敛到本节**——本文即这些修订的收敛处；
+> 修订实际落地后，本节可整体删除或只留一行指针。
+>
+> **核对方法**：通读 REFACTORING.md（1832 行）→ 逐条到代码 / SDK / 本机实测输出里找证据。
+> 除注明外，证据均为 2026-09-28 本机实测（命令可复跑）。**A 组（基线数字与已跑通能力）核对全部一致**，
+> 下面只列需要动的部分。
+
+### 16.1 一句话结论
+
+REFACTORING.md 的**基线与能力描述准确**（三包 0.2.0、108/23/12、88 桥接方法、14 IPC/22 preload、
+47 组件、295/77/9、109.6 MB、Live/多实例/会话自愈/热加载）；问题集中在**接口细节**：
+17 处与代码不符，其中 **12 处是文档写错**（改文档）、**3 处是文档写了不存在的实现**（改文档，因为代码更合理）、
+**2 处是规范/诉求未执行**（要改代码），另有若干"目标项混进现状表"需要加标记。
+
+### 16.2 必须改文档（12 条，改 REFACTORING.md）
+
+| ID | REFACTORING 位置 | 文档写法 | 代码实际（证据） | 建议改法 |
+|---|---|---|---|---|
+| D1 | §6.4.3、§18.3 | 属性控件 **18 种**（清单 18 个） | **22 种**：多出 `tableHtml` `tableSort` `tableRowHeights` `imageRows`（`registry/types.ts` 的 `PropControlType` 联合；`?spec=1` 生成物总览写"已实现的属性控件：22 种"） | 清单补 4 项、数字改 22 |
+| D2 | §18.3 | "7 分类 / **48** 组件" | **47 组件**（`?spec=1` 总览"组件总数：47"；分类 通用 7 / 布局分页 5 / Word 常用 16 / Excel 表格 5 / PPT 专用 10 / Web 控件 2 / Web 容器 2） | 数字改 47（并与 §1.3 的 44+3 保持一致） |
+| D3 | §6.4.1 | `ComponentDefinition` 字段表 | 实际还缺 **`hidden?: boolean`**（`imagePair` 在用：只在左侧面板隐藏、注册表仍在）与 **`splittable?: 'rows'`**（文档模式跨页续排）；且 `category` 实际是 `string`（非 `ComponentCategory`） | 补两字段 + 修正 `category` 类型 |
+| D4 | §6.4.2 | `PropSchemaItem` 含 **`hint?`** | **没有 `hint`**；实际字段：key/label/control/group/defaultValue/options?/min?/max?/step?/unit?/placeholder?/visibleWhen?/disabledWhen?（`registry/types.ts`） | 删除 `hint` |
+| D5 | §6.5.2 | `fontProps/boxProps → React.CSSProperties`；`defaultsOf(type)`；`defaultFrameOf(type)` | 实际：`fontProps(size?)`/`boxProps()` 返回**属性 schema 片段数组**（供插件 `...spread` 进 `propSchema`，不是 CSS）；`defaultsOf(schema)`；`defaultFrameOf(w,h,x,y)`；且 **漏了 `reactJsxRuntime`**（经典签名别名，见 SKILL.md §2） | 三处签名改正 + 补 `reactJsxRuntime` |
+| D6 | §6.7.2 | IPC 第 13 条 `desktop:open-config-dir` | 实际通道名是 **`desktop:open-config-file`**（`main.js:586`；只有 preload 方法名叫 `openConfigDir`） | 改通道名 |
+| D7 | §6.1.4 | ErrorCodes "完整列表"26 个 | 实际 **18 个**：`BRIDGE_OFFLINE` `DOC_NOT_FOUND` `NODE_NOT_FOUND` `COMPONENT_NOT_FOUND` `PROPERTY_NOT_IN_SCHEMA` `INVALID_PROP_VALUE` `PLUGIN_NOT_FOUND` `PLUGIN_SYNTAX_ERROR` `PLUGIN_CONTRACT_ERROR` `PLUGIN_TYPE_PREFIX` `PLUGIN_DRYRUN_FAILED` `WRITE_DISABLED` `CONFIRM_REQUIRED` `RATE_LIMITED` **`PATH_NOT_ALLOWED`** `TABLE_RANGE_INVALID` **`NOT_IMPLEMENTED`** `IO_ERROR`（`errors.ts`）；文档**漏了加粗两个**，并把 `UNAUTHORIZED/ORIGIN_REJECTED/PROTOCOL_MISMATCH/LICENSE_*/CLOCK_ANOMALY/INTERNAL` 当现状 | 拆成"现有 18 个 / P0·P6 新增"两栏，补漏项 |
+| D8 | §11.3 | "新增 `plugin.deps`（依赖分析）" | `plugin.deps` **已在现有 108 工具里**（`--list` 实测） | 从"新增"里删掉 |
+| D9 | §8.8 | 审计格式"时间\|Tool\|参数摘要\|结果\| **clientId**"、**保留 30 天自动轮转**、`var/logs/audit.log` | 实际（`log.ts:5,44,47,67`）末列是**耗时 ms**、无 `clientId`、**无轮转**（`appendFileSync` 持续追加）；文件在 `<workspace>/audit.log`；**没有 `audit.ts`** | 格式改"耗时"；轮转与 clientId 标注为"待实现"（见 §16.4） |
+| D10 | §6.1.5 | 幂等：`Map<clientId,Result>` + **5 分钟窗口过期清理** | 实际（`tools/node.ts:41,44,55,70`）：`Set<string>`，**进程内、永不过期**，且只有 `node.add` 支持 | 改为"进程内 Set（当前仅 node.add）"，或把 5 分钟窗口列为目标 |
+| D11 | §6.1.6 | 超限"含 **`retryAfter`** 秒数" | 实际 `errors.ts:117` 只返回 `message` + `hint`，**无 retryAfter** | 删除或列为目标 |
+| D12 | §6.3.4 | 退避 "1s/2s/**5s**/10s/20s/30s" | 实际 `bridgeClient.ts:28,262`：**×2 倍增、封顶 30s**（1/2/4/8/16/30）；启动档位 `bridgeClient.ts:381` = `[300,2000,5000,10000,20000]` | 改成实际序列（并区分"重连退避"与"启动探测档位"） |
+
+### 16.3 改文档、不改代码（3 条：文档描述了不存在的实现，而现有实现更合理）
+
+| ID | REFACTORING 位置 | 文档写法 | 代码实际（证据） | 建议改法 |
+|---|---|---|---|---|
+| D13 | §7.2、§7.4、§7.5 | `loadBuiltinComponents()`（eager:false → 逐个 load → validate → **injectCommonProps** → register）；注册表 API 含 `getComponentsByCategory`、`resetRegistry` | 全仓无这四个符号。实际：`registry/components/index.ts:35,58,60` 用 **`import.meta.glob('./**/*.tsx', {eager:true})` 一次性收集 + `registerAllComponents()`**；通用属性由 `panels/groupStrategy.ts` 的 **`UNIVERSAL_KEYS`** 参与分组，**没有注入函数**；注册表 API 是 **`getCategoriesByMode`** | 按真实机制重写 §7.2 流程图与 §7.5 API 清单 |
+| D14 | §11.6.1 | 启动流程含 **`setupEditorKit()`** | 不存在。实际顺序（`editor-mcp/src/index.ts:36-105`）：`parseArgs` → `probeHub()/startBridgeHub()` → `liveBridge.start()` → `buildServer()` → `startStdio/startHttpServer` | 按真实顺序重写伪代码 |
+| D15 | §6.1.2 | 破坏性操作必带 **`confirm: z.literal(true)`** | 实现**有意不用 literal**：`tools/document.ts:175-177` 注释写明"用 literal 会在协议层被 zod 拒掉，客户端拿不到 `CONFIRM_REQUIRED` 这个可编程错误码"，实际用 `z.boolean().default(false)` + handler 返回结构化 `CONFIRM_REQUIRED` | 文档改成 boolean + `CONFIRM_REQUIRED` 的契约 |
+
+### 16.4 需要改代码（2 条：诉求合理，属规范/安全未执行）
+
+| ID | 内容 | 现状证据 | 建议动作 |
+|---|---|---|---|
+| D16 | §7.3.3 "禁止用原生 `title`" 未执行 | 全仓 **24 处** `title={`：`PropertyPanel.tsx:235,371`、`PagePropertyPanel.tsx:475`、`ComponentPanel.tsx:102,178`、`MultiSelectPanel.tsx:85`、`ColorControl.tsx:81,105,120,139`、`ImageRowsControl.tsx:143,153,193`、`EdgeControl.tsx:28,39`、`SelectControl.tsx:62,90`、`AlignControl.tsx:25`、`NumberControl.tsx:55`、`SwitchControl.tsx:18`、`TableCellsControl.tsx:304`、`TableRowHeightsControl.tsx:49`、`TableSortControl.tsx:65`、`property-controls/index.tsx:174`（自研 `ui/Tooltip.tsx` 已存在并在用） | 逐步替换为 `Tooltip`；补一条断言"属性面板/控件里不得出现原生 `title=`" |
+| D17 | §14.1 单元测试层（`node:test`/`vitest`） | 三个包**均无测试框架、无 `test` 脚本**（`web-editor/package.json` 等） | 需你决策：是否引入 vitest（建议随 P2 编排一起引入，只测纯函数：`tableKit`/`escape`/`term.mjs`/`license-format`） |
+
+### 16.5 需要加"现状 / P0 后"标记的表（目标项混进了现状表述）
+
+| 位置 | 混入的目标项 |
+|---|---|
+| §6.1.4 | `UNAUTHORIZED` `ORIGIN_REJECTED` `PROTOCOL_MISMATCH` `LICENSE_*` `CLOCK_ANOMALY` `INTERNAL`（P0/P6 新增） |
+| §6.3.1/§6.3.2/§6.3.3 | 请求里的 `token?`/`origin?`、握手里的 `protocol`/`features`/`token`、闸门规则（P0/P1） |
+| §6.5.2 | `api` 主版本声明、未知控件容错策略（P1） |
+| §6.8.1/§6.8.3 | `allowWrite: false`、`requireToken`、`originAllow`、`EDITOR_MCP_REQUIRE_TOKEN`、`EDITOR_MCP_TOKEN`（P0） |
+| §6.6 | 各端点的"Origin + token"校验列（P0） |
+| §8.8 | 审计轮转与 clientId（见 D9） |
+| §18.3 | 权威来源写 `contracts/protocol.ts`（生成物，P2 才存在）与 `dist/mcp/...`（P3 路径） |
+| §11.3 | `license.*`（P6）、`bridge.status`（P0/P1）——这两条本身标注正确，保留 |
+
+### 16.6 待核实（改文档前先验，避免以讹传讹）
+
+| # | 待核实 | 建议动作 |
+|---|---|---|
+| V1 | `ToolResult.changed?: string[]` 是否真存在 | grep `helper.ts`/`errors.ts` 后决定保留或删除 |
+| V2 | §7.3.4「表格组 18 项」是否与 `tableSchema` 实际项数一致 | 数一遍 schema 项数 |
+| V3 | §8.6 组件文件名白名单正则 `/^[\w\u4e00-\u9fa5.-]+\.(js\|json)$/` | 代码只找到 `config.ts` 的 `safeName()`（字符替换），未找到该正则校验；确认是否有别处校验，否则标注为"待实现" |
+
+### 16.7 修订顺序与收口
+
+1. **先改 D1–D12**（纯文档错，不涉及实现，风险最低）→ 一次提交。
+2. **再改 D13–D15**（描述不存在的实现）→ 一次提交；改完顺手把 §7.5 的注册表 API 与真实导出对齐。
+3. **D16/D17 走代码**：D16 归 **P4（菜单与交互）** 的相邻小步；D17 归 **P2（编排）**（引入 vitest 时一起）。
+4. **§16.5 的标记**随上述提交一并补。
+5. **收口**：本节全部条目落地后 → 本节删除或只留一行指针；并新增一条 `verify` 断言
+   "REFACTORING.md 里出现的符号（函数名/通道名/数字）必须在代码或生成物里存在"，防止文档再次漂移
+   （对应硬约束"单一写入者"）。
 
 
