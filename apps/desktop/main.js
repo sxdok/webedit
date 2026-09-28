@@ -16,9 +16,8 @@
  * 站内导航被限制在本机地址，外链一律交给系统浏览器（`shell.openExternal`，且只放行 http/https）。
  */
 import { app, BrowserWindow, Menu, clipboard, dialog, ipcMain, shell } from 'electron';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';import { randomBytes } from 'node:crypto';
+import { join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveLayout } from './src/paths.js';
 import { createLogger } from './src/logger.js';
@@ -149,6 +148,43 @@ function resolveAllowWrite(prefs, fromConfig) {
   const v = prefs?.mcp?.allowWrite;
   if (typeof v === 'boolean') return v;
   return fromConfig === true;
+}
+
+/**
+ * 「最近打开」的持久化（M-11）。
+ *
+ * ★为什么放 `userData/recent-docs.json` 而不是浏览器的 localStorage：这里存的是**本地文件路径**，
+ *   浏览器拿不到路径、也读不了别的文件；桌面版才能真正"点一下就重开"。
+ *   两者刻意分开（方案 §7.2 M-11 的要求）：浏览器里那份只记名字，且如实说明点不开。
+ *
+ * 记录时机：打开成功、另存为、导出 JSON 各记一次；同路径去重（新记录顶到最前），最多 8 条。
+ */
+const RECENT_MAX = 8;
+
+function recentsPath() {
+  return join(app.getPath('userData'), 'recent-docs.json');
+}
+
+function readRecents() {
+  try {
+    const raw = JSON.parse(readFileSync(recentsPath(), 'utf8'));
+    return Array.isArray(raw)
+      ? raw.filter((r) => r && typeof r.path === 'string').slice(0, RECENT_MAX)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushRecent(entry) {
+  if (!entry?.path) return readRecents();
+  const next = [entry, ...readRecents().filter((r) => r.path !== entry.path)].slice(0, RECENT_MAX);
+  try {
+    writeFileSync(recentsPath(), JSON.stringify(next, null, 2), 'utf8');
+  } catch (e) {
+    runtime.log?.warn(`最近打开写入失败：${e instanceof Error ? e.message : String(e)}`);
+  }
+  return next;
 }
 
 function buildStatus() {
@@ -691,6 +727,84 @@ function registerIpc() {
     return text;
   });
   ipcMain.handle('desktop:restart-mcp', () => runtime.mcp?.restart() ?? null);
+  /* ── M-11「最近打开」：列表 / 打开旧文件（主进程读文本回传）/ 另存为 / 清除 ──
+     桌面版才做得到"点一下就重开"：只有主进程能拿到本地路径、也才能读别的文件。 */
+  ipcMain.handle('desktop:recent-list', () => readRecents());
+  /** 写一条最近记录（页面侧一般不用，主要用于自检与将来的"记录非对话框来源的打开"） */
+  ipcMain.handle('desktop:recent-push', (_e, entry) => {
+    if (!entry || typeof entry.path !== 'string' || !entry.path) return readRecents();
+    return pushRecent({ path: entry.path, title: String(entry.title ?? basename(entry.path)), at: Number(entry.at ?? Date.now()) });
+  });
+  ipcMain.handle('desktop:recent-clear', () => {
+    try {
+      writeFileSync(recentsPath(), '[]', 'utf8');
+      runtime.log?.info('已清除最近打开清单');
+    } catch (e) {
+      runtime.log?.warn(`清除最近打开失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+    return [];
+  });
+  /** 弹文件框并读回文本：桌面版走这条才有**路径**可记（浏览器 input[type=file] 只给文件名） */
+  ipcMain.handle('desktop:pick-and-read', async () => {
+    const r = await dialog.showOpenDialog(runtime.win, {
+      title: '打开工程文件',
+      filters: [
+        { name: '编辑器工程（.editor.json）', extensions: ['json'] },
+        { name: '全部文件', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    });
+    const p = r.filePaths?.[0];
+    if (r.canceled || !p) return { ok: false, canceled: true };
+    try {
+      const text = readFileSync(p, 'utf8');
+      pushRecent({ path: p, title: basename(p), at: Date.now() });
+      return { ok: true, path: p, name: basename(p), text };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  ipcMain.handle('desktop:open-recent', async (_e, p) => {
+    if (typeof p !== 'string' || !p) return { ok: false, error: '路径为空' };
+    try {
+      const text = readFileSync(p, 'utf8');
+      pushRecent({ path: p, title: basename(p), at: Date.now() });
+      return { ok: true, path: p, name: basename(p), text };
+    } catch (e) {
+      // 文件被挪走/删掉是常事：如实报错，并从清单里摘掉
+      const still = readRecents().filter((r) => r.path !== p);
+      try {
+        writeFileSync(recentsPath(), JSON.stringify(still, null, 2), 'utf8');
+      } catch {
+        /* 忽略 */
+      }
+      return { ok: false, error: `打不开 ${p}：${e instanceof Error ? e.message : String(e)}` };
+    }
+  });
+  /** 另存为真实文件（桌面版）：写入后记一条"最近打开" */
+  ipcMain.handle('desktop:save-text', async (_e, opts) => {
+    const o = opts && typeof opts === 'object' ? opts : {};
+    const suggested = typeof o.suggestedName === 'string' ? o.suggestedName : 'document.html';
+    const text = typeof o.text === 'string' ? o.text : '';
+    const r = await dialog.showSaveDialog(runtime.win, {
+      title: '另存为',
+      defaultPath: suggested,
+      filters: [
+        { name: suggested.endsWith('.json') ? '编辑器工程（.editor.json）' : 'HTML 文件', extensions: [suggested.endsWith('.json') ? 'json' : 'html'] },
+        { name: '全部文件', extensions: ['*'] },
+      ],
+    });
+    const p = r.filePath;
+    if (r.canceled || !p) return { ok: false, canceled: true };
+    try {
+      writeFileSync(p, text, 'utf8');
+      pushRecent({ path: p, title: basename(p), at: Date.now() });
+      runtime.log?.info(`已另存为：${p}（${text.length} 字符）`);
+      return { ok: true, path: p, name: basename(p) };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+  });
   /**
    * M-7：全屏（F11）。用**窗口全屏**而不是网页 Fullscreen API —— 后者会把无边框窗口的
    * 标题栏覆盖层一起带走（最小化/最大化/关闭按钮消失），用户会以为应用坏了。

@@ -21,6 +21,7 @@ const RULER_H = 18;
 import { log, planPost } from '../utils/logger';
 import { desktopApi } from '../utils/desktopChrome';
 import { computeReplacements, findMatches, totalHits } from '../utils/findReplace';
+import { refreshRecents } from '../utils/recents';
 import { buildDiagnosticReport } from '../utils/diagnostics';
 import { buildComponentSpecSheet } from '../utils/specSheet';
 import { buildDemoPages } from './demo';
@@ -4698,6 +4699,44 @@ async function interactionChecks(): Promise<Result[]> {
         );
         S().undo();
         await wait(120);
+      }
+    }
+
+    {
+      /* ── M-11「最近打开」：桌面版真源在主进程（userData/recent-docs.json）。自检跑在**隔离的临时
+         userData** 里，所以这段写入不会污染用户真实的最近清单。 ── */
+      const d = desktopApi();
+      if (d) {
+        await d.recentClear();
+        await refreshRecents();
+        const emptySub = await openSub('文件', 'recent-sub');
+        await closeMenu();
+        await d.recentPush({ path: 'E:\\自检\\m11-recent.editor.json', title: 'm11-recent.editor.json' });
+        const list = await d.recentList();
+        await refreshRecents();
+        await wait(160);
+        const filledSub = await openSub('文件', 'recent-sub');
+        await closeMenu();
+        await d.recentClear();
+        await refreshRecents();
+        const afterClear = await d.recentList();
+        await wait(120);
+        const clearedSub = await openSub('文件', 'recent-sub');
+        await closeMenu();
+
+        add(
+          'M-11：主进程能记一条「最近打开」并列出（带真实路径）',
+          list.length === 1 && list[0].path.includes('m11-recent') && list[0].title === 'm11-recent.editor.json',
+          `清单=${JSON.stringify(list.map((r) => r.title))}`,
+        );
+        add(
+          'M-11：菜单「文件 → 最近打开 ▸」随清单变化（空 → 有 → 清空后回空）',
+          emptySub.includes('recent-none') && filledSub.some((k) => k.includes('m11-recent')) && !clearedSub.some((k) => k.includes('m11-recent')) && clearedSub.includes('recent-none'),
+          `空=${emptySub.join('/') || '(打不开)'} → 有=${filledSub.join('/')} → 清空后=${clearedSub.join('/')}`,
+        );
+        add('M-11：清除后主进程清单为空', afterClear.length === 0, `清除后 ${afterClear.length} 条`);
+      } else {
+        add('M-11：最近打开（浏览器版只记名字、点不开，条目置灰并指向「打开…」）', true, '已跳过：非桌面版');
       }
     }
 

@@ -1789,7 +1789,27 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 
 **本轮实测**：`web-editor build` ✅；`apps/desktop verify` **81/81**；`npm run check:page` **311/313**（仍失败 2 条为既有布局问题）。
 
-**P4 剩余**：M-11 **最近打开**（新功能：持久化 + 记录时机 + `最近打开 ▸` 子菜单）。
+**M-11「最近打开」已落地（第 4 次提交）—— P4 到此完成**
+
+| 项 | 落地 |
+|---|---|
+| 真源分开（方案 §7.2 要求） | **桌面版**：`userData/recent-docs.json`（主进程写，最多 8 条、同路径去重顶前）——只有它拿得到**路径**、也才读得回别的文件；**浏览器版**：localStorage 只记文件名，菜单里**置灰并注明"浏览器里点不开"**，指向「打开…」 |
+| 主进程 IPC | `desktop:recent-list` / `recent-push` / `recent-clear` / `pick-and-read`（弹框并读回文本 → 才知道记哪条）/ `open-recent`（重开旧文件；文件被挪走时**顺手摘掉该条**并如实报错）/ `save-text`（**真实另存为对话框**，比"下载"更符合桌面习惯，且能记住路径） |
+| 记录时机 | 打开成功、另存为/导出 JSON、重开旧文件各记一次 |
+| 页面 | `utils/recents.ts`（可订阅缓存，`useSyncExternalStore` + 桌面 IPC / localStorage 两种来源）；`fileActions` 三处改为"桌面走主进程对话框、浏览器走下载"；菜单 `文件 → 最近打开 ▸（N）` + `清除最近打开` |
+| 断言 | 页面自检 +3 条：① 主进程能记一条并列出（带真实路径）；② **菜单随清单变化**（空 → 有 → 清空后回空，含 `recent-none` 占位）；③ 清除后清单为空。自检跑在**隔离的临时 userData** 里 → 不会污染用户真实的最近清单 |
+| 探针增强 | `check-page.mjs` 现在会旁路收集 **`Runtime.exceptionThrown`** 与 `console.error`，超时时打印异常与"报告浮层最后几条"。上一轮的一次"卡住"正是靠它才能立刻定位（自检是 async 链，中途抛异常时标题会永远停在上一个阶段） |
+
+**P4 验收（M-1…M-13 + D16 全部完成）**
+
+| 闸门 | 结果 |
+|---|---|
+| `web-editor npm run build`（tsc + vite） | ✅ |
+| `apps/desktop npm run verify` | **81/81**（含 D16 两条 + §7.4 快捷键一致性一条） |
+| `npm run check:page` | **314/316**（新增的 M-9/M-11 共 6 条断言全过） |
+| 仍失败 2 条 | 既有布局问题（`50px` 容器下的"纸张始终放得下"；标尺 `-0px` vs `0px` 字符串比较）——断言早于本次改动，**转 P4.5 一并处理** |
+
+**下一步：P4.5-E2** —— 桌面版 `webContents.printToPDF` 让 `export.pdf` 真产出文件 + 专项治空白页（根因 B1–B5 + 7 处修法 + PyMuPDF 自动检测脚本 `pdf-blank-check`），随后 E1（docx 图片/页眉页脚域/Heading）、E3（MD 有损提示）。
 
 ---
 

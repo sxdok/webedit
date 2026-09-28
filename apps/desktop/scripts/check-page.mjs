@@ -180,6 +180,73 @@ function readFails(wsUrl) {
   });
 }
 
+/**
+ * 旁路监听页面异常（CDP `Runtime.exceptionThrown` + console.error）。
+ * 为什么需要：自检是 async 链（`interactionChecks().then(...finish)`），中途抛异常时**标题永远停在
+ * 上一个阶段**（表现为"卡住"），只看标题根本不知道错在哪 —— 这正是第一次接 M-11 时踩到的坑。
+ */
+function watchExceptions(wsUrl) {
+  const errors = [];
+  const ws = new WebSocket(wsUrl);
+  ws.addEventListener('open', () => {
+    ws.send(JSON.stringify({ id: 900, method: 'Runtime.enable' }));
+  });
+  ws.addEventListener('message', (ev) => {
+    try {
+      const msg = JSON.parse(String(ev.data));
+      if (msg.method === 'Runtime.exceptionThrown') {
+        const d = msg.params?.exceptionDetails ?? {};
+        const text = d.exception?.description ?? d.text ?? '(无描述)';
+        errors.push(String(text).split('\n').slice(0, 3).join(' | '));
+      } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.type === 'error') {
+        const text = (msg.params.args ?? []).map((a) => a.value ?? a.description ?? '').join(' ');
+        if (text.trim()) errors.push(`console.error: ${text.slice(0, 200)}`);
+      }
+    } catch {
+      /* 忽略 */
+    }
+  });
+  return { errors, close: () => { try { ws.close(); } catch { /* 忽略 */ } } };
+}
+
+/** 读报告浮层的最后几行（卡住时用来看"跑到哪一条"） */
+function readReportTail(wsUrl) {
+  return new Promise((resolvePromise) => {
+    const expression = `JSON.stringify([...document.querySelectorAll('[data-check-report] div')].slice(-6).map((d)=>d.textContent||''))`;
+    let settled = false;
+    const done = (v) => {
+      if (settled) return;
+      settled = true;
+      try {
+        ws.close();
+      } catch {
+        /* 忽略 */
+      }
+      resolvePromise(Array.isArray(v) ? v : []);
+    };
+    let ws;
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      resolvePromise([]);
+      return;
+    }
+    ws.addEventListener('open', () => {
+      ws.send(JSON.stringify({ id: 901, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+    });
+    ws.addEventListener('message', (ev) => {
+      try {
+        const msg = JSON.parse(String(ev.data));
+        if (msg.id === 901) done(JSON.parse(msg.result?.result?.value ?? '[]'));
+      } catch {
+        /* 忽略 */
+      }
+    });
+    ws.addEventListener('error', () => done([]));
+    setTimeout(() => done([]), 3000);
+  });
+}
+
 const target = await findTarget();
 if (!target) {
   console.error(`CDP 没起来（端口 ${PORT}）—— 桌面版日志尾部：\n${appLog.slice(-800)}`);
@@ -188,6 +255,7 @@ if (!target) {
 }
 
 console.log(`页面自检中（CDP ${PORT}）… 目标：${target.url}`);
+const watcher = watchExceptions(target.webSocketDebuggerUrl);
 const deadline = Date.now() + TIMEOUT_MS;
 let title = '';
 let doneFlag = '';
@@ -208,10 +276,22 @@ while (Date.now() < deadline) {
 }
 
 if (doneFlag !== '1' || !/^check:\s*\d+\/\d+/.test(title)) {
-  console.error(`等自检结论超时（最后标题：${title || '(空)'}，done=${doneFlag || '-'}）\n桌面版日志尾部：\n${appLog.slice(-800)}`);
+  const tail = await readReportTail(target.webSocketDebuggerUrl);
+  watcher.close();
+  console.error(`等自检结论超时（最后标题：${title || '(空)'}，done=${doneFlag || '-'}）`);
+  if (watcher.errors.length) {
+    console.error(`页面异常 ${watcher.errors.length} 条：`);
+    for (const e of watcher.errors.slice(0, 5)) console.error('  ! ' + e);
+  }
+  if (tail.length) {
+    console.error('报告浮层最后几条：');
+    for (const t of tail) console.error('  · ' + t.slice(0, 150));
+  }
+  console.error(`桌面版日志尾部：\n${appLog.slice(-500)}`);
   finished = true;
   finish(1);
 }
+watcher.close();
 
 console.log(`自检结论：${title}`);
 const m = /^check:\s*(\d+)\/(\d+)/.exec(title);

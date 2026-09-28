@@ -51,6 +51,13 @@ const api = {
   /** P0：一键复制**带 token** 的 MCP 客户端配置（给别的 AI 客户端用；不自动发放 token） */
   copyMcpConfig: () => ipcRenderer.invoke('desktop:copy-mcp-config'),
   restartMcp: () => ipcRenderer.invoke('desktop:restart-mcp'),
+  /* ── M-11 最近打开（桌面版：存 userData/recent-docs.json，浏览器那份另存 localStorage） ── */
+  recentList: () => ipcRenderer.invoke('desktop:recent-list'),
+  recentPush: (entry) => ipcRenderer.invoke('desktop:recent-push', entry),
+  recentClear: () => ipcRenderer.invoke('desktop:recent-clear'),
+  pickAndRead: () => ipcRenderer.invoke('desktop:pick-and-read'),
+  openRecent: (path) => ipcRenderer.invoke('desktop:open-recent', path),
+  saveText: (opts) => ipcRenderer.invoke('desktop:save-text', opts),
   /** M-7：全屏（F11）——窗口全屏，不用网页 Fullscreen API（那会带走标题栏覆盖层） */
   toggleFullscreen: () => ipcRenderer.invoke('desktop:toggle-fullscreen'),
   /** P0 决策 #2：写开关（写入 userData/prefs.json 并重启 MCP 生效） */

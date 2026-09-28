@@ -28,6 +28,18 @@ export interface DesktopUpdateResult {
   note?: string;
 }
 
+/** 「最近打开」的一条记录（M-11）：桌面版存路径（可重开），浏览器版只存名字 */
+export interface RecentDoc {
+  /** 桌面版：绝对路径；浏览器版：`name`（本地文件重不开，仅作提示） */
+  path: string;
+  /** 文件显示名 */
+  title: string;
+  /** 记录时间戳 */
+  at: number;
+  /** 桌面版为 'file'，浏览器版为 'name'（后者点不开，菜单里会说明） */
+  kind?: 'file' | 'name';
+}
+
 export interface DesktopMcpStatus {
   state: 'stopped' | 'starting' | 'ready' | 'restarting' | 'failed';
   pid: number | null;
@@ -93,6 +105,16 @@ export interface DesktopApi {
   /** P0 决策 #1/#4：复制**含 Authorization 头**的 MCP 客户端配置（别的 AI 客户端要它才连得上） */
   copyMcpConfig: () => Promise<string | null>;
   restartMcp: () => Promise<DesktopMcpStatus | null>;
+  /* ── M-11 最近打开（只有桌面版能记住"路径"并重开本地文件） ── */
+  recentList: () => Promise<RecentDoc[]>;
+  /** 写一条最近记录（自检 / 非对话框来源的打开用） */
+  recentPush: (entry: { path: string; title?: string; at?: number }) => Promise<RecentDoc[]>;
+  recentClear: () => Promise<RecentDoc[]>;
+  /** 弹文件框并读回文本（返回 path，便于记录最近打开） */
+  pickAndRead: () => Promise<{ ok: boolean; canceled?: boolean; path?: string; name?: string; text?: string; error?: string }>;
+  openRecent: (path: string) => Promise<{ ok: boolean; path?: string; name?: string; text?: string; error?: string }>;
+  /** 另存为真实文件（桌面版比"下载"更符合桌面习惯，也能记住路径） */
+  saveText: (opts: { suggestedName: string; text: string }) => Promise<{ ok: boolean; canceled?: boolean; path?: string; name?: string; error?: string }>;
   /** M-7：全屏（F11）——桌面版走窗口全屏，返回切换后的状态 */
   toggleFullscreen: () => Promise<boolean>;
   /** P0 决策 #2：切换"允许 MCP 写操作"（写入 prefs.json 并重启 MCP，返回新状态） */

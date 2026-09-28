@@ -2,7 +2,7 @@
  * 职责：顶部菜单栏（文件 / 编辑 / 插入 / 视图 / 模式 / 页面 / 帮助）。
  * 只做菜单编排与调用 store action，不含业务逻辑。
  */
-import { useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   DEVICE_PRESETS,
   PAGE_SIZES,
@@ -23,8 +23,9 @@ import { saveDiagnosticReportToRunDir } from '../../utils/diagnostics';
 import { buildComponentSpecSheet } from '../../utils/specSheet';
 import { getLiveTypes, loadRuntimeComponents } from '../../registry/live';
 import { buildPluginPackage, installPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FORMAT, type PluginPackage } from '../../utils/pluginPackage';
-import { exportJsonFile, openJsonFile, saveAsHtmlFile } from './fileActions';
+import { exportJsonFile, openJsonFile, openRecentFile, saveAsHtmlFile } from './fileActions';
 import { toggleFullscreen } from '../../utils/viewActions';
+import { clearRecents, recentDocs, refreshRecents, subscribeRecents } from '../../utils/recents';
 import { bridgeSummary, isBridgeEnabled, setBridgeEnabled, useBridgeSummary, waitBridgeSettled } from '../../mcp/bridgeClient';
 import { fitZoom } from '../canvas/fitZoom';
 import { desktopApi, formatUpdateResult } from '../../utils/desktopChrome';
@@ -53,6 +54,11 @@ export function MenuBar() {
   const canvas = useEditorStore((s) => s.doc.web.canvas);
   /** MCP 桥接状态：**订阅**着（状态一变菜单就跟着变），并区分"没开启"与"开了但没连上" */
   const bridge = useBridgeSummary();
+  /** 最近打开（M-11）：订阅页面侧缓存（桌面版真源在主进程的 recent-docs.json） */
+  const recents = useSyncExternalStore(subscribeRecents, recentDocs, recentDocs);
+  useEffect(() => {
+    void refreshRecents();
+  }, []);
 
   const S = () => useEditorStore.getState();
 
@@ -102,6 +108,33 @@ export function MenuBar() {
           if (msg != null) setNotice(msg);
         });
       },
+    },
+    /* M-11「最近打开」：桌面版点一下就重开（真源在 userData/recent-docs.json）；
+       浏览器版只记名字、条目置灰并说明"重开请用 打开…"——说清做不到，不给点了没反应的入口。 */
+    {
+      key: 'recent-sub',
+      label: `最近打开${recents.length ? `（${recents.length}）` : ''}`,
+      submenu: [
+        ...(recents.length
+          ? recents.map((r) => ({
+              key: `recent-${r.title}-${r.at}`,
+              label: r.kind === 'name' ? `${r.title}（浏览器里点不开）` : r.title,
+              disabled: r.kind === 'name',
+              onClick: () => {
+                void openRecentFile(r).then((msg) => setNotice(msg));
+              },
+            }))
+          : [{ key: 'recent-none', label: '（还没有记录）', disabled: true }]),
+        { key: 'recent-sep', separator: true as const },
+        {
+          key: 'recent-clear',
+          label: '清除最近打开',
+          disabled: recents.length === 0,
+          onClick: () => {
+            void clearRecents().then(() => setNotice('已清除「最近打开」清单。'));
+          },
+        },
+      ],
     },
     { key: 'open-html', label: '打开 HTML（导入成组件）…', onClick: () => void openHtmlFile() },
     { key: 'load-html-url', label: '从 URL 载入 HTML…', onClick: () => void loadHtmlFromUrl() },
