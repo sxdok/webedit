@@ -561,60 +561,53 @@ export interface ToolResult<T> {
 }
 ```
 
-**6.1.4 错误码（完整列表）**
+**6.1.4 错误码**
+
+**现状 18 个**（`editor-mcp/src/errors.ts` 实测，只增不改语义）：
 
 ```ts
 export const ErrorCodes = {
-  // 传输层
-  BRIDGE_OFFLINE: 'BRIDGE_OFFLINE',
-  RATE_LIMITED: 'RATE_LIMITED',
-  WRITE_DISABLED: 'WRITE_DISABLED',
-  UNAUTHORIZED: 'UNAUTHORIZED',
-  ORIGIN_REJECTED: 'ORIGIN_REJECTED',
-  PROTOCOL_MISMATCH: 'PROTOCOL_MISMATCH',
-  METHOD_NOT_FOUND: 'METHOD_NOT_FOUND',
+  // 传输 / 策略层
+  BRIDGE_OFFLINE: "BRIDGE_OFFLINE",
+  WRITE_DISABLED: "WRITE_DISABLED",
+  RATE_LIMITED: "RATE_LIMITED",
+  PATH_NOT_ALLOWED: "PATH_NOT_ALLOWED",   // 写路径越界（初稿漏了）
+  NOT_IMPLEMENTED: "NOT_IMPLEMENTED",     // 该通道未实现（初稿漏了）
+  CONFIRM_REQUIRED: "CONFIRM_REQUIRED",
   // 业务层
-  DOC_NOT_FOUND: 'DOC_NOT_FOUND',
-  NODE_NOT_FOUND: 'NODE_NOT_FOUND',
-  COMPONENT_NOT_FOUND: 'COMPONENT_NOT_FOUND',
-  PROPERTY_NOT_IN_SCHEMA: 'PROPERTY_NOT_IN_SCHEMA',
-  INVALID_PROP_VALUE: 'INVALID_PROP_VALUE',
-  TABLE_RANGE_INVALID: 'TABLE_RANGE_INVALID',
-  CONFIRM_REQUIRED: 'CONFIRM_REQUIRED',
+  DOC_NOT_FOUND: "DOC_NOT_FOUND",
+  NODE_NOT_FOUND: "NODE_NOT_FOUND",
+  COMPONENT_NOT_FOUND: "COMPONENT_NOT_FOUND",
+  PROPERTY_NOT_IN_SCHEMA: "PROPERTY_NOT_IN_SCHEMA",
+  INVALID_PROP_VALUE: "INVALID_PROP_VALUE",
+  TABLE_RANGE_INVALID: "TABLE_RANGE_INVALID",
   // 插件层
-  PLUGIN_NOT_FOUND: 'PLUGIN_NOT_FOUND',
-  PLUGIN_SYNTAX_ERROR: 'PLUGIN_SYNTAX_ERROR',
-  PLUGIN_CONTRACT_ERROR: 'PLUGIN_CONTRACT_ERROR',
-  PLUGIN_TYPE_PREFIX: 'PLUGIN_TYPE_PREFIX',
-  PLUGIN_DRYRUN_FAILED: 'PLUGIN_DRYRUN_FAILED',
-  // 授权层
-  LICENSE_INVALID: 'LICENSE_INVALID',
-  LICENSE_EXPIRED: 'LICENSE_EXPIRED',
-  LICENSE_MACHINE_MISMATCH: 'LICENSE_MACHINE_MISMATCH',
-  LICENSE_FEATURE_DENIED: 'LICENSE_FEATURE_DENIED',
-  CLOCK_ANOMALY: 'CLOCK_ANOMALY',
+  PLUGIN_NOT_FOUND: "PLUGIN_NOT_FOUND",
+  PLUGIN_SYNTAX_ERROR: "PLUGIN_SYNTAX_ERROR",
+  PLUGIN_CONTRACT_ERROR: "PLUGIN_CONTRACT_ERROR",
+  PLUGIN_TYPE_PREFIX: "PLUGIN_TYPE_PREFIX",
+  PLUGIN_DRYRUN_FAILED: "PLUGIN_DRYRUN_FAILED",
   // 系统层
-  IO_ERROR: 'IO_ERROR',
-  INTERNAL: 'INTERNAL',
+  IO_ERROR: "IO_ERROR",
 } as const;
 ```
 
-规则：
+**P0 / P6 新增**（尚未实现，落地时补进 `contracts/protocol.ts`）：`UNAUTHORIZED`、`ORIGIN_REJECTED`、
+`PROTOCOL_MISMATCH`、`METHOD_NOT_FOUND`、`LICENSE_INVALID`、`LICENSE_EXPIRED`、
+`LICENSE_MACHINE_MISMATCH`、`LICENSE_FEATURE_DENIED`、`CLOCK_ANOMALY`、`INTERNAL`。
 
-- **错误码只增不改**，语义不可变更。
-- 每次新增错误码必须写进 `contracts/protocol.ts` 并加断言。
-- 客户端可依据错误码决定重试策略。
-
+规则：**错误码只增不改**；每次新增必须写进 `contracts/protocol.ts` 并加断言；客户端可依据错误码决定重试策略。
 **6.1.5 幂等性**
 
 - 读操作天然幂等。
-- 写操作需提供幂等键 `clientId`，服务端在 5 分钟窗口内去重。
-- 幂等键入 `Map<clientId, Result>`，窗口过期清理。
-
+- 写操作可传幂等键 `clientId`；**现状**：`tools/node.ts` 用**进程内 `Set<string>`** 去重（当前只有 `node.add` 支持），
+  **没有过期窗口**，进程重启即清空。
+- 目标（P1，非现状）：改成 `Map<clientId, Result>` 并加 5 分钟窗口与清理；届时其余写工具也接 `clientId`。
 **6.1.6 速率限制**
 
 - 默认 100 次/分钟。
-- 超限返回 `RATE_LIMITED`，含 `retryAfter` 秒数。
+- 超限返回 `RATE_LIMITED`（`errors.ts` 现状只给 `message` + `hint`，**没有 `retryAfter` 字段**；
+  若要给重试秒数属新增字段，需先进 `contracts/protocol.ts`）。
 - 可配置 `EDITOR_MCP_RATE_LIMIT`。
 
 ### 6.2 MCP Resource 规范
@@ -712,56 +705,62 @@ interface BridgeEvent {
 **6.3.4 超时与重连**
 
 - 单请求超时 15s。
-- 重连指数退避：1s / 2s / 5s / 10s / 20s / 30s（封顶）。
+- 编辑器侧重连退避（`bridgeClient.ts` 现状）：从 **1s 起、每次 ×2、封顶 30s**（1 / 2 / 4 / 8 / 16 / 30）。
+- 启动时的探测档位（另一条链路）：`autoStartBridgeFromPrefs` 的 `delays = [300, 2000, 5000, 10000, 20000]`（毫秒）。
 - 断线期间请求立即返回 `BRIDGE_OFFLINE`。
 
 ### 6.4 组件契约
 
-**6.4.1 `ComponentDefinition`**
+**6.4.1 `ComponentDefinition`**（以 `web-editor/src/registry/types.ts` 为准）
 
 ```ts
 export interface ComponentDefinition {
   type: string;
   label: string;
-  category: ComponentCategory;   // 7 类固定
+  category: string;              // 左侧分组名；7 个约定分类见 6.4.4
   supportedModes: EditorMode[];
-  icon: React.FC<{ className?: string }>;
+  icon: ComponentIcon;           // = ComponentType<{ className?: string }>
   description?: string;
   isContainer?: boolean;
-  defaultProps: Record<string, unknown>;
-  defaultFrame?: Partial<Frame>;
+  hidden?: boolean;              // 只在左侧面板隐藏（仍注册、仍能渲染老文档、MCP 清单里还在）
+  splittable?: "rows";           // 文档模式跨页续排：放不下当前页时按行拆到下一页（表格用）
+  defaultProps: ComponentProps;
+  defaultFrame?: Partial<Frame>; // Web 模式默认位置尺寸
   propSchema: PropSchemaItem[];
-  render: (
-    props: Record<string, unknown>,
-    ctx: RenderContext,
-    children?: React.ReactNode,
-  ) => React.ReactNode;
+  render: (props: ComponentProps, ctx: RenderContext, children?: ReactNode) => ReactNode;
 }
 ```
 
+> 注：`hidden`（如被「图片」取代的「并排双图」）与 `splittable: "rows"`（跨页续表）是**现网在用**的字段，
+> 初稿漏了；`category` 实际是自由字符串（约定 7 类），不是联合类型。
 **6.4.2 `PropSchemaItem`**
 
 ```ts
 export interface PropSchemaItem {
   key: string;
   label: string;
-  control: PropControlType;      // 18 种
-  group: string;                 // 分组名
+  control: PropControlType;      // 22 种，见 6.4.3
+  group: string;                 // 属性面板分组
   defaultValue: unknown;
-  options?: { label: string; value: unknown }[];
+  options?: SelectOption[];
   min?: number; max?: number; step?: number;
-  unit?: 'mm' | 'px' | 'pt' | '%';
+  unit?: "mm" | "px" | "pt" | "%";
   placeholder?: string;
-  hint?: string;
-  visibleWhen?: (props: Record<string, unknown>, ctx: RenderContext) => boolean;
-  disabledWhen?: (props: Record<string, unknown>, ctx: RenderContext) => boolean;
+  visibleWhen?: (props: ComponentProps, ctx: RenderContext) => boolean;
+  disabledWhen?: (props: ComponentProps, ctx: RenderContext) => boolean;
 }
 ```
 
-**6.4.3 18 种控件清单**
+> 注：**没有 `hint` 字段**（初稿多写了）。悬停说明由属性面板的 `PropertyRow` + 自研 `Tooltip` 负责，
+> 文案来自 `label` / `group` / `visibleWhen` 等既有信息。
 
-`text` `textarea` `richtext` `number` `slider` `color` `select` `switch` `align` `font` `spacing` `edge` `image` `unit` `frame` `children` `cells` `tableSize`
+**6.4.3 22 种控件清单**（现状实测：`registry/types.ts` 的 `PropControlType`；`?spec=1` 生成物同为"22 种"）
 
+`text` `textarea` `richtext` `number` `slider` `color` `select` `switch` `align` `font` `spacing` `edge`
+`image` `unit` `frame` `children` `cells` `tableSize` `tableHtml` `tableSort` `tableRowHeights` `imageRows`
+
+> 与初稿的 18 种相比，实际多出 4 种**表格专项控件**：`tableHtml`（HTML 源）、`tableSort`（排序规则）、
+> `tableRowHeights`（行高）、`imageRows`（并排图行）。
 **6.4.4 7 个分类（固定，不可扩展）**
 
 `通用` `布局分页` `Word 常用` `Excel 表格` `PPT 专用` `Web 控件` `Web 容器`
@@ -786,27 +785,29 @@ export interface PropSchemaItem {
 | 文件名写进 `_manifest.json` | 加载器据此枚举 |
 | `api` 主版本声明 | Figma 式稳定性 |
 
-**6.5.2 EditorKit API（对外暴露）**
+**6.5.2 EditorKit API（对外暴露）**（以 `web-editor/src/registry/live.ts` 与 SKILL.md §2 为准）
 
 ```ts
 interface EditorKit {
-  React: typeof React;
+  React: typeof React;                                  // 渲染一律 React.createElement（无 jsx 自动运行时）
+  reactJsxRuntime: { jsx; jsxs; Fragment };              // 兼容别名，但是**经典签名** createElement(type, props, ...children)
   register: (def: ComponentDefinition) => void;
-  fontProps: (props: any) => React.CSSProperties;
-  boxProps: (props: any) => React.CSSProperties;
-  defaultsOf: (type: string) => Record<string, unknown>;
-  defaultFrameOf: (type: string) => Partial<Frame>;
+  // 下面这两个是**属性 schema 片段生成器**（返回 PropSchemaItem[]，供插件 ...spread 进 propSchema），
+  // 不是 CSS 样式助手 —— 初稿写成返回 CSSProperties 是错的
+  fontProps: (size?: number) => PropSchemaItem[];
+  boxProps: () => PropSchemaItem[];
+  defaultsOf: (schema: PropSchemaItem[]) => Record<string, unknown>;   // 由 schema 的 defaultValue 推导
+  defaultFrameOf: (w: number, h: number, x?: number, y?: number) => Partial<Frame>;
   boxStyle / typographyStyle / alignOf / spacingCss / edgeCss: Function;
   lines / rows: (text: string) => string[];
   asString / asNumber / asBool / asEnum: (v: unknown, fallback: unknown) => unknown;
   mmToPx / ptToPx: (n: number) => number;
-  icon: (name: string) => React.ReactNode;
-  // 表格内核
+  icon: (name?: string) => React.ReactNode;
+  // 表格内核（与内置表格一致的单元格逻辑）
   renderTable / tableSchema / parseTableData / serializeTableData /
   escapeCell / parseCellStyles / parseColWidths: Function;
 }
 ```
-
 **6.5.3 稳定性承诺**
 
 | 变更类型 | 版本 | 行为 |
@@ -851,7 +852,7 @@ interface EditorKit {
 | `desktop:open-download` | — | `{ ok }` |
 | `desktop:open-log-dir` | — | `{ ok }` |
 | `desktop:open-data-dir` | — | `{ ok }` |
-| `desktop:open-config-dir` | — | `{ ok }` |
+| `desktop:open-config-file` | — | `{ ok }`（打开配置目录；preload 方法名为 `openConfigDir`） |
 | `desktop:open-external` | `{ url }` | `{ ok }` |
 
 **6.7.3 安全约束**
@@ -1099,10 +1100,11 @@ export function resetRegistry(): void;
 
 ### 8.8 审计
 
-- 所有写操作写 `var/logs/audit.log`。
-- 格式：时间 | Tool | 参数摘要 | 结果 | clientId。
-- 保留 30 天，自动轮转。
-
+- **现状**（`editor-mcp/src/log.ts`）：写操作追加到 `<workspace>/audit.log`，格式为
+  `时间 | Tool | 参数摘要 | 结果 | 耗时(ms)`（**没有 `clientId` 字段**；也**没有 30 天轮转**，
+  `appendFileSync` 持续追加；不存在 `audit.ts`）。
+- **目标（P0 新增）**：格式补 `clientId`；按大小/天数轮转并保留 30 天；审计文件统一落 `var/logs/audit.log`
+  （P3 目录重排后）。断言：写工具调用后审计行数 +1、字段数一致、轮转触发后旧文件被压缩或删除。
 ---
 
 ## 第 9 章 授权体系
@@ -1282,7 +1284,6 @@ export function resetRegistry(): void;
 
 | 域 | 新增 |
 |---|---|
-| `plugin` | `plugin.deps`（依赖分析） |
 | `license` | `license.status` / `license.request` / `license.import`（P6） |
 | `bridge` | `bridge.status`（含 protocol/features/tokenRequired） |
 
@@ -1760,7 +1761,7 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 | HTTP 端点 | §6.6 | `webServer.js` / `http.ts` |
 | 环境变量 / 配置键 | §6.8 | `config.ts` / `app-config.example.json` |
 | 18 种属性控件 | §7.3 | `property-controls/index.tsx` |
-| 7 分类 / 48 组件 | §7.2 | 注册表 + `?spec=1` |
+| 7 分类 / 47 组件（44 内置 + 3 外部） | §7.2 | 注册表 + `?spec=1` |
 | 端到端脚本 | §14.4 | `editor-mcp/scripts/` |
 | 验证数字 | §14.2 | 四件套命令 |
 
