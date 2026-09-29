@@ -63,6 +63,21 @@ const outputs = {
     `export const EDITOR_PROTOCOL = ${PROTOCOL};\n`,
 };
 
+/* ── 表格内核同源（P1④）：MCP 侧那份改为**从 web 的规范模块复制生成** ──
+   原来两份手写（web 版用 asString/asMatrix，MCP 版内联重写），语义靠 65 例一致性测试人工守着。
+   现在只有一份手写源：`web-editor/.../tableKit.pure.ts`（零依赖，两侧都能编译）。 */
+const tableKitPure = read(path.join('web-editor', 'src', 'registry', 'components', 'common', 'tableKit.pure.ts'));
+if (/^\s*import\s/m.test(tableKitPure.replace(/^\/\*\*[\s\S]*?\*\/\n/, ''))) {
+  console.error('✗ tableKit.pure.ts 里出现了 import —— 它必须保持零依赖（MCP 侧要能直接编译）');
+  process.exit(1);
+}
+outputs['editor-mcp/src/engine/tableKit.ts'] =
+  `/**\n * ★本文件由 \`tools/sync-contracts.mjs\` **从编辑器侧的规范模块复制**生成，不要手改：\n` +
+  ` *   源文件 = \`web-editor/src/registry/components/common/tableKit.pure.ts\`\n` +
+  ` *   改语义请改源文件，然后跑 \`node tools/sync-contracts.mjs\`；\n` +
+  ` *   \`--check\` 会比对两边内容（机械护栏），65 例一致性测试是语义护栏。\n */\n\n` +
+  tableKitPure;
+
 /* 三个包的 package.json 版本必须与根一致（同步而不是"断言失败后让人手改"） */
 const pkgPaths = ['editor-mcp/package.json', 'web-editor/package.json', 'apps/desktop/package.json'];
 for (const rel of pkgPaths) {

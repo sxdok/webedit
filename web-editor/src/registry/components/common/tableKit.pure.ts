@@ -1,11 +1,4 @@
 /**
- * ★本文件由 `tools/sync-contracts.mjs` **从编辑器侧的规范模块复制**生成，不要手改：
- *   源文件 = `web-editor/src/registry/components/common/tableKit.pure.ts`
- *   改语义请改源文件，然后跑 `node tools/sync-contracts.mjs`；
- *   `--check` 会比对两边内容（机械护栏），65 例一致性测试是语义护栏。
- */
-
-/**
  * 表格数据模型的**规范实现**（唯一手写来源）—— 编辑器与 MCP 共用同一份。
  *
  * ★本文件是 **P1④「表格内核同源」**的载体：

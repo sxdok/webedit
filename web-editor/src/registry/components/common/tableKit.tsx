@@ -10,7 +10,28 @@
  */
 import type { ComponentProps, PropSchemaItem, RenderContext, SelectOption } from '../../types';
 import { GROUP } from '../shared';
-import { asBool, asMatrix, asNumber, asString } from '../../../utils/id';
+import { asBool, asNumber, asString } from '../../../utils/id';
+
+/**
+ * ★P1④「表格内核同源」：数据模型的**纯函数**已搬到 `tableKit.pure.ts`（唯一手写来源）。
+ * `export *` 让既有 `import { parseTableData } from '.../tableKit'` 照旧可用；
+ * **但必须同时显式 import** —— `export * from` 只做再导出，**不会**在本模块建立本地绑定，
+ * 少了这行下面所有本地调用都会报 "Cannot find name"（我第一版就是这么踩的）。
+ * MCP 侧 `editor-mcp/src/engine/tableKit.ts` 由 `tools/sync-contracts.mjs` **原样复制**同一份文件生成
+ * （机械护栏 `--check`，语义护栏是 65 例一致性测试）。本文件只留**编辑器专属**部分：
+ * React 渲染、线条/表头样式、行高列宽的展示解析、排序与选区助手等。
+ */
+export * from './tableKit.pure';
+/* 只 import **本文件真正用到**的那几个 —— `export *` 已保证对外可见性，
+   多导入反而触发 noUnusedLocals（TS6133），所以收窄到实际使用面。 */
+import {
+  cellStyleKeyAt,
+  parseA1,
+  parseCellStyles,
+  parseColWidths,
+  parseTableData,
+  serializeTableData,
+} from './tableKit.pure';
 
 export type TableVariant = 'normal' | 'threeLine' | 'hLines';
 
@@ -19,18 +40,6 @@ export const TABLE_VARIANT_OPTIONS: SelectOption[] = [
   { label: '三线表', value: 'threeLine' },
   { label: '横线表（无竖线）', value: 'hLines' },
 ];
-
-/**
- * 列宽：逗号/顿号/空白分隔；**纯数字按百分比**（"20,50,30" → 20%/50%/30%），也可写 `35mm`、`40%`。
- * 与 A4 编辑器 `js/30-tables.js` 的 setColWidths 同一套语义（写进 colgroup 的每个 col）。
- */
-export function parseColWidths(raw: unknown): string[] {
-  return String(raw ?? '')
-    .split(/[,，\s]+/)
-    .map((s) => s.trim())
-    .filter((s) => s !== '')
-    .map((w) => (/^\d+(\.\d+)?$/.test(w) ? `${w}%` : w));
-}
 
 /**
  * 行高：**纯数字按毫米**（"9" → 9mm），其余原样；写到每个单元格的 height 上（表头 + 数据行一起）。
@@ -60,50 +69,6 @@ export function parseRowHeights(raw: unknown): Record<number, string> {
   return out;
 }
 
-/** 把一行按**未转义**的 `|` 分列，并还原转义：`\|` → `|`、`\\` → `\`、`\n` → 格内换行 */
-function splitRow(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (ch === '\\' && i + 1 < line.length) {
-      const nx = line[i + 1];
-      if (nx === '|') {
-        cur += '|';
-        i += 1;
-        continue;
-      }
-      if (nx === '\\') {
-        cur += '\\';
-        i += 1;
-        continue;
-      }
-      if (nx === 'n') {
-        cur += '\n';
-        i += 1;
-        continue;
-      }
-    }
-    if (ch === '|') {
-      out.push(cur);
-      cur = '';
-      continue;
-    }
-    cur += ch;
-  }
-  out.push(cur);
-  return out.map((s) => s.trim());
-}
-
-/** 单元格文本 → 文本视图里的写法（转义 `\`、`|`、换行；保证「内容」里写什么都存得下） */
-export function escapeCell(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, '\\n');
-}
-
-/** 二维数据 → props.data 文本（所有写回 data 的地方都用它，保证格式一致） */
-export function serializeTableData(rows: string[][]): string {
-  return rows.map((r) => r.map(escapeCell).join(' | ')).join('\n');
-}
 
 /**
  * 任意形态的表格数据（二维数组 / 文本）→ **规范文本**。
@@ -113,192 +78,6 @@ export function serializeTableData(rows: string[][]): string {
  */
 export function toTableText(raw: unknown): string {
   return typeof raw === 'string' ? raw : serializeTableData(parseTableData(raw));
-}
-
-/** 把 data 属性（二维数组或 "a | b" 文本）解析成行
- *  ★空行**要保留**（Excel 里空行就是一行空单元格）：只把"末尾换行"这个书写残留去掉，
- *    中间和末尾的空行都算真实行 —— 否则"插入空行"会看不见、行列数量也对不上。
- *  ★转义：`\|` 是格内竖线、`\n` 是格内换行、`\\` 是反斜杠本身（见 escapeCell / serializeTableData）。 */
-export function parseTableData(raw: unknown): string[][] {
-  if (Array.isArray(raw)) return asMatrix(raw);
-  const text = String(raw ?? '');
-  if (!text) return [];
-  let lines = text.split('\n');
-  if (text.endsWith('\n')) lines = lines.slice(0, -1);
-  if (lines.every((l) => l.trim() === '')) return [];
-  return lines.map((l) => splitRow(l));
-}
-
-/**
- * 单元格级格式（Excel 的"单元格覆盖表格默认"）：`{ "B2": { 各覆盖项 }, "B2:C3": { merged: true } }`。
- * 键用 **Excel A1 记法**（列字母 + 行号，行号**从 1 起**；范围键 `B2:C3` 表示合并区）。
- * 兼容旧数据：早期版本用 `"行,列"`（0 基），读取时自动换算成 A1。
- * 没写的项就沿用表格级属性（cellAlign / fontSize / cellPadding / headerBackground），
- * 与 Excel 里"单元格格式覆盖列/表默认格式"是同一套逻辑。
- */
-export interface CellStyle {
-  background?: string;
-  color?: string;
-  /** pt */
-  fontSize?: number;
-  bold?: boolean;
-  /** 字重（400/600/700）；写了就以它为准，bold 是旧字段 */
-  fontWeight?: number;
-  align?: 'left' | 'center' | 'right' | 'justify';
-  /** 垂直对齐（Excel 的"垂直居中"） */
-  valign?: 'top' | 'middle' | 'bottom';
-  /** px */
-  padding?: number;
-  /** 单元格边框（四边独立，宽度 px） */
-  border?: { top?: number; right?: number; bottom?: number; left?: number; color?: string };
-  /** 合并区（写在范围键上，如 "B2:C3"） */
-  merged?: boolean;
-}
-
-const CELL_ALIGNS = ['left', 'center', 'right', 'justify'] as const;
-const CELL_VALIGNS = ['top', 'middle', 'bottom'] as const;
-
-/** 列号 → 列字母（0→A、25→Z、26→AA） */
-export function colName(c: number): string {
-  let n = Math.max(0, Math.floor(c));
-  let s = '';
-  do {
-    s = String.fromCharCode(65 + (n % 26)) + s;
-    n = Math.floor(n / 26) - 1;
-  } while (n >= 0);
-  return s;
-}
-
-/** (行,列) 0 基 → A1（如 (1,1) → B2） */
-export function a1(r: number, c: number): string {
-  return `${colName(c)}${r + 1}`;
-}
-
-/** 范围 → A1 键：单格给 "B2"，多格给 "B2:C3" */
-export function a1Key(r0: number, c0: number, r1: number, c1: number): string {
-  return r0 === r1 && c0 === c1 ? a1(r0, c0) : `${a1(r0, c0)}:${a1(r1, c1)}`;
-}
-
-export interface A1Range {
-  r0: number;
-  c0: number;
-  r1: number;
-  c1: number;
-}
-
-/** 解析 A1 键或旧版 "行,列" 键 → 0 基范围；解析不了返回 null */
-export function parseA1(key: string): A1Range | null {
-  const legacy = key.match(/^(\d+),(\d+)$/);
-  if (legacy) {
-    const r = Number(legacy[1]);
-    const c = Number(legacy[2]);
-    return { r0: r, c0: c, r1: r, c1: c };
-  }
-  const one = (s: string): { r: number; c: number } | null => {
-    const m = s.match(/^([A-Za-z]+)(\d+)$/);
-    if (!m) return null;
-    let c = 0;
-    for (const ch of m[1].toUpperCase()) c = c * 26 + (ch.charCodeAt(0) - 64);
-    return { r: Number(m[2]) - 1, c: c - 1 };
-  };
-  const parts = key.split(':');
-  const a = one(parts[0] ?? '');
-  const b = one(parts[1] ?? parts[0] ?? '');
-  if (!a || !b) return null;
-  return {
-    r0: Math.min(a.r, b.r),
-    c0: Math.min(a.c, b.c),
-    r1: Math.max(a.r, b.r),
-    c1: Math.max(a.c, b.c),
-  };
-}
-
-/** 归一化键：旧版 "行,列" → A1；范围内单格 → 单格键 */
-export function normalizeKey(key: string): string | null {
-  const p = parseA1(key);
-  return p ? a1Key(p.r0, p.c0, p.r1, p.c1) : null;
-}
-
-export function parseCellStyles(raw: unknown): Record<string, CellStyle> {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const out: Record<string, CellStyle> = {};
-  for (const [rawKey, v] of Object.entries(raw as Record<string, unknown>)) {
-    const key = normalizeKey(rawKey);
-    if (!key || !v || typeof v !== 'object' || Array.isArray(v)) continue;
-    const src = v as Record<string, unknown>;
-    const st: CellStyle = {};
-    const bg = String(src.background ?? '').trim();
-    if (bg) st.background = bg;
-    const color = String(src.color ?? '').trim();
-    if (color) st.color = color;
-    const fs = Number(src.fontSize);
-    if (Number.isFinite(fs) && fs > 0) st.fontSize = fs;
-    if (src.bold === true) st.bold = true;
-    const fw = Number(src.fontWeight);
-    if (Number.isFinite(fw) && fw >= 100) st.fontWeight = fw;
-    const align = String(src.align ?? '');
-    if ((CELL_ALIGNS as readonly string[]).includes(align)) st.align = align as CellStyle['align'];
-    const va = String(src.valign ?? '');
-    if ((CELL_VALIGNS as readonly string[]).includes(va)) st.valign = va as CellStyle['valign'];
-    const pad = Number(src.padding);
-    if (Number.isFinite(pad) && pad >= 0 && src.padding !== '' && src.padding != null) st.padding = pad;
-    if (src.merged === true) st.merged = true;
-    if (src.border && typeof src.border === 'object' && !Array.isArray(src.border)) {
-      const b = src.border as Record<string, unknown>;
-      const nb: NonNullable<CellStyle['border']> = {};
-      for (const side of ['top', 'right', 'bottom', 'left'] as const) {
-        const n = Number(b[side]);
-        if (Number.isFinite(n) && n > 0) nb[side] = n;
-      }
-      const bc = String(b.color ?? '').trim();
-      if (bc) nb.color = bc;
-      if (Object.keys(nb).length) st.border = nb;
-    }
-    if (Object.keys(st).length) out[key] = st;
-  }
-  return out;
-}
-
-/** 取某格的样式键：优先该格自己的键；否则若它落在某个合并区里，用该区的键 */
-export function cellStyleKeyAt(styles: Record<string, CellStyle>, r: number, c: number): string | null {
-  const own = a1(r, c);
-  if (styles[own]) return own;
-  for (const key of Object.keys(styles)) {
-    const p = parseA1(key);
-    if (!p) continue;
-    if (r >= p.r0 && r <= p.r1 && c >= p.c0 && c <= p.c1) return key;
-  }
-  return null;
-}
-
-/** 插入/删除行列后平移所有键（含范围键）；落在删除范围内的键被移除，被切开的合并区不再合并 */
-export function shiftCellKeys(
-  styles: Record<string, CellStyle>,
-  axis: 'row' | 'col',
-  at: number,
-  count: number,
-): Record<string, CellStyle> {
-  const out: Record<string, CellStyle> = {};
-  const map1 = (r: number, c: number): { r: number; c: number } | null => {
-    const idx = axis === 'row' ? r : c;
-    if (count < 0) {
-      const del = -count;
-      if (idx >= at && idx < at + del) return null;
-      const ni = idx >= at + del ? idx - del : idx;
-      return axis === 'row' ? { r: ni, c } : { r, c: ni };
-    }
-    const ni = idx >= at ? idx + count : idx;
-    return axis === 'row' ? { r: ni, c } : { r, c: ni };
-  };
-  for (const [key, st] of Object.entries(styles)) {
-    const p = parseA1(key);
-    if (!p) continue;
-    const a = map1(p.r0, p.c0);
-    const b = map1(p.r1, p.c1);
-    if (!a || !b) continue;
-    out[a1Key(a.r, a.c, b.r, b.c)] = st;
-  }
-  return out;
 }
 
 

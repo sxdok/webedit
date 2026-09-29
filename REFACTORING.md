@@ -1990,6 +1990,32 @@ node tools/sync-contracts.mjs --check   # 只校验，不一致就退出码 1（
 
 **P1 剩余**：④ 表格内核同源（两份实现收敛，65 例一致性测试守着）。
 
+### 15.16 P1 施工记录（④ 表格内核同源）—— P1 完成
+
+**改前的实际状态**（先查后改，别信"两份重复实现"这种笼统描述）：
+`web-editor/.../tableKit.tsx`（36.7KB，含 React 渲染）与 `editor-mcp/src/engine/tableKit.ts`（8.3KB，零依赖子集）
+**不是逐行复制** —— 逐函数比对结果是：11 个函数**逐字相同**，4 个只差"用 `asString/asMatrix` 还是内联"，
+web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…），MCP 侧多一个 `keysInRange`。
+其中 `asString(v)` 与内联 `String(v ?? '')` **语义等价**（`null/undefined → ''`，其余 `String(v)`）→ 可以安全地以一侧为源。
+
+| 项 | 落地 |
+|---|---|
+| 规范模块 | 新增 `web-editor/src/registry/components/common/tableKit.pure.ts`（**零依赖**，共 15 个导出 + 3 个内部常量）：以 MCP 那份零依赖实现为基准（它能同时编译进浏览器与 Node） |
+| 编辑器侧 | `tableKit.tsx` 只保留**编辑器专属**部分（React 渲染、线条/表头样式、行高列宽展示解析、排序与选区助手），改为 `export * from './tableKit.pure'` ⇒ 既有 `import { parseTableData } from '.../tableKit'` 全部照旧 |
+| MCP 侧 | `editor-mcp/src/engine/tableKit.ts` 变为**生成物**：由 `tools/sync-contracts.mjs` 原样复制规范模块（带"勿手改"banner）—— 手写两份的时代结束 |
+| 护栏 | **机械**：`--check` 覆盖该文件（负例实测：手改 MCP 侧 → 退出 1 并指名文件）；**语义**：65 例一致性测试保留（同时验证 MCP 侧的 import 路径） |
+
+**踩到的坑（值得记）**：`export * from './x'` **只做再导出，不会在本模块建立本地绑定** ——
+第一版改完 `tableKit.tsx` 自己那几十处调用全部报 `Cannot find name`。正解是 `export *` 与**显式 import** 并存
+（import 只列本文件真正用到的 6 个，多列会触发 `noUnusedLocals` TS6133）。
+另外我第一版的"按声明名删除"脚本漏了**没导出**的 `splitRow`、且两个 `const` 的跨度重叠 —— 这类脚本化重构必须靠
+`tsc` + 自检 + 一致性测试三重验证收口，不能凭脚本的 `✓` 就认为改对了。
+
+**闸门（P1 收尾）**：`web-editor build` ✅、页面自检 **320/322**（表格断言全过 —— 这是"行为没回归"的实证）、
+`editor-mcp tsc -b` 0 错、`npm test` **99/99**（含 65 例一致性）、`verify` **84/84**、`sync-contracts --check` ✅。
+
+**P1 全部完成**：① 清单形状 ② 协议/能力协商 + 未知方法降级 ③ 契约生成器 ④ 表格内核同源。下一步 **P2**。
+
 ---
 
 ## 第 16 章 数据迁移指南
