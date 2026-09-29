@@ -12,11 +12,23 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const BUNDLE = process.argv[2] ?? 'E:\\可视化编辑器\\editor-mcp\\dist\\editor-mcp.bundle.mjs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// ★P3-M2：唯一一份单文件 MCP 在仓库根 dist/mcp（原来这里还写死了绝对路径）
+const BUNDLE = process.argv[2] ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist', 'mcp', 'editor-mcp.bundle.mjs');
 const PORT = Number(process.argv[3] ?? 37661);
 const URL_ = `http://127.0.0.1:${PORT}/mcp`;
+/**
+ * ★P0 起 **token 是强制的**：本脚本自己生成一把注入子进程，并在每个请求里带上。
+ * 不带的表现是「服务器已开启 token 校验…拒绝服务」→ 探针永远得到 401、却看不出哪里错（它自 P0 起就静默失效了）。
+ */
+const TOKEN = `caps-probe-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 
-const child = spawn(process.execPath, [BUNDLE, '--http', '--port', String(PORT)], { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, EDITOR_MCP_BRIDGE_HUB: '0' } });
+const child = spawn(process.execPath, [BUNDLE, '--http', '--port', String(PORT)], {
+  stdio: ['ignore', 'ignore', 'pipe'],
+  env: { ...process.env, EDITOR_MCP_BRIDGE_HUB: '0', EDITOR_MCP_TOKEN: TOKEN },
+});
 let stderr = '';
 child.stderr.on('data', (d) => (stderr += d.toString()));
 
@@ -37,7 +49,7 @@ const parseRpc = (text) => {
   }
   return null;
 };
-const H = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' };
+const H = { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${TOKEN}` };
 const post = async (body, sid) => {
   const res = await fetch(URL_, { method: 'POST', headers: { ...H, ...(sid ? { 'mcp-session-id': sid } : {}) }, body: JSON.stringify(body) });
   return { sid: res.headers.get('mcp-session-id') ?? sid, status: res.status, body: parseRpc(await res.text()) };

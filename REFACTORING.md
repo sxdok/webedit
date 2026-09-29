@@ -2105,6 +2105,29 @@ web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…）�
 ④ 页面自检 `check:page` **320/322**（仍是那 2 条既有画布几何问题）。
 额外：Python 降级启动器实测 `GET /` 200（含 root 挂载点）、`GET /__components` 返回规范形状。
 
+### 15.20 P3-M2 施工记录（单文件 MCP 唯一化：→ `<仓库根>/dist/mcp/editor-mcp.bundle.mjs`）
+
+改前"自包含单文件 MCP"有 **3 份**：`editor-mcp/dist/editor-mcp.bundle.mjs`、`apps/desktop/dist-mcp/`、
+打包内 `resources/editor-mcp-bundle/`。M2 只保留**构建输出一份**（打包内那份是发行物的一部分，由 extraResources 拷进去）。
+
+| 项 | 落地 |
+|---|---|
+| 产物唯一 | `apps/desktop/scripts/bundle-mcp.mjs` 的 `DEFAULT_OUT` → `<仓库根>/dist/mcp/editor-mcp.bundle.mjs`；旧的两处产物目录已删 |
+| 桌面壳 | `apps/desktop/src/paths.js` 的 dev `mcpBundle` → `pickDir(<仓库根>/dist/mcp)`（`mcpEntry` 仍优先用单文件） |
+| 打包 | `apps/desktop/package.json` 的 `extraResources`：`from: ../../dist/mcp/editor-mcp.bundle.mjs`，`to: editor-mcp-bundle/editor-mcp.bundle.mjs`（**包内布局不变**） |
+| 三个探针脚本 | `session-revive-check` / `multi-connection-check` / `probe-capabilities` 的 bundle 路径都改指新位置；`probe-capabilities` 原来还**写死了绝对路径** `E:\可视化编辑器\…`，改成相对仓库根推导 |
+| 清理与文档 | `.gitignore` 删掉过期的 `apps/desktop/dist-mcp/`（新的 `dist/` 规则已覆盖）；同步 `现状文档.md`（5 处）与 ARCHITECTURE 的"单文件 MCP 3 份"行（标注完成） |
+
+**★又抓到一个"自 P0 起静默失效"的脚本（第 7 个）**：`probe-capabilities.mjs` 本身能连上服务器，
+但 **P0 的 token 强制**让它的每个请求都被 401 拒绝（日志只说"服务器已开启 token 校验…拒绝服务"）。
+现象是"探针跑完了、输出空"——不看 stderr 根本发现不了。已修：脚本自造 token 注入子进程 + 每个请求带 `Authorization`。
+实测修好后：`initialize` 200、`capabilities.tools` 存在、`tools/list` **108 个工具**。
+（同类的还有 5 个 smoke + `bridge-smoke`，都在 P1/P2 阶段修过 —— 教训已记在 §15.12：引入"默认拒绝"的安全默认值时，**测试脚本也要显式申请权限**。）
+
+**M2 四件套实测**：① 根 `npm run build` ✅（打包落在 `dist/mcp`）；
+② `npm run selftest` **10/10**；③ 根 `npm run verify` **87/87**；
+④ 探针实测：`session-revive` 7/7、`multi-connection` 10/10、`probe-capabilities`（108 工具）✅。
+
 ---
 
 ## 第 16 章 数据迁移指南

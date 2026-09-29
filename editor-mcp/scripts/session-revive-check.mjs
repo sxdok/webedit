@@ -20,7 +20,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUNDLE = resolve(HERE, '..', 'dist', 'editor-mcp.bundle.mjs');
+const BUNDLE = resolve(HERE, '..', '..', 'dist', 'mcp', 'editor-mcp.bundle.mjs'); // ★P3-M2：唯一一份
 const PORT = 37753;
 const URL_ = `http://127.0.0.1:${PORT}/mcp`;
 /** P0 起 token 强制：本脚本自带 MCP 子进程，自己生成一把并全程带上 */

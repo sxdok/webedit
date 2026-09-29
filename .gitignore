@@ -1,12 +1,14 @@
 # 构建产物与依赖（可由 npm run build / npm install 再生）
 node_modules/
+# 交付物目录（含 dist/web、dist/mcp）：构建产物，不入库
+# ★别在这一行尾巴上加 `# 注释` —— gitignore **不支持行尾注释**，加了整条规则就失效
+#   （2026-09-29 真踩过：产物连同 2.6MB 单文件与 sourcemap 一起被提交）
 dist/
 *.tsbuildinfo
 .vite/
 
 # 桌面分发版（apps/desktop）：打包产物与本地下载缓存，都可由 npm run dist 再生
 apps/desktop/release/
-apps/desktop/dist-mcp/
 apps/desktop/.npm-cache/
 apps/desktop/.electron-cache/
 apps/desktop/.electron-builder-cache/

@@ -17,7 +17,7 @@
  *   · 顶部注入 `createRequire`：被内联的 CJS 依赖里若出现运行时 `require()`，ESM 产物里得有它。
  *
  * 用法：
- *   node scripts/bundle-mcp.mjs                    # 写到 dist-mcp/editor-mcp.bundle.mjs
+ *   node scripts/bundle-mcp.mjs                    # 写到 <仓库根>/dist/mcp/editor-mcp.bundle.mjs
  *   node scripts/bundle-mcp.mjs --out <路径>        # 指定输出（验证脚本用它打到临时目录）
  *   node scripts/bundle-mcp.mjs --print            # 只打印会写到哪里
  */
@@ -40,14 +40,14 @@ const ESBUILD_CANDIDATES = [
   join(APP_DIR, 'node_modules', 'esbuild', 'lib', 'main.js'),
   join(REPO_ROOT, 'web-editor', 'node_modules', 'esbuild', 'lib', 'main.js'),
 ];
-export const DEFAULT_OUT = join(APP_DIR, 'dist-mcp', 'editor-mcp.bundle.mjs');
+export const DEFAULT_OUT = join(REPO_ROOT, 'dist', 'mcp', 'editor-mcp.bundle.mjs');
 
 /** ws 的可选原生加速包：装了就用、没装自己降级，所以不进包 */
 const OPTIONAL_NATIVE = ['bufferutil', 'utf-8-validate'];
 
 /**
  * @param {object} [o]
- * @param {string} [o.outfile]   输出文件（默认 dist-mcp/editor-mcp.bundle.mjs）
+ * @param {string} [o.outfile]   输出文件（默认 <仓库根>/dist/mcp/editor-mcp.bundle.mjs）
  * @param {string} [o.entry]     入口（默认 editor-mcp/dist/index.js）
  * @param {boolean} [o.quiet]
  * @returns {Promise<{ outfile: string, bytes: number, entry: string, metafile?: object }>}

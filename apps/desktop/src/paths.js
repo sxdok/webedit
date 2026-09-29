@@ -72,7 +72,7 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
    */
   const mcpBundle = isPackaged
     ? pickDir(join(resourcesPath, 'editor-mcp-bundle'))
-    : pickDir(join(APP_DIR, 'dist-mcp'));
+    : pickDir(join(repoRoot, 'dist', 'mcp')); // ★P3-M2：唯一一份，放仓库根 dist/mcp
   const mcpBundleEntry = mcpBundle ? join(mcpBundle, 'editor-mcp.bundle.mjs') : null;
   const mcpEntry = mcpBundleEntry && existsSync(mcpBundleEntry) ? mcpBundleEntry : mcpDistEntry;
 

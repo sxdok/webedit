@@ -57,7 +57,7 @@
         "to": "web-editor/public/组件"
       },
       {
-        "from": "dist-mcp/editor-mcp.bundle.mjs",
+        "from": "../../dist/mcp/editor-mcp.bundle.mjs",
         "to": "editor-mcp-bundle/editor-mcp.bundle.mjs"
       },
       {

@@ -23,7 +23,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BUNDLE = resolve(HERE, '..', 'dist', 'editor-mcp.bundle.mjs');
+const BUNDLE = resolve(HERE, '..', '..', 'dist', 'mcp', 'editor-mcp.bundle.mjs'); // ★P3-M2：唯一一份
 
 const HUB_PORT = 37750;
 const A_PORT = 37751;

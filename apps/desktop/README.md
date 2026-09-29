@@ -26,7 +26,7 @@
 | `scripts/embed-key.mjs` | 一键「生成密钥 → 加密配置 → 嵌入密钥 → 验证」 |
 | `scripts/verify-desktop.mjs` | **无界面验证**（75 项，见下） |
 | `scripts/bundle-mcp.mjs` | 把 `editor-mcp` 打成**自包含单文件**（分发版唯一可靠形态，见「打包」一节） |
-| `dist-mcp/` | 上面那个脚本的产物（`editor-mcp.bundle.mjs`，约 2.4MB，已 gitignore） |
+| `../../dist/mcp/` | 上面那个脚本的产物（`editor-mcp.bundle.mjs`，约 2.6MB，已 gitignore）——**P3-M2 起是唯一一份** |
 
 ## 界面：只有一层菜单（无边框窗口）
 
@@ -217,7 +217,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 `package.json` 的 `build` 字段已经写好：
 
 * `files`：只有外壳代码进 `asar`（**注意 `server/**` 必须列进去**，见下"真踩过的两个坑"）；
-* `extraResources`：`../dist/web`（打进包的 `web-editor/dist`）、`web-editor/public/组件`、**`dist-mcp/editor-mcp.bundle.mjs`**、
+* `extraResources`：`../dist/web`（打进包的 `web-editor/dist`）、`web-editor/public/组件`、**`../dist/mcp/editor-mcp.bundle.mjs`**（→ 包内 `editor-mcp-bundle/`）、
   `tools/secure-config`、`config/app-config.enc`、`config/buildKey.mjs` 都放在 **asar 外面**的
   `resources/` 下 —— 子进程要从磁盘跑（asar 里的文件没法 spawn），配置与密钥要能现场替换；
 * `win.target`：`nsis`（可选安装目录）+ `portable`（免安装单文件）；
@@ -225,7 +225,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 * `npm run dist` 会**先跑 `bundle:mcp`** 再打包，避免打进一个旧的单文件。
 
 ```bash
-npm run bundle:mcp   # 只打 MCP 单文件 → dist-mcp/editor-mcp.bundle.mjs
+npm run bundle:mcp   # 只打 MCP 单文件 → <仓库根>/dist/mcp/editor-mcp.bundle.mjs
 npm run dist         # 产物在 apps/desktop/release/
 ```
 
