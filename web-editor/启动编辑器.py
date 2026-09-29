@@ -51,8 +51,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(ROOT)
 DIST = os.path.join(REPO_ROOT, "dist", "web")
 INDEX = os.path.join(DIST, "index.html")
-# ★日志/诊断落盘目录：按常见软件的习惯放在**运行目录**下（这里是本脚本所在目录）
-LOG_DIR = os.path.join(ROOT, "logs")
+# ★P3-M4：日志/诊断落**仓库根 `var/logs`**（"运行数据"集中到 var/，不再往源码目录写）。
+#   桌面版不读这里：它把日志写到用户数据目录（%APPDATA%\可视化编辑器\logs）。
+LOG_DIR = os.path.join(REPO_ROOT, "var", "logs")
 LOG_KINDS = ("editor", "diagnostic", "check", "server")
 MAX_BODY = 512 * 1024  # 单次写入上限，防止异常客户端把磁盘写满
 

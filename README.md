@@ -80,7 +80,7 @@ npm start ; npm run selftest ; npm run verify ; npm run dist
 ## 版本管理（git）
 
 本工作区自 2026-09-23 起用 git 管理（仓库级身份 `Sxdok <Sxdok@outlook.com>`），
-`node_modules` / `dist` / `*.tsbuildinfo` / `__pycache__` / `web-editor/logs` 已在 `.gitignore` 中排除。
+`node_modules` / `dist`（交付物）/ `release`（发行物）/ `var`（缓存与日志）/ `*.tsbuildinfo` / `__pycache__` 已在 `.gitignore` 中排除。
 
 | 提交 | 内容 |
 |---|---|
@@ -104,7 +104,7 @@ npm start ; npm run selftest ; npm run verify ; npm run dist
 | 已删 | 规模 | 为什么要删（核对结论） |
 |---|---|---|
 | `A4编辑器/` | 67 文件 / 0.2 MB | 旧的单文件 HTML 编辑器，已被 `web-editor` 全量取代；它的 `组件/*.js` 与现编辑器的 live 组件格式**互不兼容**，没有可复用资产；源码/脚本/Skill 对它**零引用**（只有两份 README 把它当"对照对象"与"怎么跑"，已改写） |
-| `docs/验证证据/` | 74 文件 / **25.8 MB** | 开发期的截图与 PDF 证据，已被 `?check=1`（282 条）与 `web-editor/logs/` 的现役证据取代；无代码引用 |
+| `docs/验证证据/` | 74 文件 / **25.8 MB** | 开发期的截图与 PDF 证据，已被 `?check=1` 与 `var/logs/` 的现役证据取代；无代码引用 |
 | `tools/` | 44 文件 / 0.4 MB | ① `legacy-scripts/`（42 文件）是一次性脚本与源材料缓存，**路径写死指向已不存在的 `E:\HikRobot\...`**，其 README 自己标注"仅作历史记录"；② `check_print.py`（唯一的 PDF 级打印验证）现在**跑不完**：控制台 GBK 编码下打印带 `✗` 的结果即 `UnicodeEncodeError` 崩溃，且"界面残留"关键词表已与 `?demo=1` 的实际文案脱节 |
 | `迁移记录.txt` | 5.6 KB | 迁移脚本的输出记录（规模/指纹/校验），内容要点已并入本节的"迁移"段 |
 | `复核记录.txt` | 6.8 KB | 对迁移记录的独立复核（偏差与修正），结论已并入本节的"迁移"段 |

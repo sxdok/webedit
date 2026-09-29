@@ -2149,6 +2149,31 @@ web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…）�
 于是 `--selftest` 成了 Node 的非法参数。清掉该变量即正常（dev 的 `npm run selftest` 同理，见 §15.19）。
 **这不是代码问题，但现象极像"打包坏了"**，值得写进排查笔记。
 
+### 15.22 P3-M4 施工记录（运行数据归 `var/`：缓存与日志）
+
+改前："运行数据"散在源码树里 —— `apps/desktop/{.npm-cache,.electron-cache,.electron-builder-cache}`
+（实测 **327.5MB + 821.5MB**）与 `web-editor/logs/`（**37.2MB / 114 文件**）。
+这些都不该跟源码混在一起：看不清哪些是代码、git 里还容易被误提交（M2 就真被误提交过一次产物，见 §15.20 附注）。
+
+| 项 | 落地 |
+|---|---|
+| 统一目录 | 仓库根 `var/`：`var/caches/{npm,electron,electron-builder}`、`var/logs/`（`docs/`、`shots/` 留给 M6/M7） |
+| 环境变量 | `tools/orchestrate.mjs` 对**它启动的所有子进程**统一设 `npm_config_cache` / `ELECTRON_CACHE` / `ELECTRON_BUILDER_CACHE`，并在启动时 `mkdir` 这些目录（实测 `npm config get cache` → `E:\可视化编辑器\var\caches\npm` ✅） |
+| 日志默认值 | Python 启动器 `LOG_DIR` → `<仓库根>/var/logs`；`webServer.js` 的默认 `logDir`/`docsDir` → `<仓库根>/var/{logs,docs}`（**桌面版不受影响**：它显式传 `userData/{logs,docs}`，打包版自检 10/10 已证） |
+| 迁移 | 三个目录**同盘移动**（瞬时）：`apps/desktop/.npm-cache` → `var/caches/npm`、`.electron-builder-cache` → `var/caches/electron-builder`、`web-editor/logs` → `var/logs`；包内无残留 |
+| 忽略规则 | `.gitignore`：新增 `var/`，删掉已失效的 `apps/desktop/.{npm,electron,electron-builder}-cache` 两行（`.electron-cache` 本机不存在） |
+| 文档 | 根 `README.md`（gitignore 清单）、`web-editor/README.md`（四层日志的落盘位置）、`现状文档.md`（产物表两处 + 目录树）、插件开发 `SKILL.md`（自检报告路径，顺手去掉过期的"155 条"） |
+
+**★顺带发现（留给 M6）**：`web-editor/logs/` 不只放日志 —— 里面混着 **113 个文件**，包括
+`probe-*.js` / `probe-*.mjs` / `cdp-eval.mjs` / `shot-cdp.mjs`（开发探针）、`audit-*.txt`、
+`*.png` 截图、`check-dom.html`。它们被一起搬到了 `var/logs/`。
+M6「探针入库」要做的就是从这里把**值得留的探针**收进 `tools/cdp/`（入库、可复用），其余当运行数据留在 `var/`。
+**先搬到这里不算白搬**：`var/` 是"运行数据"的最终归属，而 `tools/cdp/` 是"工具代码"的归属，两者本就该分开。
+
+**M4 闸门实测**：根 `npm run build` ✅（包内不再长出缓存）；`npm config get cache` → `var/caches/npm` ✅；
+Python 启动器 `GET /__loginfo` → `"dir": "E:\\可视化编辑器\\var\\logs"` ✅；
+根 `npm run verify` **87/87** ✅；打包版 `--selftest` **10/10** ✅（userData 日志未受影响）。
+
 ---
 
 ## 第 16 章 数据迁移指南

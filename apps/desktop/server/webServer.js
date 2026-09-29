@@ -273,9 +273,9 @@ function makeContext({ rootDir, quiet, logDir, docsDir, componentsDir: component
     runDir,
     distDir,
     indexFile: path.join(distDir, 'index.html'),
-    // 不传覆盖时与 Python 版一致：<运行目录>/logs、<运行目录>/docs
-    logDir: logDir ? path.resolve(logDir) : path.join(runDir, 'logs'),
-    docsDir: docsDir ? path.resolve(docsDir) : path.join(runDir, 'docs'),
+    // 不传覆盖时落**仓库根 var/**（P3-M4：运行数据集中；桌面版会显式传 userData 下的目录）
+    logDir: logDir ? path.resolve(logDir) : path.join(repo, 'var', 'logs'),
+    docsDir: docsDir ? path.resolve(docsDir) : path.join(repo, 'var', 'docs'),
     docsDirOverride: docsDir ? path.resolve(docsDir) : null,
     componentsDirOverride: componentsDirOption ? path.resolve(componentsDirOption) : null,
     quiet: Boolean(quiet),

@@ -13,7 +13,7 @@
  *   · 将来 P3 目录重排会改路径，只改这一个文件即可。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -21,10 +21,26 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const full = process.argv.includes('--full');
 
+/**
+ * ★P3-M4：「运行数据」统一落仓库根 `var/` —— 别再把 npm / Electron / electron-builder 的缓存与各包日志
+ * 塞进源码目录（实测那三份缓存加起来 **1.1GB**，混在源码树里既难看清也容易误提交）。
+ *
+ * 这里对**本编排启动的所有子进程**统一设三个环境变量；npm 认 `npm_config_cache`，
+ * Electron 与 electron-builder 分别认 `ELECTRON_CACHE` / `ELECTRON_BUILDER_CACHE`。
+ * 在包目录里自己 `npm install` 不受影响 —— 想统一就统一走根上的 `npm run …`。
+ */
+const VAR_DIR = path.join(repo, 'var');
+const VAR_ENV = {
+  npm_config_cache: path.join(VAR_DIR, 'caches', 'npm'),
+  ELECTRON_CACHE: path.join(VAR_DIR, 'caches', 'electron'),
+  ELECTRON_BUILDER_CACHE: path.join(VAR_DIR, 'caches', 'electron-builder'),
+};
+for (const p of [...Object.values(VAR_ENV), path.join(VAR_DIR, 'logs')]) mkdirSync(p, { recursive: true });
+
 /** 跑一条命令；失败即抛（返回码非 0 → 终止编排，保留原始退出码） */
 function run(label, cmd, args, cwd = repo) {
   process.stdout.write(`\n━━ ${label}\n   $ ${cmd} ${args.join(' ')}${cwd === repo ? '' : `   （在 ${path.relative(repo, cwd)}）`}\n`);
-  const r = spawnSync(cmd, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' });
+  const r = spawnSync(cmd, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32', env: { ...process.env, ...VAR_ENV } });
   if (r.status !== 0) {
     console.error(`\n✗ ${label} 失败（退出码 ${r.status ?? '未知'}）`);
     process.exit(r.status ?? 1);
