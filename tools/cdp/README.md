@@ -13,6 +13,7 @@
 | **summary** | 页面脚本：界面关键结构（标题/面板/组件按钮数/纸张尺寸/菜单栏） | `node tools/cdp/eval.mjs "<url>" tools/cdp/probes/summary.js` |
 | **selfcheck** | 页面脚本：轮询 `?check=1` 报告**直到稳定**，返回好/总数/失败清单 | `node tools/cdp/eval.mjs "<url>?check=1" tools/cdp/probes/selfcheck.js` |
 | **pagetabs-geometry** | 页面脚本：连点「＋」造到 6 页，逐页量分页标签条的几何（标签行高/是否出滚动条/容器高）—— 用于"标签多到出滚动条时被压扁"这类布局 bug 的复现与回归 | `node tools/cdp/eval.mjs "<url>" tools/cdp/probes/pagetabs-geometry.js` |
+| **prefs-layout** | 页面脚本：首选项弹窗的布局体检 —— 行内提示长度（>16 字就算超标）、气泡（`data-pref-tip`）数量与是否为空、有没有原生 `title`、控件列右边缘是否对齐、以及 `data-tip-text` 气泡是否**真的弹出**（配合 `--hover` 用真实指针事件） | `node tools/cdp/eval.mjs "<url>/?prefs=1" tools/cdp/probes/prefs-layout.js`；配 `--hover "[data-pref='autoSave'] [data-pref-tip]" --shot var/shots/x.png` 可拍下气泡 |
 
 ## 典型用法
 
