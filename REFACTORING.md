@@ -2508,6 +2508,33 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 
 **闸门**：页自检 **323/323**；根 `npm run verify` 见下；`web-editor` 构建 ✅。
 
+### 15.33 `doc.create` 改为 **Live 可用**：写入前"空文档就写、非空就新建一页"（用户要求）
+
+**用户的问题**：坑 1 说 `doc.create` 走无头、不会在编辑器里开新页 —— 那"写入前检测当前文档是否空；非空就新建一个文档再写"**是否可行**？
+
+**结论：可行，而且编辑器早就有现成语义**（不需要新造轮子）：
+
+| 能力 | 现状 | 证据 |
+|---|---|---|
+| **检测空不空** | ✅ Live 就能读 | `doc.get` / `doc.summary` 返回 `counts.documentNodes / webNodes / nodes`（`via:"live"`） |
+| **在编辑器里新建一页** | ✅ store 有 `loadDocument(doc)`：**当前只有一页且空白 → 替换它；否则新增一页并切过去** | `store/editorStore.ts:407-418`；UI 的「＋」与"载入示例"都走它 |
+| 造一份新文档 | ✅ `createInitialDocument()` + `PAGE_SIZES` / `DEVICE_PRESETS`（与新建对话框同一份真源） | `store/editorStore.ts:177`、`registry/types.ts:24` |
+| 桥接入口 | ✅ `routeLive(method, params)` —— 页面侧唯一分发入口，测试可直接调 | `mcp/liveMethods.ts:106` |
+
+**实现**（`web-editor/src/mcp/liveMethods.ts`）：把 `doc.create` 从 `LIVE_FALLBACK` 组里拿出来，改为
+用 `createInitialDocument()` + 参数（title / mode / pageSize / device）造 doc → `now().loadDocument(doc)`
+→ 返回 `{docId, pageId, title, mode, pages, created:'editor-page'}`。
+**关键点**：走 `loadDocument` 等于**纯增量**（只有"单页且空白"才会被替换），所以原来那条顾虑
+（"桥接不会替你重置/删除编辑器内容"）在这里不成立 —— 这也是它当年被划进 LIVE_FALLBACK 的唯一原因。
+`doc.open/close/delete/duplicate` 与 `ppt` 模式请求**仍走无头**（生命周期/破坏性动作，保持原样）。
+
+**新增两条自检断言**（页自检 323 → **325/325**，直接走 `routeLive` 这条同一入口）：
+① 当前是空白页 → **替换**（页数 1→1、纸张按参数生效、`created:'editor-page'`）；
+② 当前非空 → **新增一页并切过去**（页数 +1、新页节点数 0、既有内容不动）。
+
+**Agent 约定**（写进 `editor-mcp/README.md`，这就是用户问的"写入前检测"）：
+`doc.attach` →（`doc.get`/`doc.summary`）看是否为空 → 空就写；**非空就 `doc.create`（Live 新建一页）再写**。
+
 ---
 
 ## 第 16 章 数据迁移指南

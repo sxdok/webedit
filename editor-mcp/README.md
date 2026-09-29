@@ -22,6 +22,27 @@
 7 个 smoke 脚本（`smoke` / `bridge-smoke` / `tools-smoke` / `table-smoke` / `plugin-smoke` / `rpc-smoke` / `http-smoke`）全部通过。
 端到端：`node scripts/e2e-scenarios.mjs --live --require-live` → **21/21 全部通过**（`Live 就绪=true`，判定耗时约 1 秒）。
 
+## ★Agent 约定：要往编辑器里写，先看当前文档空不空（2026-09-29）
+
+**背景**：编辑器里有"文档 / 页"两层概念 ——
+- **工作区文档**（`<workspace>/<docId>.editor.json`）：无头通道读写，`doc.create/open/close/delete/duplicate` **只能**走这条；
+- **编辑器里打开的文档**：UI 管理；`node.*` / `table.*` / `page.*` / `property.*` 这些写操作走 **Live**，**永远落在"当前打开的那一份"**上。
+  （`doc.open/close/delete/duplicate` 在编辑器侧**有意不做 Live**：桥接不替用户重置/删除编辑器内容。）
+
+所以"我要新建一份来写"在 Live 下没有直接入口。**约定如下**：
+
+| 步骤 | 调用 | 说明 |
+|---|---|---|
+| ① 挂到编辑器当前文档 | `doc.attach` | 之后省略 `docId` 的调用都作用在它上面；返回 `via: "live"` 才算接上 |
+| ② 看它空不空 | `doc.get` / `doc.summary` | `counts.documentNodes + counts.webNodes === 0`（或 `nodes === 0`）就是**空文档** |
+| ③ 空 → 直接写 | `node.add` / `table.setData` … | 写进当前文档 |
+| ③′ 非空 → 先新建一页 | **`doc.create`**（Live 可用） | 在**编辑器里新建一页并切过去**；语义与 UI 的「＋」一致：当前只有空白页就替换它，否则**新增一页**（纯增量，绝不删既有内容）。返回 `created: "editor-page"` |
+| ④ 再写 | `node.add` … | 写进刚新建的那页 |
+
+写操作需要 `EDITOR_MCP_ALLOW_WRITE=true`（桌面版首选项里有开关；默认关，写工具返回 `WRITE_DISABLED`）。
+组件属性键要用**组件的真实 schema**（例：段落的正文键是 `html` 不是 `text`，写错键会被静默存下、界面仍显示占位符）——
+拿不准就先 `component.schema`，或直接用 `node.settext`（自动挑 `text/html/items/caption`）。
+
 ## 能力声明：组件该怎么用（2026-09-23 补）
 
 **为什么要专门写这块**：照着一份现成 HTML（《江苏誉创_金卫智慧舱_AGV方案_V5.0》）建文档时，

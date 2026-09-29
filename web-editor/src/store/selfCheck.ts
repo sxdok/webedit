@@ -3882,6 +3882,58 @@ async function interactionChecks(): Promise<Result[]> {
       );
     }
 
+    /* ── ★live `doc.create`（2026-09-29 用户要求）：写入前先看当前文档是否为空，
+          非空就在**编辑器里新建一页**再写。这里走**桥接页面的同一入口** `routeLive`，
+          把两条语义都钉住：① 当前是空白页 → **替换**它（页数不变，不留空标签）；
+          ② 当前非空 → **新增一页**并切过去（页数 +1，绝不删既有内容）。 ── */
+    {
+      const { routeLive } = await import('../mcp/liveMethods');
+      const { createInitialDocument } = await import('../store/editorStore');
+      /* 先存下当前 pages：本块要**临时**改成"单页空白"，跑完必须还原 ——
+         后面的"分页切页"用例依赖此时页面上同时有文档页与 Web 页（第一版忘了还原，把它撞红了）。 */
+      const savedPages = S().pages;
+      const savedActive = S().activePageId;
+      /* ① 空白页：**必须造"单页空白"** —— `loadDocument` 的替换规则是"只有一页且空白"才替换。
+         注意 `clearAll()` 只清当前文档的内容、**不动多页标签**（第一版栽在这里：
+         以为清空后是单页，实际还有 4 个标签，于是走了"新增一页"，断言假红）。 */
+      const blank = createInitialDocument();
+      S().setPages([{ id: blank.id, title: blank.title, mode: blank.mode, doc: blank }]);
+      await wait(280);
+      const blankBefore = S().pages.length;
+      const c1 = (await routeLive('doc.create', { title: '自检·live 新建（空白替换）', mode: 'document', pageSize: 'A5' })) as {
+        docId?: string;
+        pageId?: string;
+        created?: string;
+      };
+      await wait(240);
+      const blankAfter = S().pages.length;
+      add(
+        'live doc.create ①：当前是**单页空白** → **替换**它（页数不变，不留空标签）',
+        blankBefore === 1 && blankAfter === 1 && S().doc.title === '自检·live 新建（空白替换）' && S().doc.document.page.size === 'A5' && c1.created === 'editor-page',
+        `页数 ${blankBefore}→${blankAfter}；当前标题=「${S().doc.title}」纸张=${S().doc.document.page.size}；created=${c1.created}`,
+      );
+
+      // ② 非空页：先放一个组件，再走 live 新建 → 应当新增一页
+      S().addComponent('heading');
+      await wait(240);
+      const busyBefore = S().pages.length;
+      const c2 = (await routeLive('doc.create', { title: '自检·live 新建（新增一页）', mode: 'document', pageSize: 'A4' })) as {
+        docId?: string;
+        created?: string;
+      };
+      await wait(280);
+      const busyAfter = S().pages.length;
+      add(
+        'live doc.create ②：当前非空 → **新增一页并切过去**（页数 +1，既有内容不动）',
+        busyAfter === busyBefore + 1 && S().doc.title === '自检·live 新建（新增一页）' && S().doc.document.components.length === 0 && c2.created === 'editor-page',
+        `页数 ${busyBefore}→${busyAfter}；当前标题=「${S().doc.title}」新页节点数=${S().doc.document.components.length}`,
+      );
+
+      // 收尾：**还原本块开始前的 pages**（后面的用例依赖它们）
+      S().setPages(savedPages, savedActive);
+      await wait(280);
+    }
+
     /* ── 分页：点标签切换页面 → 模式与属性面板跟着换 ── */
     {
       const before = S().pages.length;

@@ -13,9 +13,10 @@
  *   · **绝不用旧的 state 快照读结果**：store 的 action 是同步提交的，改完必须重新 getState() 再读，
  *     否则返回的永远是改动前的值（这个坑真踩过：setDevice 后返回的还是旧画布）。
  */
-import { useEditorStore } from '../store/editorStore';
+import { createInitialDocument, useEditorStore } from '../store/editorStore';
 import { findNode, flatten, getForest } from '../store/treeUtils';
 import { getComponent, getAllComponents, getCategoriesByMode } from '../registry';
+import { DEVICE_PRESETS, PAGE_SIZES } from '../registry/types';
 import type { ComponentDefinition, ComponentNode, EditorDocument } from '../registry/types';
 import { getLiveTypes } from '../registry/live';
 import {
@@ -186,8 +187,47 @@ export async function routeLive(method: string, params: Params): Promise<unknown
         note: '编辑器里同时只有"当前这一份"文档；要批量管理磁盘文档请用无头通道（关闭 MCP 桥接）',
       };
     }
-    // 建立/打开/关闭/删除/复制文档都属于"文件与窗口"层面：编辑器有意不做（避免毁掉未保存内容）
-    case 'doc.create':
+    // 打开/关闭/删除/复制文档都属于"文件与窗口"层面：编辑器有意不做（避免毁掉未保存内容）
+    //
+    // ★`doc.create` 2026-09-29 起**live 可用**（用户要求："写入前先看当前文档是否为空，非空就新建一个再写"）。
+    //   语义与 UI 的「＋」**完全一致**：走 `store.loadDocument()` ——
+    //     · 当前只有一页且是空白页 → **替换**它（不留空标签，与「＋」一样）；
+    //     · 否则 → **新增一页并切过去**。
+    //   所以它**纯增量、绝不删除用户内容** —— 原来把它归为 LIVE_FALLBACK 的顾虑（"桥接不会替你重置/删除文档"）
+    //   在这里不成立：新建页不会动既有页面。编辑器不在线时，MCP 侧仍走无头通道（写工作区 .editor.json）。
+    case 'doc.create': {
+      if (p.mode === 'ppt') {
+        // ppt 不是编辑器的"模式"（PPT 只是一组组件分类，见 mode.set）：这类请求照样交给无头通道
+        throw new Error('LIVE_FALLBACK: 编辑器没有 ppt 模式（PPT 是组件分类，不是模式）；已在无头文档上创建');
+      }
+      const mode: 'document' | 'web' = p.mode === 'web' ? 'web' : 'document';
+      const paperKey = (typeof p.pageSize === 'string' ? p.pageSize : 'A4') as keyof typeof PAGE_SIZES;
+      const size = PAGE_SIZES[paperKey] ?? PAGE_SIZES.A4;
+      const devKey = (typeof p.device === 'string' ? p.device : 'Desktop') as keyof typeof DEVICE_PRESETS;
+      const dev = DEVICE_PRESETS[devKey] ?? DEVICE_PRESETS.Desktop;
+      const base = createInitialDocument();
+      const title = String(p.title ?? '').trim() || (mode === 'document' ? '未命名文档' : '未命名画布');
+      const doc: EditorDocument = {
+        ...base,
+        title,
+        mode,
+        document: {
+          ...base.document,
+          page:
+            mode === 'document'
+              ? { ...base.document.page, size: paperKey, width: size.width, height: size.height, orientation: 'portrait' }
+              : base.document.page,
+        },
+        web:
+          mode === 'web'
+            ? { ...base.web, canvas: { ...base.web.canvas, device: devKey, width: dev.width, height: dev.height } }
+            : base.web,
+        selectedIds: [],
+      };
+      const pageId = now().loadDocument(doc); // 空白页替换 / 否则新增一页（见 editorStore.loadDocument）
+      const pages = now().pages.length;
+      return { docId: doc.id, pageId, title, mode, pages, created: 'editor-page' };
+    }
     case 'doc.open':
     case 'doc.close':
     case 'doc.delete':

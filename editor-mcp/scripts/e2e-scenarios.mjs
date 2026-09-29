@@ -468,6 +468,40 @@ async function main(liveReady) {
     }
   }
 
+  /* 20b. ★Live：**写入前"空文档就写、非空就新建一页"** 的 agent 约定（2026-09-29 起 `doc.create` Live 可用）
+     步骤严格按约定走：doc.attach → doc.summary 看空不空 →（空则直接写 / 非空则 doc.create 新建一页）→ 再写。
+     关键断言：`doc.create` 在 Live 下返回 `created: 'editor-page'`（＝真的在编辑器里新增/替换了一页），
+     而不是老行为（`via: headless` 只写工作区文件）。 */
+  {
+    if (!liveReady) {
+      skip('场景20b Live：空文档就写 / 非空就 doc.create 新建一页再写', liveReady === false ? '编辑器未接入桥接（用 --live 拉起无头编辑器）' : '未尝试');
+    } else {
+      await client.call('doc.attach', {});
+      const sum0 = await client.call('doc.summary', {});
+      const n0 = sum0.body?.data?.nodes ?? -1;
+      // ① 空 → 直接写（顺便把"非空"状态造出来，进入 ②）
+      const first = await client.call('node.add', { type: 'paragraph', props: { html: '约定①：空文档时直接写' } });
+      // ② 非空 → doc.create 在编辑器里新建一页并切过去
+      const created = await client.call('doc.create', { title: 'Live 新建页（e2e 20b）', mode: 'document', pageSize: 'A4' });
+      const c = created.body?.data ?? {};
+      const sumNew = await client.call('doc.summary', {});
+      // ③ 写进新页
+      const second = await client.call('node.add', { type: 'heading', props: { level: 2, html: '约定③：写进新建的那一页' } });
+      check(
+        '场景20b Live：非空文档时 doc.create 在编辑器里**新建一页**（created=editor-page / via=live），随后写入落到新页',
+        n0 === 0 &&
+          first.body?.data?.via === 'live' &&
+          created.body?.ok === true &&
+          c.created === 'editor-page' &&
+          typeof c.pages === 'number' &&
+          sumNew.body?.data?.title === 'Live 新建页（e2e 20b）' &&
+          sumNew.body?.data?.nodes === 0 &&
+          second.body?.data?.via === 'live',
+        `起始 nodes=${n0}；① via=${first.body?.data?.via}；② created=${c.created} pages=${c.pages} 新页标题=「${sumNew.body?.data?.title}」节点=${sumNew.body?.data?.nodes}；③ via=${second.body?.data?.via}`,
+      );
+    }
+  }
+
   /* 21. asset.*：把本地图片嵌进节点，且**回包里没有 base64**（不占模型上下文）
          —— 这正是"当初 5 张图留成 __AGVIMG1__ 占位符"要解决的问题。 */
   {
