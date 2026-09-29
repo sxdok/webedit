@@ -37,14 +37,3 @@ export function normalizeBreaks(nodes: ComponentNode[]): ComponentNode[] {
   while (out.length && isBreak(out[out.length - 1])) out.pop(); // ③ 末尾分页符：丢
   return out;
 }
-
-/** 该序列规范化后是否发生了变化（导出/渲染可用于日志与断言） */
-export function breaksChanged(nodes: ComponentNode[]): boolean {
-  const n = normalizeBreaks(nodes);
-  return n.length !== nodes.length || n.some((x, i) => x !== nodes[i]);
-}
-
-/** `page.addBreak` 的建议插入位置：**插在末尾分页符之前**，不要在末尾再叠一个 */
-export function breakInsertIndex(nodes: ComponentNode[]): number {
-  return normalizeBreaks(nodes).length;
-}

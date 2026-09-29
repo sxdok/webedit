@@ -1052,7 +1052,6 @@ function findParentIdOf(forest: ComponentNode[], id: string): string | null {
 
 export const selectMode = (s: EditorStore): EditorMode => s.doc.mode;
 export const selectForest = (s: EditorStore): ComponentNode[] => getForest(s.doc);
-export const selectSelectedIds = (s: EditorStore): string[] => s.doc.selectedIds;
 export const selectPrimarySelected = (s: EditorStore): ComponentNode | null => {
   const id = s.doc.selectedIds[0];
   if (!id) return null;

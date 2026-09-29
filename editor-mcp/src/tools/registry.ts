@@ -127,14 +127,6 @@ export async function componentSearch(args: { query: string; limit?: number }) {
   });
 }
 
-/** 把组件目录写进工作区（供编辑器侧导出，或测试用）；只允许写在 workspace 下 */
-export async function writeCatalog(cat: Catalog): Promise<string> {
-  const p = catalogPath();
-  fs.mkdirSync(config.workspace, { recursive: true });
-  fs.writeFileSync(p, `${JSON.stringify({ generatedAt: new Date().toISOString(), ...cat }, null, 2)}\n`, 'utf8');
-  return p;
-}
-
 export const componentCatalogSchema = {
   path: z.string().optional().describe('落盘路径（相对 workspace，缺省 component-catalog.json）'),
   save: z.boolean().default(true).describe('是否把快照写进工作区（写进去之后，编辑器不在线时 component.* / export.spec 也能用）'),

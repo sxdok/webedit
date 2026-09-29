@@ -49,12 +49,3 @@ export function pickTextFile(accept = '.json,application/json'): Promise<string 
     input.click();
   });
 }
-
-export function openPrintWindow(html: string): void {
-  const w = window.open('', '_blank');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  w.focus();
-  setTimeout(() => w.print(), 300);
-}

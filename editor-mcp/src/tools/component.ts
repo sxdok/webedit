@@ -14,7 +14,6 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { type ToolResult } from '../errors.js';
 import { viaBridge } from './helper.js';
-import { defaultPage, defaultCanvas } from '../bridge/headless.js';
 import { scanPlugins } from './plugin.js';
 
 export const componentListSchema = {
@@ -117,11 +116,4 @@ async function headlessComponentList(args: {
       '在此之前 component.list 只返回插件目录里的外部组件（不编造内置清单）。';
 
   return { total: filtered.length, components: filtered, sources, ...(note ? { note } : {}) };
-}
-
-/** 供其它域复用的默认值（阶段一只有页面/画布两组，阶段三扩展为完整 defaults） */
-export function componentDefaults(type: string): Record<string, unknown> | null {
-  if (type === 'page') return defaultPage();
-  if (type === 'canvas') return defaultCanvas();
-  return null;
 }

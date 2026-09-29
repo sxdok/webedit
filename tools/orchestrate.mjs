@@ -57,6 +57,7 @@ const steps = {
        （本轮就发生过：改了 bundle-mcp 的 esbuild 解析、用了个没导入的 `path`，
        默认闸门没跑它 → 漏过。放进默认档后这类破坏当场就红）。 */
     npmRun('打包 MCP 单文件（bundle:mcp）', 'bundle:mcp', path.join(repo, 'apps', 'desktop'));
+    npmRun('静态服务器契约（端点集 JS↔Python + 形状/安全负例）', 'check:server', path.join(repo, 'apps', 'desktop'));
     npmRun('桌面版静态闸门（verify）', 'verify', path.join(repo, 'apps', 'desktop'));
     if (full) {
       for (const s of ['auth-check.mjs', 'session-revive-check.mjs', 'multi-connection-check.mjs', 'bridge-smoke.mjs', 'tools-smoke.mjs', 'table-smoke.mjs', 'http-smoke.mjs', 'plugin-smoke.mjs', 'rpc-smoke.mjs']) {

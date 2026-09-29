@@ -108,9 +108,3 @@ export async function openRecentFile(entry: { path: string; title: string; kind?
   void refreshRecents();
   return `${imported.summary}\n\n${imported.detail}`;
 }
-
-/** 打印（桌面版的「导出 PDF」由 P4.5-E2 的 printToPDF 通道接管；网页版就是浏览器打印 → 另存为 PDF） */
-export function printDocument(): string {
-  window.print();
-  return '已打开打印对话框（可另存为 PDF）。';
-}

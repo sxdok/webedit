@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""可视化编辑器 启动脚本 —— 用 Python 内置 http.server 托管已构建的 dist/（单页应用）。
+"""可视化编辑器 启动脚本 —— **降级备用**：用 Python 内置 http.server 托管已构建的 dist/（单页应用）。
+
+★定位（P2④ 起明确写死）：**规范实现是 JS 那份** `apps/desktop/server/webServer.js`
+（桌面版与 `npm run dev` 都走它）。本脚本只在"没装 Node / 不想开 Electron / 受限沙箱里只想看页面"时用，
+所以刻意**不追求功能对齐**，但**端点集必须一致** —— 由 `apps/desktop/scripts/server-contract-check.mjs` 守着
+（它同时比对两边的 `/__*` 端点集，并起真服务器验一遍形状与两条安全负例）。
 
 为什么不用 `npm run preview`：vite 的命令行要 esbuild 启动子进程，在受限沙箱下会报 spawn EPERM；
 本脚本只做静态文件服务，不需要任何子进程，受限环境也能直接跑。
@@ -308,7 +313,9 @@ def main():
         pass
 
     print("-" * 64)
-    print(" 可视化编辑器已启动")
+    print(" 可视化编辑器已启动（**降级备用启动器**）")
+    print("   ★规范实现是 JS 那份：apps/desktop/server/webServer.js（桌面版 / npm run dev 都走它）。")
+    print("     本脚本只在没装 Node 或不想开 Electron 时用；端点集由 server-contract-check.mjs 守着。")
     print("   地址    : %s" % url)
     print("   产物    : %s" % DIST)
     print("   组件目录: src/registry/components/（common / document / web 共 %d 组）" % n)

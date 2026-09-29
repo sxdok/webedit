@@ -98,11 +98,6 @@ export function rateLimited(now = Date.now()): boolean {
   return callTimes.length > limit;
 }
 
-/** 自检/测试用：清空速率窗口 */
-export function resetRateWindow(): void {
-  callTimes.length = 0;
-}
-
 /**
  * 所有 Tool handler 的统一外壳：
  *   · 速率限制（RATE_LIMITED）；

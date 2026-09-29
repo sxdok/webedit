@@ -2045,6 +2045,45 @@ web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…）�
 
 **P2 剩余**：④ 静态服务器归一（Python 启动器降级 + 契约测试）、⑤ 删空挂点/冗余导出、⑥ README 去重。
 
+### 15.18 P2 施工记录（④ 静态服务器归一 + ⑤ 删冗余导出 + ⑥ README 去重）—— P2 完成
+
+**④ 静态服务器归一**
+
+| 项 | 落地 |
+|---|---|
+| 定位写死 | `web-editor/启动编辑器.py` 的 docstring 与启动横幅都明确：**规范实现是 `apps/desktop/server/webServer.js`**（桌面版/`npm run dev` 走它），本脚本是**降级备用**（没装 Node 或不开 Electron 时用），刻意不追求功能对齐、但**端点集必须一致** |
+| 契约测试 | 新增 `apps/desktop/scripts/server-contract-check.mjs`（`npm run check:server`，已进默认闸门）**13/13**：① 两个服务器的 `/__*` 端点集一致 + JS 侧没有"未登记"端点；② 起真服务器验形状与安全负例——`/__components` 规范形状、`/__loginfo` 含 `enabled/dir`、`/__log` 真落盘、`/__save` 允许 `docs/` 且**拒绝 `../` 穿越**、`/__savePlugin` 允许 `xxx.js` 且**拒绝 `_manifest.json`**、静态托管与 SPA 回落、`/组件/<name>` 热加载 |
+| 一处测试自纠 | 我第一版把 `/__log` 断言钉在**具体文件名**上（`contract-YYYY-MM-DD.log`）→ 红；实际契约是"日志真落盘且能查到那一行"，文件名属实现细节，改成扫目录后通过 |
+
+**⑤ 删空挂点 / 冗余导出**
+
+先扫后删（脚本化，判据从严）：空文件/空目录 = 0；"零引用导出"的宽判据给出 **217 个**，
+但其中绝大多数是**误报** —— 组件注册表用 `import.meta.glob` **按目录发现**（组件导出天然不会出现在别处）、
+很多导出只在本文件内使用。收紧到"**名字在全仓库只出现一次**（即只有声明行）"后剩 **28 个**，
+逐个核对后删除（并修掉随之变成未使用的 6 处 import）：
+
+`utils/id.ts` 的 asStringArray/asNumberArray/linesToArray/arrayToLines/cloneProps、
+`utils/units.ts` 的 pxToPt/parseUnit/formatUnit/lengthToPx、`utils/pageBreak.ts` 的 breaksChanged/breakInsertIndex（我这轮加的便利函数，最终没用上）、
+`utils/download.ts` 的 openPrintWindow、`fileActions.printDocument`（菜单「打印」直接用 `window.print()`，这个包装没人调）、
+`ModeSwitcher.ModeSummary`、`groupStrategy.defaultOpenGroup`、`controlStyles.focusRing`、`property-controls.ReadonlyRow`、
+`bridgeClient.useBridgeState`、`editorStore.selectSelectedIds`、`treeUtils.getRootId`、
+`session.requireCurrentDoc/workspaceDir`、`errors.resetRateWindow`、`asset.assetLimits`、`component.componentDefaults`、
+`domains.selectionSnapshot`、`registry.writeCatalog`、`secureConfig._internals`。
+
+★**没有**按那 217 个批量删 —— 那种清单会把"按目录发现的组件"和"对外 API"一起删掉。
+这条经验值得留给下一个人：**零引用 ≠ 死代码**，判据必须收严到"全仓库只出现一次"。
+
+**⑥ README 去重**
+
+根 `README.md` 重写"怎么跑 / 自检 / 端口"三节：加上**根编排一条命令**；
+**把过期数字（"295 条断言"、"verify 75 项"）删掉，改成"以 `npm run verify` 输出为准"**（抄数字是过期最快的一类文档）；
+新增「端口：**唯一出处**」表（37650 hub / 37651 MCP HTTP / 5179 静态服务器，各自标出代码里的权威位置），
+其余 README 指过来。配套 **3 条防漂移断言**（`verify` **87/87**）：JS 与 Python 默认端口一致、
+根 README 写出了权威端口、**任何 README 都不许出现"第三个"端口号**（抓打错的端口与旧端口残留）。
+
+**P2 完成**。闸门：根 `npm run verify` ✅（桌面 verify **87/87**）、单测 **99/99**、页面自检 **320/322**、
+`check:server` **13/13**、`check:pdf` **31/31**、`docx-word-check` **12/12**、`sync-contracts --check` ✅。
+
 ---
 
 ## 第 16 章 数据迁移指南

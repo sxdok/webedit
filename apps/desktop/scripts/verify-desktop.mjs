@@ -741,6 +741,44 @@ async function testPackagingManifest() {
   );
 
   /**
+   * ★端口是"文档与代码最容易各说各话"的事实（4 份 README 里出现过 20 次）。
+   * P2⑥ 起：端口只在**根 README** 里列表，其余 README 指过去；这里做两道机械检查 ——
+   *   ① 代码里的权威值（hub 取自 `config.bridgeUrl`、静态服务器取自 `DEFAULT_PORT`）必须与根 README 写的一致；
+   *   ② 任何 README 都不许出现"第三个"端口号（抓打错的 37649 / 旧端口残留）。
+   */
+  const mcpConfig = readFileSync(join(repo, 'editor-mcp', 'src', 'config.ts'), 'utf8');
+  const hubPort = Number(/bridgeUrl: env\([^,]+,\s*'ws:\/\/127\.0\.0\.1:(\d+)\/bridge'/.exec(mcpConfig)?.[1]);
+  const staticPort = Number(/const DEFAULT_PORT = (\d+)/.exec(readFileSync(join(APP_DIR, 'server', 'webServer.js'), 'utf8'))?.[1]);
+  const pyPort = Number(/--port", type=int, default=(\d+)/.exec(readFileSync(join(repo, 'web-editor', '启动编辑器.py'), 'utf8'))?.[1]);
+  const rootReadme = readFileSync(join(repo, 'README.md'), 'utf8');
+  const canonical = [hubPort, staticPort];
+  ok(
+    '静态服务器端口：JS（规范实现）与 Python（降级备用）默认值一致',
+    staticPort > 0 && staticPort === pyPort,
+    `webServer.DEFAULT_PORT=${staticPort || '?'}，启动编辑器.py default=${pyPort || '?'}`,
+  );
+  ok(
+    '根 README 写出了权威端口（hub 与静态服务器）',
+    canonical.every((p) => p > 0 && rootReadme.includes(String(p))),
+    `hub=${hubPort || '?'}、静态=${staticPort || '?'}；README 命中=${canonical.filter((p) => rootReadme.includes(String(p))).join(',') || '(无)'}`,
+  );
+  const readmes = ['README.md', 'apps/desktop/README.md', 'editor-mcp/README.md', 'web-editor/README.md']
+    .map((r) => ({ r, text: readFileSync(join(repo, r), 'utf8') }))
+    .filter((x) => x.text);
+  const stray = [];
+  for (const { r, text } of readmes) {
+    for (const m of text.matchAll(/\b(3765\d|37[0-9]{3}|5179)\b/g)) {
+      const n = Number(m[1]);
+      // 允许集合 = 两个权威端口 + MCP HTTP（37651，属于既定约定）
+      if (![hubPort, staticPort, 37651].includes(n)) stray.push(`${r}:${n}`);
+    }
+  }
+  ok(
+    'README 里没有"第三个"端口（抓打错的端口号 / 旧端口残留）',
+    stray.length === 0,
+    stray.length ? `可疑：${[...new Set(stray)].join(', ')}` : `扫描 ${readmes.length} 份 README，端口取值都在 {${[...new Set([hubPort, staticPort, 37651])].join(', ')}} 内`,
+  );
+  /**
    * ★生成物不得漂移：`--check` 会比对"磁盘上现在的内容"与"重新生成的结果"。
    * 这条抓的是"有人手改了 `version.ts`/`contracts/*.json`/某个 package.json 的版本号"。
    */

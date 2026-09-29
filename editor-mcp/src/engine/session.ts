@@ -12,7 +12,7 @@
  *   · 无头没有编辑器的撤销栈，这里自带**快照栈**（每文档 50 步）实现 history.*；
  *   · selection 在无头下只是"服务端记住的最近一次"，编辑器打开时以编辑器为准（如实标注）。
  */
-import { config, docFile } from '../config.js';
+import { docFile } from '../config.js';
 import { EditorMcpError, ErrorCodes } from '../errors.js';
 import { listDocuments, makeDocument, readDocument, writeDocument, type ComponentNode, type EditorDocument, type EditorMode } from '../bridge/headless.js';
 
@@ -32,18 +32,6 @@ export function setCurrentDoc(docId: string | null): void {
 export function getCurrentDoc(): string | null {
   return currentDocId;
 }
-/** 取当前文档 id；没有就抛 DOC_NOT_FOUND（而不是随便挑一个文件） */
-export function requireCurrentDoc(): string {
-  if (!currentDocId) {
-    throw new EditorMcpError(
-      ErrorCodes.DOC_NOT_FOUND,
-      '当前没有打开的文档',
-      '先 doc.create 新建，或 doc.open / doc.list 指定一个 docId；无头模式下每次调用也可以直接传 docId',
-    );
-  }
-  return currentDocId;
-}
-
 function newId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`;
 }
@@ -501,8 +489,4 @@ export async function addPageBreak(docId: string, index?: number): Promise<{ nod
   }
   const res = await addNode(docId, { type: 'pageBreak', index: at, props: {} });
   return { node: res.node, index: res.index };
-}
-
-export function workspaceDir(): string {
-  return config.workspace;
 }

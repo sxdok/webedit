@@ -21,6 +21,3 @@ export const badgeCls =
  */
 export const btnCls =
   'inline-flex h-6 shrink-0 items-center justify-center gap-0.5 rounded-md border border-line px-1.5 text-2xs hover:border-primary hover:text-primary disabled:opacity-40';
-
-/** 焦点态统一：数字/文本输入聚焦时加 2px 外发光 */
-export const focusRing = 'focus:ring-2 focus:ring-primary/20';

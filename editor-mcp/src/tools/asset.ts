@@ -132,8 +132,3 @@ export async function assetEmbedFromHtml(args: {
     );
   });
 }
-
-/** 供自检/诊断：图片后缀白名单与体积上限 */
-export function assetLimits(): { formats: string[]; maxMb: number } {
-  return { formats: Object.keys(IMAGE_EXT), maxMb: Math.round(config.assetMaxBytes / 1024 / 1024) };
-}

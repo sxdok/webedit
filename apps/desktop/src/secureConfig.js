@@ -278,5 +278,3 @@ export function maskUrl(url) {
     return '(无法解析)';
   }
 }
-
-export const _internals = { merge, isHttpUrl };

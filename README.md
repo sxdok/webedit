@@ -15,31 +15,45 @@
 
 ## 怎么跑
 
-**web-editor**（React 应用，`dist/` 已构建；`node_modules/` 已随仓库一起搬，离线可直接构建）
+### 一条命令（根目录，P2 起）
 
 ```powershell
-# 直接跑（用已构建的 dist）
+cd E:\可视化编辑器
+npm run setup          # 三个包各自装依赖（首次；apps/desktop 要下 Electron）
+npm run build          # 生成契约 → MCP 编译 → 编辑器构建 → MCP 单文件打包
+npm run verify         # 默认闸门（快）：契约一致 + 两端编译 + 单测 + 打包 + 服务器契约 + 桌面 verify
+npm run verify:full    # 再加各 smoke / 页面自检(约 3 分钟) / PDF 样张 / Word 端到端
+npm run dist           # 打 Windows 发行物
+```
+
+编排逻辑在 `tools/orchestrate.mjs`（每步打印结论、失败给可行动提示）。**文档里不再抄各项数字**
+——以 `npm run verify` 的输出为准（抄数字是过期最快的一类文档）。
+
+### 分头跑（调试单个包时）
+
+```powershell
+# web-editor：静态托管已构建的 dist（Python 降级启动器；规范实现是 apps/desktop/server/webServer.js）
 D:\Python313\python.exe "E:\可视化编辑器\web-editor\启动编辑器.py" -p 5179
-# 重新构建后再跑
-cd E:\可视化编辑器\web-editor ; npm run build
-```
+cd E:\可视化编辑器\web-editor ; npm run build        # 重新构建
 
-**editor-mcp**（MCP 服务器，通常由 DSH 按 `~/.dsh/profiles/web/cordis.patch.yml` 起；也可手动 stdio 起）
-
-```powershell
+# editor-mcp：stdio 起（DSH 里通常按 ~/.dsh/profiles/web/cordis.patch.yml 起）
 cd E:\可视化编辑器\editor-mcp ; node dist/index.js --stdio
-```
 
-**apps/desktop（桌面分发版，Electron）**
-
-```powershell
+# apps/desktop：窗口 / 自检 / 无界面验证 / 打包
 cd E:\可视化编辑器\apps\desktop
-npm install                 # 首次要下载 Electron（约 200MB）
-npm start                   # 起窗口；MCP 会随应用一起启动
-npm run selftest            # 装完自检：真开窗加载页面 + 真连 MCP + 界面契约，写报告后退出（9 项）
-npm run verify              # 无界面验证（75 项：布局/加密配置/更新接口/静态服务器/真拉起 MCP/单文件打包/静态检查）
-npm run dist                # 打 Windows 安装包 + 免安装版（release/）
+npm start ; npm run selftest ; npm run verify ; npm run dist
 ```
+
+### 端口：**唯一出处**（其余 README 请指到这里，别各写一份）
+
+| 端口 | 用途 | 代码里的权威位置 |
+|---|---|---|
+| **37650** | MCP ↔ 编辑器的桥接 hub（WebSocket） | `editor-mcp/src/config.ts` 的 `bridgeUrl` |
+| **37651** | MCP 的 Streamable HTTP（agent 连这个） | 桌面壳注入的 `mcp.httpPort`（`apps/desktop/config/`） |
+| **5179** | 编辑器的静态服务器（桌面版内置；Python 启动器同款默认值） | `apps/desktop/server/webServer.js` 的 `DEFAULT_PORT` |
+
+> `apps/desktop/scripts/verify-desktop.mjs` 有三条断言盯着它：JS 与 Python 的默认端口一致、
+> 根 README 写出了权威端口、任何 README 都不许出现"第三个"端口号。
 
 **改更新地址（不用改代码、不用重新打包前端）**：编辑 `apps/desktop/config/app-config.example.json` 里的
 `update.baseUrl` → `node apps/desktop/scripts/embed-key.mjs` → 重新打包；现场换服务器则直接替换安装目录里
@@ -49,11 +63,14 @@ npm run dist                # 打 Windows 安装包 + 免安装版（release/）
 
 | 对象 | 入口 | 说明 |
 |---|---|---|
-| web-editor | `http://127.0.0.1:5179/?check=1` | **295 条端到端断言**（数据层 / 渲染 / 真实指针交互 / 分页与页码 / 打印 / 导入导出 / 热加载 / 暗色审计 / 验收项），报告渲染在页面左下角、同时写进 `document.title` |
-| web-editor | `?demo=1` / `?diag=1` / `?prefs=1` / `?spec=1` / `?load=<地址>` / `?theme=monokai` / `?printdebug=1` / `?scroll=N` / `?select=<类型>` | 示例文档 / 诊断面板 / 首选项 / 组件说明清单 / 载入 HTML / 深色主题 / 打印排障 / 滚动定位 / 选中某类组件 |
-| editor-mcp | `npm run smoke`（或 `node scripts/*.mjs`） | 工具面与插件沙箱的冒烟检查（详见 `editor-mcp/README.md`） |
-| tools/secure-config | `node tools/secure-config/secure-config.mjs selftest` | 加密工具自检 **8 项**（往返 / 错密钥 / 篡改密文 / 篡改头部 AAD / 口令模式 / 密钥形状提醒 / 密钥来源优先级 / CLI 三件套） |
-| apps/desktop | `npm run verify` | 桌面分发版无界面验证 **75 项**（布局 / 组件目录落地 / 加密配置 / 更新接口 / 静态服务器 / 真拉起 MCP 并列出工具 / **MCP 单文件打包的自包含证明** / 语法与安全基线；受限沙箱里 E·G 段会自动 SKIP 并说明原因） |
+| 全部 | `npm run verify`（根） | 默认闸门；`--full` 加各 smoke 与端到端。**各项数字以它输出的结论为准** |
+| web-editor | `http://127.0.0.1:5179/?check=1` 或 `npm --prefix apps/desktop run check:page` | 端到端断言（数据层 / 渲染 / 真实指针交互 / 分页页码 / 打印 / 导入导出 / 热加载 / 暗色审计 / 菜单与快捷键），报告渲染在页面右下角并写进 `document.title`（无头读它有 `check:page`，用 CDP） |
+| web-editor | `?demo=1` / `?diag=1` / `?prefs=1` / `?spec=1` / `?load=<地址>` / `?loadJson=<地址>` / `?theme=monokai` / `?printdebug=1` / `?scroll=N` / `?select=<类型>` / `?exportPdf=<路径>` / `?exportDocx=<路径>` | 示例文档 / 诊断面板 / 首选项 / 组件说明清单 / 载入 HTML / 载入工程 JSON / 深色主题 / 打印排障 / 滚动定位 / 选中某类组件 / 导出 PDF / 导出 Word（后两条供脚本化验收用） |
+| 导出物 | `npm --prefix apps/desktop run check:pdf` / `node apps/desktop/scripts/docx-word-check.mjs` | PDF 空白页固定样张矩阵（PyMuPDF 逐页判定） / Word 语义端到端（**真 Word** 转 PDF 后复核） |
+| 静态服务器 | `npm --prefix apps/desktop run check:server` | 端点集 JS↔Python 一致 + 五个 `/__*` 接口形状 + 路径穿越/内部文件两条负例 |
+| editor-mcp | `node editor-mcp/scripts/*.mjs`（auth / session / multi / bridge / tools / table / http / plugin / rpc） | 鉴权、会话自愈、多实例、桥接协议协商、工具面与插件沙箱等冒烟检查（详见 `editor-mcp/README.md`） |
+| tools/secure-config | `node tools/secure-config/secure-config.mjs selftest` | 加密工具自检（往返 / 错密钥 / 篡改密文 / 篡改头部 AAD / 口令模式 / 密钥形状 / 来源优先级 / CLI） |
+| 契约 | `node tools/sync-contracts.mjs --check` | 版本 / 协议 / 方法清单 / 环境变量 / 表格内核同源：与源不一致就退出 1 |
 
 
 > ⚠ 无头跑 `?check=1` 要用**真实时间**等它跑完（自检靠一串 `setTimeout` 链 + 异步交互，全程约 2–3 分钟）；

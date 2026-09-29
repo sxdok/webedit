@@ -3,7 +3,7 @@
  * 弹确认提示（提示"两套内容分别保留"），确认后只切换渲染层，数据零丢失。
  */
 import { FileText, Monitor } from 'lucide-react';
-import { useEditorStore, selectForest } from '../../store/editorStore';
+import { useEditorStore } from '../../store/editorStore';
 import type { EditorMode } from '../../registry/types';
 
 export function useModeSwitch() {
@@ -46,16 +46,5 @@ export function ModeSwitcher() {
       {item('document', '文档模式', FileText)}
       {item('web', 'Web 模式', Monitor)}
     </div>
-  );
-}
-
-/** 状态栏/标题用：当前模式的组件数量摘要 */
-export function ModeSummary() {
-  const mode = useEditorStore((s) => s.doc.mode);
-  const forest = useEditorStore(selectForest);
-  return (
-    <span>
-      {mode === 'document' ? '文档模式' : 'Web 模式'} · {forest.length} 个顶层组件
-    </span>
   );
 }

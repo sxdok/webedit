@@ -120,14 +120,6 @@ export function orderGroups(groups: string[], category: string): string[] {
   return [...groups].sort((a, b) => rank(a) - rank(b));
 }
 
-/**
- * 默认展开的分组 = **排序后的第一个分组**（用户 2026-09-23）。
- * 只传 order 而不是 category：调用方已经拿到了排好序的分组列表。
- */
-export function defaultOpenGroup(order: string[]): string {
-  return order[0] ?? '';
-}
-
 /** 分组说明：优先用类别专属文案，其次全局通用文案 */
 export function hintFor(category: string, group: string, globalHints: Record<string, string>): string | undefined {
   return strategyFor(category).hints?.[group] ?? globalHints[group];

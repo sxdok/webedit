@@ -114,7 +114,6 @@ export function onBridgeState(cb: (s: BridgeState) => void): () => void {
    下面给出：`useBridgeSummary()`（订阅 + 说真话的一句话）与 `waitBridgeSettled()`（别抢着弹"成功"）。 */
 
 const subscribeBridge = (cb: () => void): (() => void) => onBridgeState(cb);
-const getBridgeState = (): BridgeState => state;
 
 /**
  * 订阅用的**快照**：必须把"影响文案的每一项"都编进去。
@@ -129,11 +128,6 @@ const getBridgeState = (): BridgeState => state;
  */
 function bridgeSnapshot(): string {
   return `${shouldRun ? 'on' : 'off'}|${state}|${reconnects}|${desktopWrite === null ? '?' : desktopWrite ? 'w' : 'ro'}`;
-}
-
-/** 订阅桥接状态：状态一变（connecting/connected/off）就触发重渲染 */
-export function useBridgeState(): BridgeState {
-  return useSyncExternalStore(subscribeBridge, getBridgeState, getBridgeState);
 }
 
 export interface BridgeSummary {

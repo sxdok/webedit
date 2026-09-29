@@ -30,11 +30,6 @@ export function setForest(doc: EditorDocument, forest: ComponentNode[]): EditorD
   return { ...doc, document: { ...doc.document, components: forest } };
 }
 
-/** Web 模式的根容器 id（顶层插入时 parentId 传它或 null） */
-export function getRootId(doc: EditorDocument): string {
-  return doc.web.root.id;
-}
-
 /* ══════════════ 查找 ══════════════ */
 
 export function walk(

@@ -9,7 +9,6 @@ import {
   addPageBreak,
   findNodeInDoc,
   getCurrentDoc,
-  getSelection,
   patchCanvas,
   patchPage,
   setCanvasDevice,
@@ -460,9 +459,4 @@ function readCatalogDefaults(type: string): Record<string, unknown> | null {
 function readCatalogSchema(type: string, key: string): CatalogItem | null {
   const items = readCatalog()?.schemas?.[type] ?? [];
   return items.find((i) => i.key === key) ?? null;
-}
-
-/** 供资源层复用的选择状态 */
-export function selectionSnapshot() {
-  return getSelection();
 }
