@@ -2409,6 +2409,43 @@ M9 的规格是"契约与版本：`contracts/` + 生成到两端的 `version.ts`
 
 **闸门**：页自检 **321/321** ✅；根 `npm run verify` **97/97** ✅；桌面 `selftest` **10/10** ✅。
 
+### 15.30 新版本（0.3.0 + token 强制）的 DSH 接线检查与 live 验收
+
+**结论先说**：DSH 侧的 `mcp-editor` 客户端配置**已经是对的**（URL / token / 超时 / 重试四项都对），
+**不需要改配置、也不需要重启 DSH** —— 编辑器一起，客户端按既定重连策略（`maxAttempts=1000000`、`maxDelayMs=5s`）自动接上。
+
+**为什么"不用改"也要专门验一遍**：这份配置是 agent ↔ 编辑器的**唯一接线**，它踩过两个坑（2026-09-28 已修）：
+① 面板写入的 `toolCallTimeoutMs: 20`（20 **毫秒**，每次调用必然超时）；
+② 没有 `reconnect`（官方默认 `maxAttempts=10`）→ 编辑器没开时重试用完就**永久不再连**。
+再加上 P0 起**token 强制**（配置里的 `Authorization` 必须等于 `%APPDATA%\webedit\bridge-token`，而 userData 在 P3.5 改了名）——
+任何一处漂移，现象都是"agent 连不上编辑器"，但原因完全不同。
+
+**新增只读检查** `tools/dsh-mcp-config-check.mjs`（把上面四条 + 实探都断言掉）：
+
+```
+PASS  patch 里有 mcp-mcp-editor 这一项            → C:\Users\Admin\.dsh\profiles\desktop\cordis.patch.yml
+PASS  传输与地址指向本机编辑器 MCP                → streamable-http / http://127.0.0.1:37651/mcp
+PASS  配置里的 token 与 bridge-token 一致         → webedit\bridge-token（QgfwBgDxeu…）= 配置（QgfwBgDxeu…）
+PASS  toolCallTimeoutMs 不是"20 毫秒"那个坑（≥5s） → 15000
+PASS  reconnect 配成"一直重试"                    → maxAttempts=1000000 maxDelayMs=5000
+PASS  实探：不带 token 被拒（401）                → HTTP 401
+PASS  实探：配置里的 token 能建立会话（200）      → HTTP 200
+7/7 通过
+```
+
+**新版本 live 验收**（打包版 `release/win-unpacked/webedit.exe`，含 token 强制 + 标签条修复）：
+
+| 检查 | 结果 |
+|---|---|
+| 外部 HTTP：无 token / 错 token | **401 / 401** ✅（P0 决策 #1 生效） |
+| 外部 HTTP：正确 token | **200**，`serverInfo=editor-mcp`、含 capabilities ✅ |
+| `editor-mcp/scripts/bridge-status.mjs` | token 来源 `%APPDATA%\Roaming\webedit\bridge-token`；`serverInfo=editor-mcp v0.3.0`；`connected=true ready=true hubNoEditor=false protocol=2 protocolMismatch=false`；features `{exportDocx,liveSelection,realtime}` 全 true |
+| `editor-mcp/scripts/agent-live-check.mjs` | **5/5**：108 工具、`mode=live hubOwner=true`、**Live 专属 `doc.attach` 成功**、hub 报 `editors:1 editorVersion:0.3.0 editorProtocol:2` |
+| 经 **DSH 自己的 MCP 客户端**调用（`mcp__mcp-editor__*`） | `doc_attach` → `via:"live" degraded:false`（挂到用户正打开的 `doc_4acae61e37`）；`page_get` / `selection_get` 同样 `via:"live"` |
+| 写操作（`node_add`） | **`WRITE_DISABLED`** ✅ —— P0 决策 #2"写默认关"在新版如期生效（要写需在桌面版首选项打开，或给 MCP 设 `EDITOR_MCP_ALLOW_WRITE=true`） |
+
+即：**token 强制 + 写默认关 + live 通道** 三件事都在真实链路上验证过了（不是脚本自证）。
+
 ---
 
 ## 第 16 章 数据迁移指南
