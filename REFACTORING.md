@@ -2446,6 +2446,38 @@ PASS  实探：配置里的 token 能建立会话（200）      → HTTP 200
 
 即：**token 强制 + 写默认关 + live 通道** 三件事都在真实链路上验证过了（不是脚本自证）。
 
+### 15.31 新版本 live **写入**验收（用户打开写开关后）
+
+**做法**：用户在桌面版首选项打开写开关（`%APPDATA%\webedit\prefs.json` → `{"mcp":{"allowWrite":true}}`；
+日志 `MCP 写开关 → 开（已写入 prefs.json），重启 MCP 使其生效`，MCP pid 3508 → 14596 自动重启），
+然后在编辑器里连点 A4 空白文档（`doc_4acae61e37`「未命名文档」，写入前 0 个节点）上用 **DSH 的 MCP 客户端**真写。
+
+| 步骤 | 调用 | 结果 |
+|---|---|---|
+| 挂到编辑器当前文档 | `doc.attach` | `via:"live" degraded:false` |
+| 写标题 | `node.add` heading | 节点 `hea_67a6ce61b9`，**`via:"live"`**，`changed:["components"]` |
+| 写段落 | `node.add` paragraph | `par_e0b5956050`，`via:"live"` |
+| 写表格 | `node.add` table + `table.setData` | `tab_6c883cfa04`（4×2），`via:"live"`，`changed:["data","cellStyles"]` |
+| 读回验证 | `doc.summary` | `nodes=3 words=153 via:"live"` |
+| 视觉验证 | 抓编辑器窗口截图 | 标题 / 段落 / 表格**都出现在界面里**（`var/shots/live-write-editor-final.png`） |
+
+**结论**：`token 强制 + 写开关 + Live 写入` 三者串起来在**真实链路**上验证通过（不是脚本自证）。
+
+**★两个 agent 侧的坑（已记下，避免下次又踩）**：
+1. **`doc.create` / `doc.open` / `doc.close` / `doc.delete` / `doc.duplicate` 是"有意不做 live"的方法** ——
+   `web-editor/src/mcp/liveMethods.ts:190-195` 直接 `throw new Error('LIVE_FALLBACK: … 编辑器里的文档由 UI 管理，
+   桥接不会替你重置/删除它')`。它们**永远走无头**（在工作区读写 `.editor.json`），返回 `via:"headless" degraded:true`。
+   所以"MCP 新建文档"**不会**在编辑器界面里开新页 —— 要写进界面，就写**编辑器当前打开的那份文档**
+   （`doc.attach` 之后省略 docId）。这是**安全设计**（桥接不替用户重置/删除编辑器内容），不是 bug。
+2. **`node.add` 的 `props` 必须用组件的真实属性键**：段落的正文键是 **`html`**（richtext），不是 `text`。
+   我一开始传了 `text` → 节点建出来了、但正文仍是默认占位符（错键被**静默存下**，界面上看不出来）。
+   正解：先 `component.schema`（或 `component.get`）确认键名，或用 `node.settext`（自动挑 `text/html/items/caption`）；
+   已经写错的键可以用 `property.reset` 删掉。
+
+**顺带**：MCP 重启后**有几秒重连窗口** —— 我最早两次调用正好落在窗口里（`doc.create`/`doc.open` 返回
+`degraded:true`），稍后重试即恢复 live。判断"当前到底 live 不 live"用 `editor-mcp/scripts/bridge-status.mjs`
+（`connected/ready/editors`），比看单次返回的 `via` 更可靠。
+
 ---
 
 ## 第 16 章 数据迁移指南
