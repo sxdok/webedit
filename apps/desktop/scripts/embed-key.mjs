@@ -32,7 +32,14 @@ const rotate = args.includes('--rotate');
 
 const configDir = resolve(APP_DIR, argOf('--config-dir', 'config'));
 const inPath = resolve(APP_DIR, argOf('--in', join('config', 'app-config.example.json')));
-const keyPath = resolve(APP_DIR, argOf('--key-file', join('config', 'config.key')));
+/**
+ * ★P3-M8：明文密钥的**缺省位置**移到 `<仓库根>/var/keys/config.key`（"运行数据"集中到 var/，
+ * 不跟源码混放；它本来就不在版本库里）。仍然优先复用**旧位置** `config/config.key`（老检出、以及
+ * 已经生成过密钥的机器），所以要读的时候按"新 → 旧"找；生成时写新位置。
+ */
+const legacyKeyPath = resolve(APP_DIR, 'config', 'config.key');
+const keyPath = resolve(APP_DIR, argOf('--key-file', join(REPO_ROOT, 'var', 'keys', 'config.key')));
+const existingKeyPath = [keyPath, legacyKeyPath].find((p) => existsSync(p));
 const encPath = resolve(APP_DIR, argOf('--out', join('config', 'app-config.enc')));
 const buildKeyPath = resolve(APP_DIR, argOf('--build-key', join('config', 'buildKey.mjs')));
 
@@ -45,9 +52,9 @@ const run = (a) => execFileSync(process.execPath, [TOOL, ...a], { stdio: 'inheri
 
 // ① 密钥：已有就复用（--rotate 强制换新）
 let key;
-if (!rotate && existsSync(keyPath)) {
-  key = readFileSync(keyPath, 'utf8').trim();
-  process.stdout.write(`· 复用已有密钥：${keyPath}\n`);
+if (!rotate && existingKeyPath) {
+  key = readFileSync(existingKeyPath, 'utf8').trim();
+  process.stdout.write(`· 复用已有密钥：${existingKeyPath}${existingKeyPath === keyPath ? '' : '（旧位置，建议下次换到 var/keys）'}\n`);
 } else {
   process.stdout.write(`· 生成新密钥：${keyPath}\n`);
   run(['keygen', '--out', keyPath]);

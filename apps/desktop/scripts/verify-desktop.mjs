@@ -914,7 +914,25 @@ async function testStatic() {
   const pkg = JSON.parse(text('package.json'));
   ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('web-editor')), pkg.build.extraResources.map((r) => r.to).join(', '));
   ok('不再把 editor-mcp/node_modules 打进包（它是符号链接拼的，装不进安装包），改为单文件 bundle', !pkg.build.extraResources.some((r) => String(r.to).includes('node_modules')) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle')) && /bundle:mcp/.test(pkg.scripts?.dist ?? ''), `extraResources 有 editor-mcp-bundle=${pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle'))}；dist 脚本先打包=${pkg.scripts?.dist}`);
-  ok('加密配置与密钥都在（开箱即用）', existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.mjs')) && existsSync(join(APP_DIR, 'config', 'config.key')), 'config/{app-config.enc, buildKey.mjs, config.key}');
+  /* ★P3-M8：明文密钥从 `config/config.key` 挪到 `<仓库根>/var/keys/config.key`（"运行数据"集中到 var/，
+     不跟源码混放）。旧位置仍作回退读，所以两种都算"开箱即用"。 */
+  const keyNew = join(REPO_ROOT, 'var', 'keys', 'config.key');
+  const keyLegacy = join(APP_DIR, 'config', 'config.key');
+  const keyAt = existsSync(keyNew) ? keyNew : existsSync(keyLegacy) ? `${keyLegacy}（旧位置）` : null;
+  ok(
+    '加密配置与密钥都在（开箱即用；P3-M8 起明文密钥在 var/keys）',
+    existsSync(join(APP_DIR, 'config', 'app-config.enc')) && existsSync(join(APP_DIR, 'config', 'buildKey.mjs')) && Boolean(keyAt),
+    `config/{app-config.enc, buildKey.mjs} 就位；密钥=${keyAt ?? '缺失'}`,
+  );
+  {
+    const { resolveLayout } = await import('../src/paths.js');
+    const devL = resolveLayout({ isPackaged: false, resourcesPath: '', userDataPath: join(tmp, 'ud-keycheck') });
+    ok(
+      'dev 的明文密钥路径优先指向 var/keys（不再从源码树读）',
+      devL.configKeyPath === keyNew || (devL.configKeyPath === keyLegacy && !existsSync(keyNew)),
+      `configKeyPath=${devL.configKeyPath}`,
+    );
+  }
   // P0 ⑥：明文密钥必须**只在本地**——曾经它被 git 跟踪过，首次推送 GitHub 前才移出（d99a95c）。
   // 这条断言就是防它再被加回来（.gitignore 覆盖 + 不在索引里，两个条件都要满足）。
   const trackedKey = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '--error-unmatch', 'apps/desktop/config/config.key'], { encoding: 'utf8', windowsHide: true });
@@ -924,6 +942,16 @@ async function testStatic() {
     trackedKey.status !== 0 && ignoredKey.status === 0,
     `git ls-files status=${trackedKey.status}；git check-ignore=${String(ignoredKey.stdout).trim() || '未命中'}`,
   );
+  {
+    /* P3-M8 追加：新位置同样不许进版本库（它落在 var/ 下，由 `var/` 规则覆盖） */
+    const trackedNew = spawnSync('git', ['-C', REPO_ROOT, 'ls-files', '--error-unmatch', 'var/keys/config.key'], { encoding: 'utf8', windowsHide: true });
+    const ignoredNew = spawnSync('git', ['-C', REPO_ROOT, 'check-ignore', 'var/keys/config.key'], { encoding: 'utf8', windowsHide: true });
+    ok(
+      '新位置的明文密钥也不进版本库（var/keys/config.key 被忽略）',
+      trackedNew.status !== 0 && ignoredNew.status === 0,
+      `git ls-files status=${trackedNew.status}；git check-ignore=${String(ignoredNew.stdout).trim() || '未命中'}`,
+    );
+  }
   // P0 ⑥：老 buildKey.js 的回退分支已删（安装包里只有 buildKey.mjs）
   ok(
     '代码里没有老 buildKey.js 回退分支',

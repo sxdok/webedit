@@ -2266,6 +2266,30 @@ Python 启动器 `GET /__loginfo` → `"dir": "E:\\可视化编辑器\\var\\logs
 **闸门**：根 `npm run verify` **87/87**（含静态服务器契约 **13/13**：`docs/契约.md` 允许、`../逃逸.md` 403）；
 dev `npm run selftest` **10/10**。
 
+### 15.26 P3-M8 施工记录（密钥出库：明文密钥移到 `var/keys/`）
+
+**先查清事实再动手**：`apps/desktop/config/config.key`（45B，AES-256-GCM 的 32 字节 base64）——
+它**早已不在版本库**（`.gitignore:52` 覆盖 + `verify` 有两条断言守着：`git ls-files` 取不到、`check-ignore` 命中），
+且 `config/README.txt` 明说**它是"随包分发、不是秘密"**（加密只是为了防误改；真正的功能门在 P6 授权）。
+所以 M8 剩下的有价值部分不是"移出版本库"（已完成），而是**把它从源码树挪到 `var/keys/`** ——
+与 M1–M7 同一条原则：源码树只放源码，运行数据进 `var/`。
+
+| 项 | 落地 |
+|---|---|
+| 缺省位置 | `apps/desktop/scripts/embed-key.mjs`：生成写 `<仓库根>/var/keys/config.key`；**读取按"新 → 旧（`config/config.key`）"找**（老检出仍可用，并提示"建议换到 var/keys"） |
+| 桌面壳优先级 | `src/paths.js`：dev 的 `configKeyPath` = `var/keys/config.key` 优先、旧位置回退；**打包版不变**（`resources/config/config.key`） |
+| 迁移 | `config.key` 移入 `var/keys/`（源码树不再有密钥）；`config/README.txt` 由 `embed-key.mjs` 自动重写为新路径（它本就是生成物） |
+| 断言 | 新增两条：dev 的密钥路径**优先指向 `var/keys`**；`var/keys/config.key` 同样**不进版本库**。并把原来那条"开箱即用"断言从写死旧路径改为"新或旧位置任一存在"（否则 M8 一改它就假红） |
+
+**验收（真跑）**：`node scripts/embed-key.mjs` → 打印 `· 复用已有密钥：…\var\keys\config.key`，重新加密并自验"能解开" ✅；
+dev `npm run selftest` **10/10**（应用真从新位置读到密钥）；**打包版 `--selftest` 10/10**
+（`config.source=encrypted`、`keySource=build:…release\win-unpacked\resources\config\buildKey.mjs`）——
+"打包版仍能解出配置"这条验收成立。verify **89/89**。
+
+**一个小认知修正**：我原本想用"密文哈希不变"证明"只是换了位置、没换密钥"，实测哈希变了 ——
+**这是正常的**：AES-GCM 每次加密用随机 nonce，同一明文两次加密必然不同密文。
+正确的不变式是"**能解开且字段一致**"（脚本与自检都在验这个），不是哈希相等。差点把一个正常现象当成回归。
+
 ---
 
 ## 第 16 章 数据迁移指南

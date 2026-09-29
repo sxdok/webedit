@@ -118,7 +118,16 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
     configDir: resolvedConfigDir,
     configEncPath: join(resolvedConfigDir, 'app-config.enc'),
     configPlainPath: join(resolvedConfigDir, 'app-config.json'),
-    configKeyPath: join(resolvedConfigDir, 'config.key'),
+    /**
+     * 明文 AES 密钥（**不是秘密**：README 明确写"随包分发"；加密只是防误改）。
+     * ★P3-M8：dev 优先 `<仓库根>/var/keys/config.key`（密钥属"运行数据"，不跟源码混放），
+     *   并保留旧位置 `<configDir>/config.key` 作回退（老检出仍在用）；打包版仍是 `resources/config/config.key`。
+     *   "不在版本库里"由 `verify` 断言守着（`git ls-files` + `check-ignore`）。
+     */
+    configKeyPath: isPackaged
+      ? join(resolvedConfigDir, 'config.key')
+      : (pickDir(join(repoRoot, 'var', 'keys', 'config.key'), join(resolvedConfigDir, 'config.key')) ??
+        join(repoRoot, 'var', 'keys', 'config.key')),
     /**
      * 构建期兜底密钥。**必须是 `.mjs`**：这个文件是 ESM 语法（`export const`），而它的落点是
      * 安装目录 / 免安装版解包出的临时目录 —— 那里向上找不到任何 `package.json`，
