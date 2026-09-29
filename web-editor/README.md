@@ -749,6 +749,9 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 
 日志是**四层**，落盘位置在**仓库根 `var/logs/`**（P3-M4 起，运行数据集中到 `var/`）。
 
+> **开发探针已入库**：以前散在本目录 `logs/` 下的 CDP 探针（截图/求值/自检）现在统一在 `tools/cdp/`，
+> 见 [tools/cdp/README.md](../tools/cdp/README.md)（截图写 `var/shots/`，日志写 `var/logs/`）。
+
 | 层 | 内容 | 位置 / 用途 |
 |---|---|---|
 | **运行目录文件**（推荐） | 前端日志按天追加 | `logs/editor-YYYY-MM-DD.log` —— 由**启动器**的 `/__log` 写入；服务自身的访问/错误写 `logs/server-*.log`；自检结果写 `logs/check-*.log`；诊断报告写 `logs/diagnostic-*.log` |

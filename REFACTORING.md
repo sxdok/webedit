@@ -2202,6 +2202,45 @@ Python 启动器 `GET /__loginfo` → `"dir": "E:\\可视化编辑器\\var\\logs
 **M5 闸门实测**：`editor-mcp` 单测 **99/99** ✅；根 `npm run verify` **87/87** ✅（含"全程没碰用户的活文档目录 `var/mcp-workspace`"）；
 打包版 `--selftest` **10/10** ✅（打包态文档目录仍是 `userData/workspace`）。
 
+### 15.24 P3-M6 施工记录（探针入库：散落的 CDP 探针 → `tools/cdp/`）
+
+改前：开发期写的 CDP 探针全躺在 `web-editor/logs/`（M4 后是 `var/logs/`）——**41 个脚本**，
+每次要复现问题都得"翻旧日志找一个还能用的"。M6 把**通用**的收进 `tools/cdp/`，并让它们真能独立跑。
+
+| 入库的探针 | 干什么 |
+|---|---|
+| `tools/cdp/eval.mjs` | 无头浏览器打开 URL → 执行**页面脚本文件** → 输出 JSON；支持 `--reload`（真刷新后跑第二段）、`--resize`/`--window`（真改视口/窗口尺寸）、`--shot`、`--expr` |
+| `tools/cdp/shot.mjs` | 截图（可 `--js pre.js` 先点开面板等交互再拍；`--full` 整页），缺省写 `var/shots/` |
+| `tools/cdp/probes/summary.js` | 页面脚本：界面结构体检（组件项/分类/节点数/纸张尺寸/正文长度） |
+| `tools/cdp/probes/selfcheck.js` | 页面脚本：轮询 `?check=1` 报告**直到稳定**，返回好/总数/失败清单/耗时 |
+| `tools/cdp/README.md` | 用法、典型流程、**目录分工**（探针代码入库；截图进 `var/shots`、日志进 `var/logs`） |
+
+入库时做的清洗（这些正是"当初为什么它只在 logs 里能用"的原因）：
+写死的 Edge 绝对路径 → **自动探测 + `CDP_BROWSER` 覆盖**；写死的 `C:\Users\Admin\…\Temp` → `os.tmpdir()`；
+盲等 `sleep(5500)` → **轮询"`#root` 有子节点"**（就绪才跑，慢机器也稳）；`--shot` 缺省落 `var/shots`；
+用完删掉临时浏览器 profile。
+
+**★两个真踩到的坑（都写进代码注释了）**：
+1. **调试端口写死会撞车**：早先固定 9400，上一次中断留下的无头浏览器还占着它 → 新实例开不了调试端口，
+   而 `/json/list` 返回的是**旧实例**的目标列表 → 探针报"没有拿到 CDP 页面目标"，可页面其实已被新实例打开。
+   **报错指向错误原因**，最难查。处置：每次用 `net.createServer().listen(0)` 取**空闲端口**；
+   并清理了 26 个僵尸无头进程（只按 `--remote-debugging-port` + 我们的临时 profile 辨认，**不碰用户自己的 Edge**）。
+2. **探针里的选择器必须核实**：`summary.js` 第一版我按想象写 `[data-component-type]`、`[class*="menubar"]`，
+   结果"组件按钮/菜单栏"都报 0 —— 假信号。核实后改成真实存在的 `data-comp-item` / `data-category-name` / `data-node-id`；
+   并在输出里注明"菜单数为 0 属正常（浏览器里没有桌面壳注入的菜单栏）"。
+
+**M6 验收（三条探针真跑，不是"应该能跑"）**：
+① `eval.mjs … probes/summary.js` → `组件项 16 / 组件分类 5 / 节点数 88 / 纸张 794×1121（A4@96dpi）/ 正文 4297 字`；
+② `shot.mjs … var/shots/m6-smoke.png` → 写出 129 KB PNG；
+③ `eval.mjs "…?check=1" probes/selfcheck.js` → **`check: 320/320 全部通过`（0 失败，耗时 330 秒）**。
+
+**★顺带解开一个悬案**：`check:page`（走 Electron 窗口）一直是 **320/322（2 条失败）**，
+而这条探针在 1680×1050 的无头浏览器里拿到 **320/320**。差别不是"哪边测错了"，而是
+**那 2 条断言是随视口尺寸触发的条件断言**（"窗口放不下整张纸时预览要自动缩小""标尺随滚动量走"）：
+窄窗口才会执行、也才会失败；宽视口下根本不进入那两条。
+所以"2 条已知失败"的准确表述是：**窄窗口下的画布几何行为不达标**（`check:page` 用它当回归哨兵），
+而不是"自检本身有 2 条坏断言"。
+
 ---
 
 ## 第 16 章 数据迁移指南
