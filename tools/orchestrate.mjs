@@ -74,6 +74,8 @@ const steps = {
        默认闸门没跑它 → 漏过。放进默认档后这类破坏当场就红）。 */
     npmRun('打包 MCP 单文件（bundle:mcp）', 'bundle:mcp', path.join(repo, 'apps', 'desktop'));
     npmRun('静态服务器契约（端点集 JS↔Python + 形状/安全负例）', 'check:server', path.join(repo, 'apps', 'desktop'));
+    /* P3.5：userData 改名迁移的自检（清单/复核/回退/幂等/跨卷，全在临时目录里做，不碰真实用户数据） */
+    npmRun('userData 迁移自检', 'check:userdata', path.join(repo, 'apps', 'desktop'));
     npmRun('桌面版静态闸门（verify）', 'verify', path.join(repo, 'apps', 'desktop'));
     if (full) {
       for (const s of ['auth-check.mjs', 'session-revive-check.mjs', 'multi-connection-check.mjs', 'bridge-smoke.mjs', 'tools-smoke.mjs', 'table-smoke.mjs', 'http-smoke.mjs', 'plugin-smoke.mjs', 'rpc-smoke.mjs']) {

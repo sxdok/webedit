@@ -54,7 +54,7 @@ INDEX = os.path.join(DIST, "index.html")
 # ★P3-M7：前端生成的产物（组件与属性说明清单等）落**仓库根 `var/docs`**，不再写源码树 `web-editor/docs/`。
 DOCS_ROOT = os.path.normpath(os.path.join(REPO_ROOT, "var", "docs"))
 # ★P3-M4：日志/诊断落**仓库根 `var/logs`**（"运行数据"集中到 var/，不再往源码目录写）。
-#   桌面版不读这里：它把日志写到用户数据目录（%APPDATA%\可视化编辑器\logs）。
+#   桌面版不读这里：它把日志写到用户数据目录（%APPDATA%\webedit\logs，P3.5 起）。
 LOG_DIR = os.path.join(REPO_ROOT, "var", "logs")
 LOG_KINDS = ("editor", "diagnostic", "check", "server")
 MAX_BODY = 512 * 1024  # 单次写入上限，防止异常客户端把磁盘写满

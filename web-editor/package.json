@@ -1,7 +1,7 @@
 {
   "name": "visual-editor",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Web 可视化编辑器：文档模式（A4 纸张）+ Web 模式（设备画布），布局与交互参照 Qt Designer",
   "scripts": {

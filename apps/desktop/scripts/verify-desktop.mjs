@@ -943,6 +943,47 @@ async function testStatic() {
   ok('preload 只暴露 window.desktop，不把 ipcRenderer 原样透出', /exposeInMainWorld\('desktop'/.test(preload) && !/exposeInMainWorld\([^)]*ipcRenderer/.test(preload), 'contextBridge.exposeInMainWorld("desktop", api)');
   ok('preload 没有暴露 fs / child_process 之类 Node 能力', !/require\(['"](node:)?(fs|child_process|net|http)['"]\)/.test(preload), 'preload 只 require("electron")');
   const pkg = JSON.parse(text('package.json'));
+  /**
+   * ★P3.5 / §6.10：应用**标识**改成 ASCII 的 `webedit`（用户数据目录、包名、exe、安装包、注册表项），
+   * 而**界面显示名保持「可视化编辑器」**。这条断言就是防止以后有人把中文名改回标识位
+   * （中文路径在 NSIS/zip/日志/第三方工具里的老问题）。
+   */
+  ok(
+    'P3.5：包名/应用名/appId 都是 webedit 系（ASCII 标识）',
+    pkg.name === 'webedit' && pkg.build?.productName === 'webedit' && pkg.build?.appId === 'com.webedit.app',
+    `name=${pkg.name}；productName=${pkg.build?.productName}；appId=${pkg.build?.appId}`,
+  );
+  ok(
+    'P3.5：产物名跟随 ${productName}-${version}-${arch}.${ext}（→ webedit-<版本>-x64.exe）',
+    String(pkg.build?.artifactName ?? '').includes('${productName}') && String(pkg.build?.artifactName ?? '').includes('${version}'),
+    `artifactName=${pkg.build?.artifactName}`,
+  );
+  {
+    /* 用**代码语句**比，别用裸标识符 —— 注释里先提到过 `requestSingleInstanceLock()`，
+       按裸词索引会命中注释，断言就会假红（我第一版就是这么写的）。 */
+    const setName = main.indexOf("app.setName('webedit')");
+    const lock = main.indexOf('app.requestSingleInstanceLock()');
+    const firstGetPath = main.indexOf('app.getPath(');
+    ok(
+      "P3.5：main.js 在**任何 userData 访问之前**调用了 app.setName('webedit')",
+      setName > 0 && lock > setName && firstGetPath > setName,
+      `setName@${setName}；app.requestSingleInstanceLock()@${lock}；首个 app.getPath(@${firstGetPath}`,
+    );
+  }
+  ok(
+    'P3.5：界面显示名仍是「可视化编辑器」（品牌不动）',
+    /productName:\s*'可视化编辑器'/.test(main) === false && main.includes('可视化编辑器') && pkg.build?.copyright?.includes('可视化编辑器'),
+    `copyright=${pkg.build?.copyright}（窗口标题/菜单文案由页面与 main.js 决定，此处只保证品牌字符串还在）`,
+  );
+  {
+    /* 迁移模块必须存在且被 main.js 真正调用（不是只写了文件） */
+    const mig = text('src/userDataMigration.js');
+    ok(
+      'P3.5：userData 迁移模块就位且被 main.js 调用（清单+复核+回退+幂等）',
+      /LEGACY_USER_DATA_NAME/.test(mig) && /migrateUserData\(/.test(main) && /verifyAgainst/.test(mig) && /rolled-back/.test(mig),
+      `迁移模块 ${mig.length} 字节；main.js 调用=${/migrateUserData\(/.test(main)}`,
+    );
+  }
   ok('打包配置里有 extraResources（业务资源不进 asar，子进程才能跑）', Array.isArray(pkg.build?.extraResources) && pkg.build.extraResources.some((r) => String(r.to).includes('web-editor')), pkg.build.extraResources.map((r) => r.to).join(', '));
   ok('不再把 editor-mcp/node_modules 打进包（它是符号链接拼的，装不进安装包），改为单文件 bundle', !pkg.build.extraResources.some((r) => String(r.to).includes('node_modules')) && pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle')) && /bundle:mcp/.test(pkg.scripts?.dist ?? ''), `extraResources 有 editor-mcp-bundle=${pkg.build.extraResources.some((r) => String(r.to).includes('editor-mcp-bundle'))}；dist 脚本先打包=${pkg.scripts?.dist}`);
   /* ★P3-M8：明文密钥从 `config/config.key` 挪到 `<仓库根>/var/keys/config.key`（"运行数据"集中到 var/，

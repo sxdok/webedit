@@ -2323,6 +2323,59 @@ M9 的规格是"契约与版本：`contracts/` + 生成到两端的 `version.ts`
 即这一版已带上 P0 的 token 强制/写默认关闭与 P1–P3 的全部目录重排。
 （改名 `webedit` + 版本 0.3.0 属 **P3.5**，本轮不做。）
 
+### 15.28 P3.5 施工记录（标识改 `webedit` + userData 迁移）—— **六个阶段全部完成**
+
+**改名（标识）**：`package.json` 的 `name`/`productName` → `webedit`、`appId` → `com.webedit.app`、
+显式写 `artifactName: ${productName}-${version}-${arch}.${ext}`；`main.js` **在任何 userData 访问之前**
+（早于 `requestSingleInstanceLock()`，它的锁文件就在 userData 里）调 `app.setName('webedit')`；
+`mcpSupervisor.js` 的客户端自报名 → `webedit`。**界面显示名不动**：窗口标题/菜单/`cfg.app.title` 仍是「可视化编辑器」，
+「关于」等处保持品牌。版本 **0.2.0 → 0.3.0** 仍走唯一源（根 `package.json`）。
+
+**迁移**（§16.1 的规格，决策 #14：**移动**）：新增 `apps/desktop/src/userDataMigration.js`，四条纪律都实现且有自检：
+
+| 纪律 | 实现 |
+|---|---|
+| 清单 | 移动前扫全目录：相对路径 + 字节数 + **非易变文件 SHA-256**（Chromium 缓存目录只计数量、不比哈希 —— 它们随时在变，钉哈希会让复核永远失败） |
+| 移动 | `rename`（同盘原子）；失败（跨卷/权限/占用）→ **复制 → 复核 → 删源** |
+| 复核与回退 | 复核文件数/字节/关键文件哈希；**不过就移回去**，绝不留半迁移状态；复制模式复核通过后才删源 |
+| 幂等与冲突 | 已迁移（新目录有标记）→ noop；两边都有数据却无标记 → `conflict`，**一个字节都不动**（要人来看） |
+
+接线：迁移在 `main.js` 顶部、`app.setName` 之后立刻执行（此时还没有窗口/会话去占用 userData）；
+结论写日志，并通过页面既有的 `editor:notice` 事件**弹提示条**（规格要求"日志 + 提示条"）。
+标记落在新目录的 `migration.json`（规格写的是 `%APPDATA%\webedit.migrate.json`，这里等价地放进目录内，
+好处是"标记与数据同生共死"，搬迁/回滚时不会分家）。
+
+**真实迁移实测**（本机用户数据，迁移前已另行备份到 `var/backup-userdata-20260929`，285 文件/9.8MB 字节一致）：
+```
+[迁移] 准备迁移 userData：…\Roaming\可视化编辑器 → …\Roaming\webedit（285 个文件，9.8 MB）
+[迁移] 结果=moved：已移动 285 个文件 / 9.8 MB，复核通过
+```
+迁移后：旧目录**已不存在**；新目录 290 文件（数据 + `migration.json` + 本次运行新写的）、
+标记里 21 个关键文件哈希；抽验 `bridge-token` / `logs/editor-2026-09-29.log` / `组件/_manifest.json`
+与备份**逐字节一致**。dev `selftest` **10/10**；打包版 `--selftest` **10/10**（`mode=packaged`、v0.3.0、
+`userData=…\Roaming\webedit`）—— 且**第二次运行是 noop**（幂等成立）。verify **97/97**。
+
+**迁移自检**（`npm run check:userdata`，全在临时目录、不碰真实数据）：**10/10** ——
+没有旧目录→noop；真移动→复核+标记+旧目录消失；幂等；冲突→不动；**跨卷 E:→C:→自动走"复制+复核+删源"**；
+复核失败→回退且旧目录完好；清单/篡改检测（改内容必须报"哈希不一致"）。
+
+**★三个坑（都值得记）**：
+1. **自检抓到我实现里的真 bug**：复制模式我写了"已复制并删除源"，但代码里**根本没删源** ——
+   跨卷那条用例把 `源已删=false` 打出来后才发现。**写了自检就必须让它验真行为**。
+2. **断言又踩了"裸词索引命中注释"**：P3.5 那条"setName 早于 userData 访问"我按 `requestSingleInstanceLock`
+   裸词比较，结果命中了我自己写的注释 → 假红。改成比**代码语句**（`app.requestSingleInstanceLock()`），
+   并顺带断言早于首个 `app.getPath(`。同类问题本阶段第 3 次，已是稳定的教训：
+   **比较位置/顺序时，锚点必须是代码里唯一的那个字符串**。
+3. **PowerShell 内联 `node -e` 的引号又被吃掉**（第 3 次）：改 `package.json` 包名的那条命令报
+   `Invalid string escape` 而**静默没改**。是"复读文件确认"才发现（`name` 还是旧值）。此后一律用 `edit` 工具改配置。
+
+**另一个真会影响运行的漏项**：`editor-mcp/scripts/lib/bridge-token.mjs` 的 `USERDATA_NAMES`
+本来是 `['可视化编辑器', 'visual-editor-desktop', 'webedit']`（新名排在最后）—— 改名后脚本会**先在旧目录找**。
+已把 `webedit` 提到第一位，旧名留作回退，提示文案同步。
+
+**发行物**：`release/webedit-0.3.0-x64.exe`（**109.7 MB**）、`webedit-0.3.0-portable.exe`（**109.5 MB**）、
+`win-unpacked/webedit.exe`。
+
 ---
 
 ## 第 16 章 数据迁移指南

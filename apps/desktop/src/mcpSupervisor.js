@@ -26,8 +26,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * 版本**来自生成物**（`./version.js`，P3-M9 起；唯一源是根 `package.json`），
  * `main.js` 启动时还会用 `app.getVersion()` 覆盖一次（打包态以 exe 为准）。
  */
+/** 客户端自报名（P3.5 起用 ASCII 标识 `webedit`；界面显示名仍是「可视化编辑器」） */
+const MCP_CLIENT_NAME = 'webedit';
 let clientVersion = VERSION;
-const mcpClientInfo = () => ({ name: 'visual-editor-desktop', version: clientVersion });
+const mcpClientInfo = () => ({ name: MCP_CLIENT_NAME, version: clientVersion });
 /** 覆盖自报版本（main.js 启动时调用；测试脚本也可用） */
 export function setClientVersion(v) {
   if (v) clientVersion = String(v);

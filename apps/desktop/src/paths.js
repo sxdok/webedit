@@ -21,7 +21,7 @@
  *   resources/tools/secure-config/secure-config.mjs
  *   resources/config/{app-config.enc, buildKey.mjs}     ← **明文文件**，换更新地址时直接替换
  *   <app.asar>/apps/desktop/{main.js, preload.cjs, src/}
- *   用户数据（日志/文档/组件覆盖）→ %APPDATA%/可视化编辑器/…
+ *   用户数据（日志/文档/组件覆盖）→ %APPDATA%/webedit/…（P3.5 起；改名前的旧目录会首次启动时迁移）
  */
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';

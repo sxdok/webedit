@@ -12,7 +12,7 @@
  * 需要 Node ≥22（内置 WebSocket，用来问 hub）。
  *
  * P0 起 MCP/hub 都校验 token：本脚本自动取 token（`EDITOR_MCP_TOKEN` → 桌面版
- * `%APPDATA%\可视化编辑器\bridge-token`）；取不到会明确提示怎么拿，而不是只说"连不上"。
+ * `%APPDATA%\webedit\bridge-token`，P3.5 起；旧目录名也认）；取不到会明确提示怎么拿，而不是只说"连不上"。
  */
 import { noTokenHint, resolveBridgeToken } from './lib/bridge-token.mjs';
 
@@ -22,7 +22,7 @@ const MCP = `http://127.0.0.1:${MCP_PORT}/mcp`;
 const HUB = `ws://127.0.0.1:${HUB_PORT}/bridge`;
 
 // P0 起 MCP 强制 token：本脚本要连"应用正在跑的那个" MCP，所以按优先级找一个 token
-// （EDITOR_MCP_TOKEN → %APPDATA%\可视化编辑器\bridge-token → EDITOR_MCP_TOKEN_FILE）。
+// （EDITOR_MCP_TOKEN → %APPDATA%\webedit\bridge-token（旧名也认） → EDITOR_MCP_TOKEN_FILE）。
 const { token: BRIDGE_TOKEN, source: TOKEN_SOURCE } = resolveBridgeToken();
 const AUTH = BRIDGE_TOKEN ? { Authorization: `Bearer ${BRIDGE_TOKEN}` } : {};
 

@@ -125,7 +125,7 @@ npm run dist
 4. 只想用 stdio 的客户端：`node editor-mcp/dist/index.js --stdio`（不受本应用影响）。
 
 MCP 的日志与无头文档目录都在 userData：
-`%APPDATA%\可视化编辑器\`（Windows）下的 `logs/`、`workspace/`、`docs/`、`组件/`。
+`%APPDATA%\webedit\`（Windows；P3.5 起，改名前的 `可视化编辑器` 目录会在首次启动时**移动**过来）下的 `logs/`、`workspace/`、`docs/`、`组件/`。
 
 ## 开发与运行
 
@@ -244,8 +244,8 @@ npm run dist         # 产物在**仓库根** release/（P3-M3 起）
 > 启动打包版 exe，Electron 会以 Node 模式运行、直接报 `bad option: --selftest` 并退出码 9 ——
 > 先 `Remove-Item Env:ELECTRON_RUN_AS_NODE` 再跑。
 
-产物（本机实测，Electron **44.0.0**）：`可视化编辑器-0.1.0-x64.exe`（NSIS 安装包 **109.6 MB**）、
-`可视化编辑器-0.1.0-portable.exe`（免安装 **109.4 MB**）、`win-unpacked/`。
+产物（本机实测，Electron **44.0.0**）：`webedit-0.3.0-x64.exe`（NSIS 安装包 **109.7 MB**）、
+`webedit-0.3.0-portable.exe`（免安装 **109.5 MB**）、`win-unpacked/webedit.exe`。
 
 **本机实测：两个产物都跑过 `--selftest`，都是 9/9 通过**（`mode=packaged`、`electron=44.0.0`、`node=24.18.1`，
 密钥来自 `resources/config/buildKey.mjs`，MCP 列出 108 个工具；另有 3 条界面契约：只有一条菜单栏 /

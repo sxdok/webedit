@@ -26,12 +26,45 @@ import { loadAppConfig, maskUrl, redactConfig } from './src/secureConfig.js';
 import { createMcpSupervisor, probeMcp, setClientVersion } from './src/mcpSupervisor.js';
 import { createUpdater } from './src/updater.js';
 import { startWebServer } from './server/webServer.js';
+import { LEGACY_USER_DATA_NAME, migrateUserData } from './src/userDataMigration.js';
+
+/**
+ * ★P3.5 / ARCHITECTURE §6.10：应用标识改成 `webedit`（**界面显示名不变**，仍是「可视化编辑器」）。
+ * 必须在**任何** userData 访问之前 setName —— 包括下面的 `requestSingleInstanceLock()`
+ * （它的锁文件就写在 userData 里）。这样 dev 与打包态的 userData 都是 `%APPDATA%\webedit`，
+ * 不依赖 electron-builder 把 productName 注入运行时。
+ */
+app.setName('webedit');
 
 const argv = process.argv.slice(1);
 const isDev = argv.includes('--dev') || !app.isPackaged;
 const wantCheck = argv.includes('--check') || process.env.EDITOR_DESKTOP_CHECK === '1';
 /** 装完自检：真启动（含真开窗加载页面与真连 MCP），把结论写进报告文件后退出 */
 const wantSelfTest = argv.includes('--selftest');
+
+/**
+ * ★P3.5 数据迁移：`%APPDATA%\可视化编辑器` → `%APPDATA%\webedit`（决策 #14：**移动** + 清单复核 + 回退 + 幂等）。
+ * 放在这里（早于 `requestSingleInstanceLock`、早于任何窗口/会话创建）是必须的：
+ * Chromium 一旦建了窗口就会往 userData 写文件，那时再改名会被占用而失败。
+ * `migrateUserData` 自己绝不抛异常 —— 迁移出问题不该让应用起不来。
+ */
+const migration = migrateUserData({
+  oldDir: join(app.getPath('appData'), LEGACY_USER_DATA_NAME),
+  newDir: app.getPath('userData'),
+  log: (msg, level) => (level === 'error' ? console.error(`[迁移] ${msg}`) : console.log(`[迁移] ${msg}`)),
+});
+if (migration.status !== 'noop' && migration.status !== 'skipped') {
+  console.log(`[迁移] 结果=${migration.status}：${migration.detail}`);
+}
+/** 迁移结论留给页面提示条（在 boot 后派发；日志里也有一份） */
+const migrationNotice =
+  migration.status === 'moved' || migration.status === 'copy-moved'
+    ? { kind: 'ok', title: '已迁移运行数据目录', detail: `运行数据已迁到 %APPDATA%\\webedit（${migration.files} 个文件，迁移前已复核哈希）。旧目录 %APPDATA%\\${LEGACY_USER_DATA_NAME} 不再使用。` }
+    : migration.status === 'rolled-back'
+      ? { kind: 'warn', title: '运行数据迁移已回退', detail: `${migration.detail}（改动已撤销，仍在原目录，数据未丢）` }
+      : migration.status === 'conflict'
+        ? { kind: 'warn', title: '运行数据目录需要人工确认', detail: migration.detail }
+        : null;
 
 /** 单实例：第二次点图标就把已有窗口抬起来（否则会出现两个 MCP 抢端口） */
 const gotLock = app.requestSingleInstanceLock();
@@ -451,6 +484,16 @@ function createWindow() {
 
   runtime.win.webContents.on('did-finish-load', () => {
     publishStatus();
+    /* ★P3.5：迁移结果在页面里用**提示条**说明（规格要求"日志 + 提示条"）。
+       页面侧监听 `editor:notice` 自定义事件（见 web-editor 的 NoticeBar）。 */
+    if (migrationNotice) {
+      runtime.log?.[migrationNotice.kind === 'ok' ? 'info' : 'warn'](`迁移提示条：${migrationNotice.title} —— ${migrationNotice.detail}`);
+      void runtime.win.webContents
+        .executeJavaScript(
+          `window.dispatchEvent(new CustomEvent('editor:notice',{detail:${JSON.stringify(migrationNotice)}}));true`,
+        )
+        .catch((e) => runtime.log?.warn(`迁移提示条派发失败：${e.message}`));
+    }
     const problems = runtime.configResult?.meta?.problems ?? [];
     if (problems.length) {
       void dialog.showMessageBox(runtime.win, {
