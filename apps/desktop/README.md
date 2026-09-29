@@ -198,7 +198,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 * **E MCP 子进程**：真拉起 → 真握手（initialize 拿到 serverInfo）→ 真 `tools/list`（工具数 > 20）→ 真重启（换进程号）
   → 端口上已有 MCP 时**接管**而不重复拉起 → `stop()` 后端口释放 → **桥接端口被别人占着时优雅降级**
   （MCP 照常就绪、工具表照常返回，只在日志与「查看 MCP 状态」里说明"Live 通道会连到那个旧实例上"）；
-  并比对用户的 `editor-mcp/workspace` 前后快照，证明验证过程**没碰活文档**。
+  并比对用户的 `var/mcp-workspace` 前后快照，证明验证过程**没碰活文档**。
 * **F 静态检查**：全部新文件 `node --check`；`contextIsolation/nodeIntegration/sandbox` 三项基线；
   外链协议白名单；preload 只暴露 `window.desktop`；`extraResources` 齐全且**不含**
   `editor-mcp/node_modules`（那东西装不进安装包，见 G）。

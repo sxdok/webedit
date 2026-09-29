@@ -331,7 +331,9 @@ async function testMcp(dev) {
   const { createLogger } = await import('../src/logger.js');
   const logger = createLogger({ logDir: join(tmp, 'logs') });
 
-  const liveWorkspace = join(REPO_ROOT, 'editor-mcp', 'workspace');
+  /* ★M5 起活文档在 <仓库根>/var/mcp-workspace（原来在 editor-mcp/workspace）。
+     这条断言的意义：**验证脚本绝不能碰用户的活文档** —— 它在跑之前快照这份目录，跑完再比对。 */
+  const liveWorkspace = join(REPO_ROOT, 'var', 'mcp-workspace');
   const snapshot = (d) => {
     try {
       const files = readdirSync(d);
@@ -547,7 +549,7 @@ async function testMcp(dev) {
   await new Promise((r) => busyBridge.close(r));
 
   const after = snapshot(liveWorkspace);
-  ok('全程没碰用户的活文档目录 editor-mcp/workspace', before.n === after.n && before.newest === after.newest, `前 ${before.n} 个文件/最新 ${new Date(before.newest).toISOString()}；后 ${after.n} 个/最新 ${new Date(after.newest).toISOString()}`);
+  ok('全程没碰用户的活文档目录 var/mcp-workspace', before.n === after.n && before.newest === after.newest, `前 ${before.n} 个文件/最新 ${new Date(before.newest).toISOString()}；后 ${after.n} 个/最新 ${new Date(after.newest).toISOString()}`);
 }
 
 /* ═══════════ G MCP 单文件打包 ═══════════ */

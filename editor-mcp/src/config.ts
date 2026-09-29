@@ -59,8 +59,13 @@ export const config = {
   bridgeUrl: env('EDITOR_MCP_BRIDGE_URL', 'ws://127.0.0.1:37650/bridge'),
   /** 是否随进程启动桥接中转（EDITOR_MCP_NO_BRIDGE=1 可关掉） */
   bridgeHub: envBool('EDITOR_MCP_BRIDGE_HUB', true),
-  /** 无头模式的文档目录 */
-  workspace: path.resolve(env('EDITOR_MCP_WORKSPACE', path.join(pkgRoot, 'workspace'))),
+  /**
+   * 无头模式的文档目录（**活文档**）。
+   * ★P3-M5：默认从包内 `editor-mcp/workspace/` 改到**仓库根 `var/mcp-workspace/`**
+   *   —— 活文档是"运行数据"，不该跟源码混在一起（迁移时先复制、逐文件比对 SHA256、再切默认，
+   *   旧目录原样保留一个版本周期）。显式设 `EDITOR_MCP_WORKSPACE` 仍然优先。
+   */
+  workspace: path.resolve(env('EDITOR_MCP_WORKSPACE', path.join(repoRoot, 'var', 'mcp-workspace'))),
   /** 外部插件目录：默认指向编辑器工程的 public/组件 */
   pluginDir: path.resolve(env('EDITOR_MCP_PLUGIN_DIR', path.join(repoRoot, 'web-editor', 'public', '组件'))),
   /**

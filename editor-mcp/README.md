@@ -99,7 +99,7 @@ MCP 客户端配置（以 stdio 为例）：
 | 变量 | 默认 | 说明 |
 |---|---|---|
 | `EDITOR_MCP_BRIDGE_URL` | `ws://127.0.0.1:37650` | Live Bridge 地址（阶段二起真正连接） |
-| `EDITOR_MCP_WORKSPACE` | `editor-mcp/workspace` | 无头模式的文档目录（`<docId>.editor.json`） |
+| `EDITOR_MCP_WORKSPACE` | `<仓库根>/var/mcp-workspace`（P3-M5 起；原 `editor-mcp/workspace`） | 无头模式的文档目录（`<docId>.editor.json`） |
 | `EDITOR_MCP_PLUGIN_DIR` | `web-editor/public/组件` | 外部插件目录 |
 | `EDITOR_MCP_ALLOW_WRITE` | `true` | `false` 时所有写操作返回 `WRITE_DISABLED` |
 | `EDITOR_MCP_RATE_LIMIT` | `100` | 单客户端每分钟调用上限（阶段七生效） |

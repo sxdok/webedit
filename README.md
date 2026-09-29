@@ -96,7 +96,7 @@ npm start ; npm run selftest ; npm run verify ; npm run dist
 
 **清理（2026-09-24，用户要求「确认一下有没有牵连和用处，没有就删了」）**：
 逐项核对后删除下面 5 项 —— 核对方法是**全仓检索引用**（两个应用的源码/脚本/配置、工作区 Skill、DSH 配置）
-+ 确认没有活进程在用（A4 编辑器端口 8080 无监听）+ 确认 MCP 的工作区是 `editor-mcp/workspace`（不是根 `docs/`）：
++ 确认没有活进程在用（A4 编辑器端口 8080 无监听）+ 确认 MCP 的工作区是 `var/mcp-workspace`（P3-M5 起；不是根 `docs/`）：
 
 > 注：下表的 `tools/` 指的是**当时被删掉的那个旧 `tools/`**（一次性脚本与打印验证工具）。
 > 现在仓库里的 `tools/secure-config/` 是 2026-09-25 新建的加密配置工具，与它无关、也没有继承关系。

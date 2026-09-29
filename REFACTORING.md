@@ -2174,6 +2174,34 @@ M6「探针入库」要做的就是从这里把**值得留的探针**收进 `too
 Python 启动器 `GET /__loginfo` → `"dir": "E:\\可视化编辑器\\var\\logs"` ✅；
 根 `npm run verify` **87/87** ✅；打包版 `--selftest` **10/10** ✅（userData 日志未受影响）。
 
+### 15.23 P3-M5 施工记录（活文档迁移：`editor-mcp/workspace/` → `<仓库根>/var/mcp-workspace/`）
+
+**这是唯一涉及用户数据的搬迁，所以按方案走"复制 → 逐文件哈希比对 → 切默认 → 保留旧目录"，
+全程不移动、不删除。** 旧目录里是真实文档：`江苏誉创_金卫智慧舱_AGV方案_V5.1.{docx,html}`、
+`_backup-编辑器示例文档-20260923.json`、`audit.log`。
+
+| 步骤 | 做法与证据 |
+|---|---|
+| ① 复制 | `Copy-Item editor-mcp/workspace/* var/mcp-workspace/`（**复制**，旧目录原地不动） |
+| ② 哈希比对 | 4 个文件逐个 `Get-FileHash -Algorithm SHA256` → **全部一致**（`09EE4427…`／`725D895D…`／`B01D7909…`／`E2EF354E…`） |
+| ③ 切默认 | `editor-mcp/src/config.ts`：`workspace` 默认 → `<仓库根>/var/mcp-workspace`（`EDITOR_MCP_WORKSPACE` 仍优先）；`apps/desktop/src/paths.js`：dev `mcpWorkspace` → `<仓库根>/var/mcp-workspace`（**packaged 仍是 `userData/workspace`**，绝不写安装目录） |
+| ④ 护栏同步 | `verify-desktop.mjs` 的"活文档前后快照"改成盯 `var/mcp-workspace`（断言文案一并改），继续保证**验证脚本不碰用户文档** |
+| ⑤ 旧目录 | `editor-mcp/workspace/` **原样保留一个版本周期**（`editor-mcp/.gitignore` 本来就忽略它） |
+
+**验收（真跑无头 MCP，不是读代码）**：起单文件 MCP（HTTP + token + `ALLOW_WRITE=true`）后 ——
+`doc.list` 返回 `"workspace": "E:\\可视化编辑器\\var\\mcp-workspace"` ✅；
+`doc.create`（标题"M5 迁移自检"）落盘到 `var\mcp-workspace\M5--mumfrech.editor.json` ✅；
+`doc.list` 随即列出该文档 ✅；**旧目录前后快照完全一致**（文件数、大小、mtime 均未变）✅；
+验收用的测试文档已删除，新目录保持与旧目录一致的 4 个文件。
+
+**★一个必须记住的纪律**：第一次验收时 `doc.list` 报告的 workspace 是 `E:\可视化编辑器\dist\workspace` ——
+因为**单文件 bundle 还是改默认值之前打的**（我只跑了 `tsc -b`，没跑 `bundle:mcp`）。
+分发版与桌面版用的是**那个 bundle**，不是 `editor-mcp/dist`：**改了 MCP 源码一定要重打包**
+（根上 `npm run build` 会做，单跑 `tsc` 不会）。重打包后一切正确。
+
+**M5 闸门实测**：`editor-mcp` 单测 **99/99** ✅；根 `npm run verify` **87/87** ✅（含"全程没碰用户的活文档目录 `var/mcp-workspace`"）；
+打包版 `--selftest` **10/10** ✅（打包态文档目录仍是 `userData/workspace`）。
+
 ---
 
 ## 第 16 章 数据迁移指南

@@ -106,8 +106,11 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
     mcpEntry,
     /** 单文件 MCP（打包用；不存在时为 null，此时 mcpEntry 指向 dist 目录） */
     mcpBundleEntry,
-    /** MCP 的无头文档目录：分发版用 userData/workspace，绝不写安装目录 */
-    mcpWorkspace: isPackaged ? join(dataRoot, 'workspace') : mcpRoot && join(mcpRoot, 'workspace'),
+    /**
+     * MCP 的无头文档目录（活文档）：分发版用 `userData/workspace`，**绝不写安装目录**；
+     * ★P3-M5 起 dev 也用**仓库根 `var/mcp-workspace`**（不再写包内 `editor-mcp/workspace`）。
+     */
+    mcpWorkspace: isPackaged ? join(dataRoot, 'workspace') : join(repoRoot, 'var', 'mcp-workspace'),
     pluginDir: bundledComponents,
     logDir: join(dataRoot, 'logs'),
     docsDir: join(dataRoot, 'docs'),
