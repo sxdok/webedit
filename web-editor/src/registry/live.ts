@@ -213,13 +213,26 @@ function installKit(React: typeof import('react')): void {
   (window as unknown as { EditorKit?: EditorKit }).EditorKit = kit;
 }
 
+/**
+ * 清单形状（REFACTORING §6.4.5）：**写入端只写 `{files:[…]}`，读取端必须兼容裸数组**。
+ * 这里两种都得认 —— 除了 `/__components` 返回规范形状，静态退化的 `_manifest.json`
+ * 可能是**过渡期的裸数组**（旧文件、随包种子），只认 `{files}` 会让外部组件"凭空消失"。
+ * 抽成纯函数是为了能被自检穷举（不需要真起一个服务器）。
+ */
+export function parseManifestFiles(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw : (raw as { files?: unknown } | null | undefined)?.files;
+  return Array.isArray(list)
+    ? list.filter((f): f is string => typeof f === 'string' && !!f.trim()).map((f) => f.trim())
+    : [];
+}
+
 /** 目录清单：优先 /__components（dev 中间件与启动器都提供），退化到静态 _manifest.json */
 async function fetchFileList(): Promise<{ files: string[]; source: string }> {
   try {
     const res = await fetch(MANIFEST_URL, { cache: 'no-store' });
     if (res.ok) {
-      const json = (await res.json()) as { files?: string[] };
-      if (Array.isArray(json.files)) return { files: json.files, source: MANIFEST_URL };
+      const files = parseManifestFiles(await res.json());
+      if (files.length) return { files, source: MANIFEST_URL };
     }
   } catch {
     /* 落到静态清单 */
@@ -227,8 +240,8 @@ async function fetchFileList(): Promise<{ files: string[]; source: string }> {
   try {
     const res = await fetch(MANIFEST_FILE, { cache: 'no-store' });
     if (res.ok) {
-      const json = (await res.json()) as { files?: string[] };
-      if (Array.isArray(json.files)) return { files: json.files, source: MANIFEST_FILE };
+      const files = parseManifestFiles(await res.json());
+      if (files.length) return { files, source: MANIFEST_FILE };
     }
   } catch {
     /* 没有外部组件 */

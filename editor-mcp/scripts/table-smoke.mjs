@@ -19,7 +19,9 @@ const CATALOG = path.join(pkgRoot, 'workspace', 'component-catalog.json');
 const hadCatalog = fs.existsSync(CATALOG);
 
 try {
-  const c = await startClient();
+  // ★显式打开写权限：P0 决策 #2 默认 `EDITOR_MCP_ALLOW_WRITE=false`（写操作默认拒绝），
+  //   本脚本要造表/改单元格（用临时工作区）；忘了这句会"整套静默全红"。
+  const c = await startClient({ env: { EDITOR_MCP_ALLOW_WRITE: 'true' } });
   const names = (await c.tools()).map((t) => t.name);
   const domains = ['table.', 'component.', 'history.', 'selection.', 'export.'];
   check(

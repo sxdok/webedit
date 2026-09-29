@@ -45,14 +45,34 @@ export function manifestPath(): string {
   return path.join(dir(), MANIFEST);
 }
 
+/**
+ * 清单形状（REFACTORING §6.4.5）：**写入端只写规范形状 `{files:[…]}`，读取端必须兼容裸数组**。
+ *
+ * 为什么抽成两个纯函数：形状是**契约**，得能被单测穷举（裸数组 / 规范形状 / 垃圾 / 去重 / 非字符串项），
+ * 文件读写只是它的壳。原来写入端写的是**裸数组**（与契约相反），读取端已经兼容两种 ——
+ * 这种"一半合规"正是漂移的温床，所以两边都收进来。
+ */
+export function parseManifest(text: string): string[] {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    const list = Array.isArray(parsed) ? parsed : (parsed as { files?: unknown })?.files;
+    return Array.isArray(list) ? list.filter((f) => typeof f === 'string').map((f) => f.trim()).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 规范形状：`{ "files": [...] }`（去重 + 稳定排序，便于 diff 与断言） */
+export function serializeManifest(list: string[]): string {
+  const files = [...new Set(list.map((f) => f.trim()).filter(Boolean))].sort();
+  return `${JSON.stringify({ files }, null, 2)}\n`;
+}
+
 async function readManifest(): Promise<string[]> {
   const p = manifestPath();
   if (!fs.existsSync(p)) return [];
   try {
-    const parsed = JSON.parse(await fsp.readFile(p, 'utf8')) as unknown;
-    if (Array.isArray(parsed)) return parsed.map(String);
-    const files = (parsed as { files?: unknown })?.files;
-    return Array.isArray(files) ? files.map(String) : [];
+    return parseManifest(await fsp.readFile(p, 'utf8'));
   } catch {
     return [];
   }
@@ -60,8 +80,7 @@ async function readManifest(): Promise<string[]> {
 
 async function writeManifest(list: string[]): Promise<string> {
   await fsp.mkdir(dir(), { recursive: true });
-  const uniq = [...new Set(list)];
-  await fsp.writeFile(manifestPath(), `${JSON.stringify(uniq, null, 2)}\n`, 'utf8');
+  await fsp.writeFile(manifestPath(), serializeManifest(list), 'utf8');
   return manifestPath();
 }
 

@@ -30,6 +30,7 @@ import { buildDocMarkdown } from '../utils/markdown';
 import { importHtml, importHtmlToDocument } from '../utils/htmlImport';
 import { buildPluginPackage, packageFileName, validatePluginPackage, PACKAGE_FORMAT } from '../utils/pluginPackage';
 import { buildDocx, docxParts, isZip } from '../utils/export/docx';
+import { parseManifestFiles } from '../registry/live';
 import { continueSeries, fillSeries } from '../registry/components/common/tableFill';
 import { saveToRunDir } from '../utils/download';
 import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
@@ -94,8 +95,9 @@ function finish(final = false): void {
   );
 }
 
-function renderReport(title: string): void {
+function renderReport(title: string, extra: Result[] = []): void {
   document.getElementById('__check_report')?.remove();
+  const all = extra.length ? [...results, ...extra] : results;
   const host = document.createElement('div');
   host.id = '__check_report';
   host.setAttribute('data-check-report', '1');
@@ -105,7 +107,7 @@ function renderReport(title: string): void {
     'box-shadow:0 6px 24px rgba(0,0,0,.18);font:12px/1.7 ui-monospace,Consolas,monospace;max-width:660px';
   host.innerHTML =
     `<div style="font-weight:700;margin-bottom:6px">${title}</div>` +
-    results
+    all
       .map(
         (r) =>
           /* `data-check-fail`：命令行探针按它精确取失败明细。
@@ -296,10 +298,23 @@ export function runSelfCheck(): void {
           push('自检后文档已还原', true);
 
           results.push(...dom);
-          void interactionChecks().then((list) => {
-            results.push(...list);
-            finish(true); // ← 全量（含 DOM 与交互段）
-          });
+          /* ★`.catch` 不是装饰：交互段里有几百条断言 + 大量 DOM 交互，任何一条**同步抛错**都会让
+             这个 promise 静默 reject → 标题永远停在上一个阶段（表现为"自检卡住"，探针只能超时）。
+             这里把异常变成**一条失败断言 + 全量收尾**，现场直接看到错误信息。
+             （这条是踩过坑之后加的：排查"卡住"时只能靠增量渲染反推跑到哪一条。） */
+          void interactionChecks()
+            .then((list) => {
+              results.push(...list);
+              finish(true); // ← 全量（含 DOM 与交互段）
+            })
+            .catch((e: unknown) => {
+              results.push({
+                name: '交互段整体执行（async 链未中断）',
+                pass: false,
+                note: `抛出异常：${e instanceof Error ? `${e.message}\n${(e.stack ?? '').split('\n').slice(0, 3).join(' | ')}` : String(e)}`,
+              });
+              finish(true);
+            });
         }, 260);
       }, 260);
     }, 260);
@@ -344,7 +359,18 @@ function registerProbe(): void {
 
 async function interactionChecks(): Promise<Result[]> {
   const out: Result[] = [];
-  const add = (name: string, pass: boolean, note = '') => out.push({ name, pass, note });
+  const add = (name: string, pass: boolean, note = '') => {
+    out.push({ name, pass, note });
+    /* ★逐条把结果并进**实时报告**（临时合并 `out`，不动 `results` —— 后者最后会整体并进来，直接 push 会重复计数）。
+       为什么值得：交互段是 async 链，中途卡住/抛错时若只在最后渲染，现场只剩"标题停在上一个阶段"
+       这种没法定位的现象（第一次接 M-11 时就被这个坑过）。
+       ★重渲染会**新建**浮层元素，而交互段开头是把它藏起来的（`display:none`，否则
+       `elementFromPoint` 的命中测试量到的全是面板本身）→ 这里必须继续藏住。 */
+    const good = [...results, ...out].filter((r) => r.pass).length;
+    renderReport(`check: ${good}/${results.length + out.length} 进行中…`, out);
+    const host = document.getElementById('__check_report');
+    if (host) host.style.display = 'none';
+  };
   const S = () => useEditorStore.getState();
   const wait = (ms = 160) => new Promise((r) => setTimeout(r, ms));
   /* ★自检报告面板是 fixed 覆盖层（z-index 9999），会挡住"按真实命中点派发"的指针事件：
@@ -5383,6 +5409,24 @@ async function interactionChecks(): Promise<Result[]> {
         `footer 部件=${e1Parts.includes('word/footer1.xml')}；域=${e1Text.includes('<w:fldChar')}；PAGE/NUMPAGES=${e1Text.includes('PAGE')}/${e1Text.includes('NUMPAGES')}`,
       );
     }
+
+  /* P1 子项①：清单形状契约（写入端只写 {files:[…]}，读取端兼容裸数组）。
+     ★这条必须能穷举 —— 只认一种形状会让外部组件"凭空消失"，而且现场很难看出来是清单形状的问题。 */
+  {
+    const cases: [string, unknown, string[]][] = [
+      ['裸数组（过渡期旧文件/随包种子）', ['甲.js', '乙.js'], ['甲.js', '乙.js']],
+      ['规范形状 {files:[…]}', { files: ['甲.js'] }, ['甲.js']],
+      ['垃圾（字符串而非数组）', { files: '甲.js' }, []],
+      ['混入非字符串项', { files: [1, '甲.js', null] }, ['甲.js']],
+      ['null', null, []],
+    ];
+    const bad = cases.filter(([, raw, want]) => JSON.stringify(parseManifestFiles(raw)) !== JSON.stringify(want));
+    add(
+      'P1 清单形状：读取端兼容**裸数组**与规范形状，垃圾输入不崩（§6.4.5）',
+      bad.length === 0,
+      bad.length ? `不符合：${bad.map(([n, raw]) => `${n} → ${JSON.stringify(parseManifestFiles(raw))}`).join('；')}` : `${cases.length} 种输入全部符合`,
+    );
+  }
 
     // 把字节用 base64 存到运行目录 docs/ 下，便于用 python-docx 在**编辑器之外**再验一次
     const b64 = (() => {

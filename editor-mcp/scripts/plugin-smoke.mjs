@@ -22,7 +22,10 @@ try {
   fs.rmSync(TMP_DIR, { recursive: true, force: true });
   fs.mkdirSync(TMP_DIR, { recursive: true });
 
-  const c = await startClient({ env: { EDITOR_MCP_PLUGIN_DIR: TMP_DIR } });
+  // ★必须显式打开写权限：P0 决策 #2 把 `EDITOR_MCP_ALLOW_WRITE` 默认设为 **false**（写操作默认拒绝），
+  //   而这套 smoke 全在**本机临时目录**里造插件（不碰编辑器真实组件目录）。
+  //   产品默认是"只读"，测试要显式申请写权限 —— 忘了这句话的表现是"整套 smoke 静默全红"。
+  const c = await startClient({ env: { EDITOR_MCP_PLUGIN_DIR: TMP_DIR, EDITOR_MCP_ALLOW_WRITE: 'true' } });
   const names = (await c.tools()).map((t) => t.name);
   const pluginTools = names.filter((n) => n.startsWith('plugin.'));
   check(
@@ -70,7 +73,11 @@ try {
     `type=${created?.type}；文件=${path.basename(created?.file ?? '')}；${created?.bytes} 字节`,
   );
   const manifestAfterCreate = JSON.parse(fs.readFileSync(path.join(TMP_DIR, '_manifest.json'), 'utf8'));
-  check('创建后清单里有它', Array.isArray(manifestAfterCreate) && manifestAfterCreate.includes('liveSmokeCard.js'), JSON.stringify(manifestAfterCreate));
+  check(
+    '创建后清单里有它（且是**规范形状** {files:[…]}，不是裸数组 —— §6.4.5）',
+    !Array.isArray(manifestAfterCreate) && Array.isArray(manifestAfterCreate?.files) && manifestAfterCreate.files.includes('liveSmokeCard.js'),
+    JSON.stringify(manifestAfterCreate),
+  );
 
   const got = await c.call('plugin.get', { name: 'liveSmokeCard' });
   check('plugin.get 返回源码与校验结果', got.body?.data?.bytes > 0 && typeof got.body?.data?.source === 'string' && got.body?.data?.inManifest === true, `${got.body?.data?.bytes} 字节`);
@@ -145,8 +152,8 @@ try {
   const mfGet = await c.call('plugin.manifest.get', {});
   check(
     'plugin.manifest.add/remove/set/get（含"清单里有但文件不存在"的提示）',
-    removed.length === 0 && added.body?.data?.added === true && setMf.body?.data?.missingFiles?.includes('not-exist.js') && mfGet.body?.data?.files?.length === 2,
-    `缺失文件提示=${JSON.stringify(setMf.body?.data?.missingFiles)}`,
+    Array.isArray(removed?.files) && removed.files.length === 0 && added.body?.data?.added === true && setMf.body?.data?.missingFiles?.includes('not-exist.js') && mfGet.body?.data?.files?.length === 2,
+    `磁盘清单=${JSON.stringify(removed)}；缺失文件提示=${JSON.stringify(setMf.body?.data?.missingFiles)}`,
   );
 
   /* ── 导出 / 导入 / 重命名 / 删除 ── */

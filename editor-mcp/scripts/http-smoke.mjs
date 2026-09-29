@@ -9,6 +9,9 @@
  *   · 速率限制：EDITOR_MCP_RATE_LIMIT 设小 → 超限返回 RATE_LIMITED
  *   · 写开关：ALLOW_WRITE=false → 写操作 WRITE_DISABLED（读操作正常）——已在 table-smoke 覆盖，这里再验 HTTP 下同样生效
  *   · 审计日志：写操作后 workspace/audit.log 里能看到该次调用
+ *
+ * ★P0 起 **token 校验是默认开启的**：脚本自己发一个 token 给子进程，并在每个请求头里带上
+ *   `Authorization: Bearer <token>`。不带的表现是"initialize 直接 401"→ 整套静默全红（排查过）。
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +20,7 @@ import { makeChecker, pkgRoot } from './mcp-client.mjs';
 
 const { check, failures } = makeChecker();
 const PORT = 37677;
+const TOKEN = `http-smoke-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
 const BASE = `http://127.0.0.1:${PORT}/mcp`;
 const AUDIT = path.join(pkgRoot, 'workspace', 'audit.log');
 
@@ -26,7 +30,13 @@ async function httpClient(name) {
   const rpc = async (method, params, isNotification = false) => {
     const res = await fetch(BASE, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', ...(sessionId ? { 'mcp-session-id': sessionId } : {}) },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        // P0：入站 token 校验（编辑器/agent 都必须带；不带就是 401）
+        Authorization: `Bearer ${TOKEN}`,
+        ...(sessionId ? { 'mcp-session-id': sessionId } : {}),
+      },
       body: JSON.stringify({ jsonrpc: '2.0', ...(isNotification ? {} : { id: Math.floor(Math.random() * 1e6) }), method, params }),
     });
     const sid = res.headers.get('mcp-session-id');
@@ -61,7 +71,7 @@ async function httpClient(name) {
 const child = spawn(process.execPath, [path.join(pkgRoot, 'dist', 'index.js'), '--http', '--port', String(PORT)], {
   stdio: ['ignore', 'pipe', 'pipe'],
   cwd: pkgRoot,
-  env: { ...process.env, EDITOR_MCP_PLUGIN_DIR: path.join(pkgRoot, 'workspace', '_plugin-test-http'), EDITOR_MCP_RATE_LIMIT: '40' },
+  env: { ...process.env, EDITOR_MCP_TOKEN: TOKEN, EDITOR_MCP_PLUGIN_DIR: path.join(pkgRoot, 'workspace', '_plugin-test-http'), EDITOR_MCP_RATE_LIMIT: '40', EDITOR_MCP_ALLOW_WRITE: 'true' },
 });
 const stderr = [];
 child.stderr.on('data', (d) => stderr.push(d.toString('utf8')));
@@ -78,11 +88,26 @@ try {
   /* ── 无会话的 POST 被拒 ── */
   const noSession = await fetch(BASE, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    // ★带上 token：**未认证（401）优先于协议状态（400）** —— 不带 token 时拿到的是 401，
+    //   那样这条"没 initialize 就调工具"的协议约束就验不到了。两条用例各自只验一件事。
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream', Authorization: `Bearer ${TOKEN}` },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
   });
   const noSessionBody = await noSession.json().catch(() => ({}));
   check('没有 initialize 就直接 tools/list → 400 且给出原因', noSession.status === 400 && /initialize/.test(JSON.stringify(noSessionBody)), `${noSession.status} ${JSON.stringify(noSessionBody).slice(0, 90)}`);
+
+  /* P0：**不带 token 的请求一律 401** —— 与上一条分开：认证先于协议状态、也先于会话 */
+  const noToken = await fetch(BASE, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
+  });
+  const noTokenBody = await noToken.json().catch(() => ({}));
+  check(
+    '不带 token 的请求 → 401（认证先于协议状态与会话）',
+    noToken.status === 401 && /Authorization/i.test(JSON.stringify(noTokenBody)),
+    `${noToken.status} ${JSON.stringify(noTokenBody).slice(0, 90)}`,
+  );
 
   /* ── 3 个客户端各建会话，互不干扰 ── */
   const clients = [await httpClient('client-A'), await httpClient('client-B'), await httpClient('client-C')];

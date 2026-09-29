@@ -22,7 +22,12 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_DIR = resolve(HERE, '..');
 const PORT = Number(process.env.CHECK_CDP_PORT ?? 9223);
-const TIMEOUT_MS = Number(process.env.CHECK_TIMEOUT_MS ?? 180000);
+/**
+ * 总超时。★别调小：自检的交互段有几百条断言，每条都带 `await wait(...)` 与真实指针事件，
+ * 整体约 2–4 分钟。默认 3 分钟时**偶尔会踩线**，表现是"标题停在 17/17 + 超时"，
+ * 看起来像自检卡住 —— 实际只是我给的预算不够（排查过一次）。给到 8 分钟。
+ */
+const TIMEOUT_MS = Number(process.env.CHECK_TIMEOUT_MS ?? 480000);
 const KEEP = process.argv.includes('--keep');
 
 /** electron 可执行文件：优先 node_modules 里的，找不到就退回 PATH 上的 electron */

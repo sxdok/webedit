@@ -513,7 +513,8 @@ async function main(liveReady) {
 
 try {
   // 顺序很重要：先起 MCP 客户端（=先有桥接中转），再拉编辑器，最后等它就绪
-  client = await startClient({ env: { EDITOR_MCP_RATE_LIMIT: '1000' } });
+  // ★写权限要显式申请：P0 决策 #2 默认 `EDITOR_MCP_ALLOW_WRITE=false`（写操作默认拒绝）
+  client = await startClient({ env: { EDITOR_MCP_RATE_LIMIT: '1000', EDITOR_MCP_ALLOW_WRITE: 'true' } });
 
   if (wantLive) {
     if (!edgeBin) throw new Error('找不到 msedge.exe，用 EDGE_BIN 指定');

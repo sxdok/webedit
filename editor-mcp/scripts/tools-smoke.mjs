@@ -16,7 +16,7 @@ const DOC_ID = `tools-smoke-${Date.now().toString(36)}`;
 const created = [];
 
 try {
-  const c = await startClient();
+  const c = await startClient({ env: { EDITOR_MCP_ALLOW_WRITE: 'true' } });
   const toolList = await c.tools();
   const names = toolList.map((t) => t.name);
   const domains = ['doc.', 'mode.', 'page.', 'canvas.', 'node.', 'property.', 'component.', 'plugin.'];
@@ -68,7 +68,9 @@ try {
    *   否则开发者工作区里那份 component-catalog.json（任何一次 component.catalog 都会生成）
    *   会让它们"合理地"失败（不是功能坏了，是测试没声明环境）。
    */
-  const empty = await startClient({ env: { EDITOR_MCP_WORKSPACE: tempWorkspace('tools-empty') } });
+  // ★这个"空工作区"客户端后面要**造文档/加节点**（验 property.reset 的退化路径），
+  //   所以也要显式申请写权限（P0 默认拒绝写）
+  const empty = await startClient({ env: { EDITOR_MCP_WORKSPACE: tempWorkspace('tools-empty'), EDITOR_MCP_ALLOW_WRITE: 'true' } });
   const val = await empty.call('property.validate', { type: 'table', key: 'cellPadding', value: 999 });
   check('property.validate 没有 schema 时如实返回 valid=null（不假装通过）', val.body?.data?.valid === null, `valid=${JSON.stringify(val.body?.data?.valid)} note=${(val.body?.data?.note ?? '').slice(0, 30)}…`);
 

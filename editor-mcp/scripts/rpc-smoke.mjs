@@ -17,7 +17,9 @@ const { check, failures } = makeChecker();
 const DOC_ID = `rpc-smoke-${Date.now().toString(36)}`;
 
 try {
-  const c = await startClient({ env: { EDITOR_MCP_PLUGIN_DIR: path.join(pkgRoot, 'workspace', '_plugin-test-rpc') } });
+  // ★显式打开写权限：P0 决策 #2 把 `EDITOR_MCP_ALLOW_WRITE` 默认设为 **false**（写操作默认拒绝），
+  //   而本脚本在**本机临时目录**里造插件；忘了这句的表现是"整套 smoke 静默全红"。
+  const c = await startClient({ env: { EDITOR_MCP_PLUGIN_DIR: path.join(pkgRoot, 'workspace', '_plugin-test-rpc'), EDITOR_MCP_ALLOW_WRITE: 'true' } });
 
   /* ── resources/list ── */
   const list = await c.raw('resources/list', {});
