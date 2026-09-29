@@ -1383,7 +1383,7 @@ app.setName('webedit')             ← P3.5 新增，必须在 getPath('userData
 | 目标 | `nsis` + `portable` |
 | `artifactName` | `${productName}-${version}-${arch}.${ext}` |
 | `win.signAndEditExecutable` | `false`（评估用 rcedit 写版本资源） |
-| `extraResources` | `web-editor/dist`、`web-editor/public/组件`、`dist/mcp/editor-mcp.bundle.mjs`、`tools/secure-config`、`config/*` |
+| `extraResources` | `dist/web`（源）→ `web-editor/dist`（包内）、`web-editor/public/组件`、`dist/mcp/editor-mcp.bundle.mjs`、`tools/secure-config`、`config/*` |
 
 ### 12.5 exe 元数据（P3 评估）
 
@@ -2083,6 +2083,27 @@ web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…）�
 
 **P2 完成**。闸门：根 `npm run verify` ✅（桌面 verify **87/87**）、单测 **99/99**、页面自检 **320/322**、
 `check:server` **13/13**、`check:pdf` **31/31**、`docx-word-check` **12/12**、`sync-contracts --check` ✅。
+
+### 15.19 P3-M1 施工记录（web dist 出包：`web-editor/dist` → `dist/web`）
+
+| 项 | 落地 |
+|---|---|
+| 产物落位 | `web-editor/vite.config.ts`：`outDir: '../dist/web'` + **`emptyOutDir: true`**（outDir 在 vite root 之外时默认**不清理**旧文件 → 删掉的资源会留在产物里，是"改了没生效"的经典来源） |
+| 桌面壳（dev） | `apps/desktop/src/paths.js`：`webRoot` 仍是 `web-editor`（组件源目录 + logs/docs 的 runDir 语义不变），**`distDir` 改为 `<仓库根>/dist/web`**；`bundledComponents` 的 dist 回退跟着走 |
+| 服务器解析 | `apps/desktop/server/webServer.js` 新增 `resolveDistDir()`：依次试 `<root>/dist/web` → `<root>/../dist/web` → `<runDir>/dist`（打包）→ `<root>/web-editor/dist`（旧布局兼容）；`resolveRunDir()` 简化（只看有没有 `web-editor/` 子目录，**不再看 dist 在不在** —— 否则日志/文档会被推导到仓库根） |
+| 打包布局不变 | `apps/desktop/package.json` 的 `extraResources` 只改 `from: ../../dist/web`，`to: web-editor/dist` **保持不变**（安装包内布局与 paths.js 的 packaged 分支都不用动） |
+| 启动器与文档 | `web-editor/启动编辑器.py` 的 `DIST` 改为 `<仓库根>/dist/web`（含 9 处文案口径）；`.gitignore` 的 `dist/` 本来就覆盖所有层级，无需改；同步根/桌面 README、`现状文档.md`、REFACTORING 的 extraResources 行、ARCHITECTURE 决策 #4 的执行注记；`tools/orchestrate.mjs` 的 `dist` 前置检查改看 `dist/web/index.html` |
+
+**★M1 抓到一个真问题（verify 全绿，但桌面版开不出页面）**：
+`main.js` 传给 `startWebServer` 的是 `layout.webRoot`（= `web-editor`），不是仓库根 —— 只按 `<root>/dist/web` 找就会落空。
+当时 `npm run verify` 依然 **87/87**（它自己传的是仓库根），而 **`npm run selftest` 5 条界面断言连红**
+（"内置静态服务器返回首页"失败）。处置：`resolveDistDir` 同时试 `<dir>/../dist/web`。
+**这就是"每条 M 步骤都要跑四件套"的价值** —— 只看 verify 会漏掉真实启动路径。
+
+**M1 四件套实测**：① 根 `npm run build` ✅（产物落 `dist/web`，旧 `web-editor/dist` 已删）；
+② `npm run selftest` **10/10**（真开窗加载页面 + 真连 MCP）；③ `npm run verify` **87/87**；
+④ 页面自检 `check:page` **320/322**（仍是那 2 条既有画布几何问题）。
+额外：Python 降级启动器实测 `GET /` 200（含 root 挂载点）、`GET /__components` 返回规范形状。
 
 ---
 

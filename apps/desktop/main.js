@@ -229,7 +229,7 @@ async function boot() {
   const log = runtime.log;
   log.info(`=== 可视化编辑器桌面版启动 v${app.getVersion()}（mode=${runtime.layout.mode}，pid=${process.pid}）===`);
   log.info(`布局：webRoot=${runtime.layout.webRoot} mcpEntry=${runtime.layout.mcpEntry} 日志=${runtime.layout.logDir}`);
-  if (isDev) log.warn('当前是开发模式（未打包）：加载的是仓库里的 web-editor/dist 与 editor-mcp/dist');
+  if (isDev) log.warn('当前是开发模式（未打包）：加载的是仓库里的 dist/web 与 editor-mcp/dist');
 
   // ② 加密配置
   runtime.configResult = await loadAppConfig({ layout: runtime.layout, logger: log });

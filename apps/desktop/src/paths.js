@@ -10,12 +10,13 @@
  *
  * dev 布局（仓库根 = E:\可视化编辑器）：
  *   apps/desktop/{main.js, config/…}
- *   web-editor/{dist/, public/组件/, logs/, docs/}
+ *   dist/web/{index.html, assets/, 组件/}          ← **P3-M1 起**：交付物集中到仓库根 dist/
+ *   web-editor/{public/组件/, logs/, docs/}        ← 组件源目录与运行数据仍在包内（M4 会动 logs/docs）
  *   editor-mcp/{dist/index.js, node_modules/, workspace/}
  *   tools/secure-config/secure-config.mjs
  *
  * packaged 布局（electron-builder，asar 关不住子进程，所以业务资源都走 extraResources）：
- *   resources/web-editor/{dist/, public/组件/}
+ *   resources/web-editor/{dist/, public/组件/}      ← 打包布局**不变**（extraResources 的 `to` 仍是它）
  *   resources/editor-mcp/{dist/, node_modules/}
  *   resources/tools/secure-config/secure-config.mjs
  *   resources/config/{app-config.enc, buildKey.mjs}     ← **明文文件**，换更新地址时直接替换
@@ -49,9 +50,15 @@ export function resolveLayout({ isPackaged, resourcesPath, userDataPath, nodeBin
   const webRoot = isPackaged
     ? pickDir(join(resourcesPath, 'web-editor'))
     : pickDir(join(repoRoot, 'web-editor'));
-  const distDir = webRoot ? join(webRoot, 'dist') : null;
+  /**
+   * ★P3-M1：**源码布局**的产物在仓库根 `dist/web`（交付物集中到 `dist/`）；
+   * **打包布局**不变（`resources/web-editor/dist`，extraResources 的 `to` 仍是它）。
+   * 这里刻意**不**用 `pickDir`（产物不存在时返回 null 会让上层多一层判空）——
+   * 缺产物时由 `startWebServer()` 的 `isFile(indexFile)` 报出"请先 npm run build"的可行动错误。
+   */
+  const distDir = isPackaged ? (webRoot ? join(webRoot, 'dist') : null) : join(repoRoot, 'dist', 'web');
   const bundledComponents = webRoot
-    ? pickDir(join(webRoot, 'public', '组件'), join(webRoot, 'dist', '组件'))
+    ? pickDir(join(webRoot, 'public', '组件'), join(distDir ?? webRoot, '组件'))
     : null;
 
   const mcpRoot = isPackaged

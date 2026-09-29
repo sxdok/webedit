@@ -2,7 +2,7 @@
  * webServer.js —— 「web-editor/启动编辑器.py」的等价 Node.js 移植（Electron 分发版用）
  *
  * 为什么需要这份文件：
- *   `web-editor/启动编辑器.py` 用 Python 内置 http.server 托管已构建好的 `web-editor/dist/`（单页应用），
+ *   `web-editor/启动编辑器.py` 用 Python 内置 http.server 托管已构建好的 `dist/web/`（单页应用），
  *   并额外提供 4 个前端依赖的 `__` 接口。**桌面分发版里必须用这份 Node 版**：打包出去的 Electron
  *   应用要在用户机器上直接跑，而用户机器上通常没有 Python（Windows 默认不带 python.exe，用户也不会装），
  *   不能用 child_process 去 spawn `python 启动编辑器.py`。这份模块把那个脚本**原样移植**成 Node 内置
@@ -232,26 +232,47 @@ function mtimeSeconds(ms) {
 /* ══════════════════ 运行目录 / 各子目录（基于 rootDir 推导） ══════════════════ */
 
 /**
- * 「运行目录」= Python 版里 启动编辑器.py 所在目录 = 仓库根下的 web-editor/。
- * 容错：如果传进来的 rootDir 本身就是 web-editor（即 rootDir/dist 存在而没有 rootDir/web-editor/dist），
- * 就直接用它。正常传仓库根时走第一条分支，行为与 Python 版一致。
+ * 「运行目录」= Python 版里 启动编辑器.py 所在目录 = 仓库根下的 `web-editor/`。
+ * 日志与文档按它推导（`<运行目录>/logs`、`<运行目录>/docs`）—— 与产物位置**无关**。
+ * 容错：传进来的 rootDir 本身就是 web-editor 时（打包布局 `resources/web-editor`），直接用它。
  */
 export function resolveRunDir(rootDir) {
   const repo = path.resolve(rootDir);
   const nested = path.join(repo, 'web-editor');
-  if (exists(path.join(nested, 'dist'))) return nested;
-  if (exists(path.join(repo, 'dist'))) return repo;
-  return nested;
+  return isDir(nested) ? nested : repo;
+}
+
+/**
+ * 产物目录（P3-M1 起有两套布局）：
+ *   · 源码：`<仓库根>/dist/web`（vite 的 outDir）；
+ *   · 打包：`<resources>/web-editor/dist`（extraResources 的 `to` 没变）；
+ *   · 过渡兼容：`<仓库根>/web-editor/dist`（M1 之前的旧布局，留着不影响正确性）。
+ *
+ * ★调用方传进来的可能是**仓库根**（verify 脚本），也可能是 **web-editor 目录**
+ *   （`main.js` 传的是 `layout.webRoot`）—— 所以两个方向都要试：`<dir>/dist/web` 与 `<dir>/../dist/web`。
+ *   不这么做就会出现"verify 能过、桌面版开不出页面"（实测踩过：静态服务器返回不了首页，5 条界面断言连红）。
+ * 都不存在时返回首选路径，让 `startWebServer` 用 `isFile(indexFile)` 报可行动的错。
+ */
+export function resolveDistDir(repo, runDir) {
+  const parent = path.dirname(repo);
+  const candidates = [
+    path.join(repo, 'dist', 'web'),
+    path.join(parent, 'dist', 'web'),
+    path.join(runDir, 'dist'),
+    path.join(repo, 'web-editor', 'dist'),
+  ];
+  return candidates.find((p) => isDir(p)) ?? candidates[0];
 }
 
 function makeContext({ rootDir, quiet, logDir, docsDir, componentsDir: componentsDirOption }) {
   const repo = path.resolve(rootDir);
   const runDir = resolveRunDir(repo);
+  const distDir = resolveDistDir(repo, runDir);
   return {
     rootDir: repo,
     runDir,
-    distDir: path.join(runDir, 'dist'),
-    indexFile: path.join(runDir, 'dist', 'index.html'),
+    distDir,
+    indexFile: path.join(distDir, 'index.html'),
     // 不传覆盖时与 Python 版一致：<运行目录>/logs、<运行目录>/docs
     logDir: logDir ? path.resolve(logDir) : path.join(runDir, 'logs'),
     docsDir: docsDir ? path.resolve(docsDir) : path.join(runDir, 'docs'),
@@ -775,7 +796,7 @@ function hostForUrl(host) {
  * 启动静态服务（等价于 `python 启动编辑器.py` 托管 dist/ 的那部分）。
  *
  * @param {object} options
- * @param {string} options.rootDir 仓库根（里面应有 web-editor/dist）；不写死盘符
+ * @param {string} options.rootDir 仓库根（里面应有 dist/web）；不写死盘符
  * @param {number} [options.port=5179] 首选端口，被占用时自动往后找
  * @param {string} [options.host='127.0.0.1'] 监听地址
  * @param {boolean} [options.quiet=false] true 时不打印启动横幅（只影响控制台输出）
@@ -794,7 +815,7 @@ export async function startWebServer({
   docsDir,
   componentsDir: componentsDirOption,
 } = {}) {
-  if (!rootDir) throw new Error('startWebServer 需要 rootDir（仓库根，内含 web-editor/dist）');
+  if (!rootDir) throw new Error('startWebServer 需要 rootDir（仓库根，内含 dist/web）');
   const ctx = makeContext({ rootDir, quiet, logDir, docsDir, componentsDir: componentsDirOption });
   if (!isFile(ctx.indexFile)) {
     throw new Error(

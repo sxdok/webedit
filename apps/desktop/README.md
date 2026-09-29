@@ -133,7 +133,7 @@ MCP 的日志与无头文档目录都在 userData：
 cd apps/desktop
 npm install          # 下载 Electron 44（约 200MB；若装完没有 node_modules/electron/dist，见「Electron 版本」一节的手动补一步）
 
-npm start            # 跑（读仓库里的 web-editor/dist 与 editor-mcp/dist）
+npm start            # 跑（读仓库根的 dist/web 与 editor-mcp/dist）
 npm run dev          # 同上（显式开发模式，日志里会标 dev）
 npm run check        # 以 ?check=1 启动：界面右下角跑数据层/渲染层自检
 npm run selftest     # 装完自检：真开窗加载页面 + 真连 MCP + 界面契约，写报告后退出（9 项）
@@ -179,7 +179,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 > ② Electron 的二进制从 GitHub 下，慢的时候可以走镜像（只是构建期便利，可用环境变量覆盖）：
 > `$env:ELECTRON_MIRROR='https://npmmirror.com/mirrors/electron/'`。
 
-`npm run build` 相关：桌面版**不构建前端**，它加载 `web-editor/dist`。改了前端要先去 `web-editor` 跑 `npm run build`。
+`npm run build` 相关：桌面版**不构建前端**，它加载仓库根的 `dist/web`（P3-M1 起）。改了前端要先去 `web-editor` 跑 `npm run build`。
 
 ## 验证（`npm run verify`，75 项）
 
@@ -217,7 +217,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 `package.json` 的 `build` 字段已经写好：
 
 * `files`：只有外壳代码进 `asar`（**注意 `server/**` 必须列进去**，见下"真踩过的两个坑"）；
-* `extraResources`：`web-editor/dist`、`web-editor/public/组件`、**`dist-mcp/editor-mcp.bundle.mjs`**、
+* `extraResources`：`../dist/web`（打进包的 `web-editor/dist`）、`web-editor/public/组件`、**`dist-mcp/editor-mcp.bundle.mjs`**、
   `tools/secure-config`、`config/app-config.enc`、`config/buildKey.mjs` 都放在 **asar 外面**的
   `resources/` 下 —— 子进程要从磁盘跑（asar 里的文件没法 spawn），配置与密钥要能现场替换；
 * `win.target`：`nsis`（可选安装目录）+ `portable`（免安装单文件）；

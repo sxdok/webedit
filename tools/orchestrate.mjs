@@ -72,8 +72,8 @@ const steps = {
     }
   },
   dist() {
-    if (!existsSync(path.join(repo, 'web-editor', 'dist', 'index.html'))) {
-      console.error('✗ 还没构建 web-editor（dist/index.html 不存在）—— 先跑 `npm run build`');
+    if (!existsSync(path.join(repo, 'dist', 'web', 'index.html'))) {
+      console.error('✗ 还没构建 web-editor（dist/web/index.html 不存在）—— 先跑 `npm run build`');
       process.exit(1);
     }
     npmRun('打包桌面发行物（electron-builder）', 'dist', path.join(repo, 'apps', 'desktop'));

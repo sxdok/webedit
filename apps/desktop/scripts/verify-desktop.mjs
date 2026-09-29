@@ -59,7 +59,11 @@ async function testLayout() {
   const userData = join(tmp, 'userData');
   const dev = resolveLayout({ isPackaged: false, resourcesPath: '', userDataPath: userData });
 
-  ok('dev：webRoot 指向 web-editor 且 dist/index.html 存在', dev.webRoot === WEB_ROOT && existsSync(join(dev.distDir, 'index.html')), `webRoot=${dev.webRoot}，dist/index.html=${existsSync(join(dev.distDir, 'index.html'))}`);
+  ok(
+    'dev：webRoot 指向 web-editor（组件源目录）而产物在**仓库根 dist/web**（P3-M1）',
+    dev.webRoot === WEB_ROOT && dev.distDir === join(REPO_ROOT, 'dist', 'web') && existsSync(join(dev.distDir, 'index.html')),
+    `webRoot=${dev.webRoot}；distDir=${dev.distDir}；index.html=${existsSync(join(dev.distDir, 'index.html'))}`,
+  );
   ok('dev：editor-mcp 入口存在', Boolean(dev.mcpEntry) && existsSync(dev.mcpEntry), `mcpEntry=${dev.mcpEntry}`);
   ok('dev：独立加密工具被解析到', Boolean(dev.secureConfigCore) && existsSync(dev.secureConfigCore), `secureConfigCore=${dev.secureConfigCore}`);
   ok('dev：加密配置与构建期密钥就位', existsSync(dev.configEncPath) && existsSync(dev.buildKeyPath), `enc=${existsSync(dev.configEncPath)}，buildKey=${existsSync(dev.buildKeyPath)}`);
@@ -251,7 +255,8 @@ async function testWebServer(dev) {
   mkdirSync(componentsDir, { recursive: true });
   writeFileSync(join(componentsDir, 'liveWidget.js'), 'window.EditorKit && (window.__liveOk = 1);', 'utf8');
 
-  const web = await startWebServer({ rootDir: dev.webRoot, port: 0, host: '127.0.0.1', quiet: true, logDir, docsDir, componentsDir });
+  // ★P3-M1：产物在仓库根 dist/web，所以这里传**仓库根**（webServer 会 resolveDistDir 找它）
+  const web = await startWebServer({ rootDir: REPO_ROOT, port: 0, host: '127.0.0.1', quiet: true, logDir, docsDir, componentsDir });
   cleanups.push(() => web.close());
   const base = web.url.replace(/\/$/, '');
   const get = async (p) => {

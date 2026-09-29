@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""可视化编辑器 启动脚本 —— **降级备用**：用 Python 内置 http.server 托管已构建的 dist/（单页应用）。
+"""可视化编辑器 启动脚本 —— **降级备用**：用 Python 内置 http.server 托管已构建的 dist/web/（单页应用）。
 
 ★定位（P2④ 起明确写死）：**规范实现是 JS 那份** `apps/desktop/server/webServer.js`
 （桌面版与 `npm run dev` 都走它）。本脚本只在"没装 Node / 不想开 Electron / 受限沙箱里只想看页面"时用，
@@ -10,7 +10,7 @@
 本脚本只做静态文件服务，不需要任何子进程，受限环境也能直接跑。
 
 用法：
-    python 启动编辑器.py                 # 托管 dist/，默认端口 5179，自动开浏览器
+    python 启动编辑器.py                 # 托管 dist/web/，默认端口 5179，自动开浏览器
     python 启动编辑器.py -p 8080         # 指定端口
     python 启动编辑器.py -b              # 先执行 npm run build，再托管
     python 启动编辑器.py -q              # 不自动打开浏览器
@@ -26,7 +26,7 @@
     前端日志与诊断报告会 POST 到本服务的 **/__log**，按天追加到**运行目录**下的
     `logs/editor-YYYY-MM-DD.log`（诊断报告写到 `logs/diagnostic-*.log`，本服务自身的访问/错误
     日志写到 `logs/server-*.log`）。`GET /__loginfo` 可查当前目录与文件大小。
-    直接双击 dist/index.html（file://）或换用别的静态服务器时没有这个接口，
+    直接双击 dist/web/index.html（file://）或换用别的静态服务器时没有这个接口，
     前端会自动退回"浏览器本地存储（localStorage visual-editor-log-v1）"并如实提示。
 """
 import argparse
@@ -46,7 +46,10 @@ import urllib.parse
 import webbrowser
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-DIST = os.path.join(ROOT, "dist")
+# ★P3-M1：产物集中在**仓库根** `dist/web`（vite 的 outDir 已改），不再放包内 `web-editor/dist`。
+#   打包布局不受影响（extraResources 的 `to` 仍是 resources/web-editor/dist）。
+REPO_ROOT = os.path.dirname(ROOT)
+DIST = os.path.join(REPO_ROOT, "dist", "web")
 INDEX = os.path.join(DIST, "index.html")
 # ★日志/诊断落盘目录：按常见软件的习惯放在**运行目录**下（这里是本脚本所在目录）
 LOG_DIR = os.path.join(ROOT, "logs")
@@ -91,7 +94,7 @@ def save_artifact(rel: str, text: str) -> dict:
 
 def components_dir():
     """外部（热加载）组件的真实目录：优先 public/组件（源目录，改完立刻生效、无需构建），
-    没有时才退回 dist/组件。"""
+    没有时才退回 dist/web/组件。"""
     src = os.path.join(ROOT, "public", "组件")
     if os.path.isdir(src):
         return src
@@ -136,7 +139,7 @@ def build():
         return False
     print("  正在构建：%s run build" % npm)
     print("  （注意：构建要 esbuild 启动子进程，受限沙箱下会报 spawn EPERM；")
-    print("    若失败请在普通终端里执行，或用已存在的 dist/ 直接启动）")
+    print("    若失败请在普通终端里执行，或用已存在的 dist/web/ 直接启动）")
     r = subprocess.run([npm, "run", "build"], cwd=ROOT, shell=False)
     return r.returncode == 0
 
@@ -153,7 +156,7 @@ def free_port(preferred):
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
-    """托管 dist/；未知路径回退到 index.html（单页应用）。"""
+    """托管 dist/web/；未知路径回退到 index.html（单页应用）。"""
 
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=DIST, **kw)
@@ -201,7 +204,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         """前端落盘接口：
              POST /__log          {"kind":"editor","lines":[...]}          → 追加到 运行目录/logs/
              POST /__save         {"path":"docs/xxx.md","text":"..."}       → 写到 运行目录 下的指定相对路径（只允许 docs/）
-             POST /__savePlugin   {"name":"xxx.js","text":"..."}            → 写回**组件目录**（public/组件 或 dist/组件）
+             POST /__savePlugin   {"name":"xxx.js","text":"..."}            → 写回**组件目录**（public/组件 或 dist/web/组件）
         """
         route = self.path.split("?", 1)[0]
         if route not in ("/__log", "/__save", "/__savePlugin"):
@@ -282,7 +285,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="可视化编辑器启动脚本（托管 dist/）", add_help=True)
+    ap = argparse.ArgumentParser(description="可视化编辑器启动脚本（托管 dist/web/）", add_help=True)
     ap.add_argument("-p", "--port", type=int, default=5179, metavar="N", help="端口，默认 5179")
     ap.add_argument("-b", "--build", action="store_true", help="启动前先 npm run build")
     ap.add_argument("-q", "--no-browser", action="store_true", help="不自动打开浏览器")
@@ -291,7 +294,7 @@ def main():
 
     if a.build or not os.path.exists(INDEX):
         if not build() and not os.path.exists(INDEX):
-            print("\n  dist/index.html 不存在，无法启动。请先成功执行一次：npm run build")
+            print("\n  dist/web/index.html 不存在，无法启动。请先成功执行一次：npm run build")
             return 2
 
     port = free_port(a.port)

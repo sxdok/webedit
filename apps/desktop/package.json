@@ -49,7 +49,7 @@
     ],
     "extraResources": [
       {
-        "from": "../../web-editor/dist",
+        "from": "../../dist/web",
         "to": "web-editor/dist"
       },
       {

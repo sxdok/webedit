@@ -215,6 +215,10 @@
 > **决策 #4（2026-09-28 已定）：保持现状** —— 即**编译产物留在包内**（`web-editor/dist`、`editor-mcp/dist` 不动），
 > 只把**交付物**（单文件 MCP、打包目录）、**发行物**（exe）、**运行数据**（logs/caches/workspace/shots）移出源码目录；
 > **不做"彻底版"**（下面的技术理由即依据）。若你的本意是"目录完全不动"，撤回 P3 即可 —— 其余 15 条决定不受影响。
+>
+> **执行注记（P3-M1，2026-09-29）**：web 的**构建产物**已按 M1 出包到仓库根 `dist/web`（vite `outDir` 改了），
+> 因为它是"交付物"而不是源码 —— `editor-mcp/dist` 仍留在包内（M2 只把**单文件 bundle** 归到 `dist/mcp`）。
+> 打包布局不变：`extraResources` 的 `to` 仍是 `resources/web-editor/dist`。
 
 这点与早先"连构建产物也移出去"的想法不同，**理由是硬的**：
 
@@ -913,6 +917,8 @@ REFACTORING.md 的**基线与能力描述准确**（三包 0.2.0、108/23/12、8
 | **P4 菜单改版 + D16** | ✅ **已完成（2026-09-28）** | D16（88 处原生 `title` → `data-tip-text` + 事件委托层）、菜单原语升级（子菜单）、M-1…M-13 全部落地（含 M-9 查找/替换、M-11 最近打开两个新功能）；新增 `npm run check:page`（CDP 无头读页面自检结论与 FAIL 明细）。闸门：verify **81/81**、页面自检 **320/322**（2 条既有布局问题转待办）、快捷键一致性静态兜底 1 条。施工记录见 REFACTORING §15.7 |
 
 | **P4.5 导出契约（E1/E2/E3）** | ✅ **已完成（2026-09-28）** | **E2**：`desktop:export-pdf` 用**隐藏窗口加载「导出 HTML」**再 `printToPDF`（PDF ≡ HTML 版式，B1/B5 构造性消除）+ 空白页 B1–B5 修法 + **固定样张矩阵**（`npm run check:pdf`，6 张 / **31/31 全绿**，含"末尾/连续分页符页数必须与底稿相同"的关系断言与防"空过"的载入核对）；顺带修掉静态服务器 **16KB 请求头上限**（会让 `?load=<data:…>` 白屏）。**E1**：docx **图片内嵌**（media 部件 + `w:drawing`）、**页眉页脚 `PAGE`/`NUMPAGES`/`DATE` 域**、**Heading1–6** 样式集；`docx-word-check.mjs` 用**真 Word（COM）**转 PDF 复核 → **12/12**（两页页码不同即证明是域）。**E3**：Markdown 有损/单向说明（弹窗常驻 + 导出弹提示条），页面自检 2 条断言。施工记录见 REFACTORING §15.8–§15.10 |
+
+| **P3 目录重排** | 🔄 **M1 已完成（2026-09-29）** | **M1 web dist 出包**：`web-editor/dist` → **`dist/web`**（vite `outDir` + `emptyOutDir`），桌面壳 `paths.js` 的 dev `distDir`、`webServer.js` 新增 `resolveDistDir()`（兼容"传仓库根"与"传 web-editor"两种调用方）、Python 启动器的 `DIST`、`extraResources.from`（`to` 不变）、`orchestrate` 的产物检查与 4 份文档同步。★抓到 `main.js` 传的是 `webRoot` 而非仓库根 → verify 全绿但 **selftest 5 条界面断言连红**，已修（`resolveDistDir` 同时试 `<dir>/../dist/web`）。四件套：build ✅ / selftest **10/10** / verify **87/87** / 页面自检 320/322。M2–M9 待做。施工记录见 REFACTORING §15.19 |
 
 | **P2 契约层 + 编排** | ✅ **已完成（2026-09-29）** | ① **根编排**：`tools/orchestrate.mjs` + `setup/build/verify/verify:full/dist`（一条命令跑完构建与闸门）。③ **`bundle:mcp` 自带 esbuild**（声明进 apps/desktop devDependencies；解析顺序 本包→web-editor→报错）。② **`contracts/`**：生成 `version.json`/`bridge-methods.json`/`env-vars.json` + 手写 README（含"刻意不放这里"的四项）。④ **静态服务器归一**：Python 启动器明确降级为备用，新增 `server-contract-check.mjs`（端点集 JS↔Python 一致 + 五个接口形状 + 两条安全负例，13/13）并进默认闸门。⑤ **删冗余导出**：判据从严（名字全仓库只出现一次）删 **28 个**死导出 + 修 6 处未使用 import（宽判据的 217 个多为误报——组件注册表按目录发现，见 REFACTORING §15.18）。⑥ **README 去重**：根 README 重写"怎么跑/自检/端口"，删掉过期数字改为"以闸门输出为准"，端口表作唯一出处 + 3 条防漂移断言。闸门：根 `npm run verify` ✅（桌面 verify **87/87**）、单测 99/99、页面自检 320/322、`check:server` 13/13。施工记录见 REFACTORING §15.17–§15.18 |
 
