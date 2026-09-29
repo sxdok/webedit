@@ -10,7 +10,7 @@
  *   ② **选中这个组件后属性编辑器是什么状态**（哪些分组、各有几项、默认展开谁、哪些是两行式、
  *      有哪些特殊块，例如 Web 模式的位置与尺寸、容器的子组件列表）。
  *
- * 落盘：启动器 `POST /__save` → 运行目录 `docs/组件与属性说明清单.md`（帮助菜单 / `?spec=1`）。
+ * 落盘：启动器 `POST /__save` → **仓库根 `var/docs/组件与属性说明清单.md`**（P3-M7 起；桌面版落 `userData/docs`）。
  */
 import { CATEGORY_ORDER, type ComponentDefinition, type PropSchemaItem } from '../registry/types';
 import { getAllComponents } from '../registry';

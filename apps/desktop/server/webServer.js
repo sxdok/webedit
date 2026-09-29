@@ -399,28 +399,17 @@ function sendJson(ctx, req, res, status, obj) {
  */
 function saveArtifact(ctx, relPath, text) {
   const raw = String(relPath || '').replace(/\\/g, '/');
-  let target;
-  if (ctx.docsDirOverride) {
-    const root = path.normalize(ctx.docsDirOverride);
-    // 前端固定发 'docs/xxx.md'；把这段前缀去掉，让它直接落在 docsDir 根下
-    const rest = raw.startsWith('docs/') ? raw.slice('docs/'.length) : raw;
-    if (!rest || raw.startsWith('/') || raw.includes(':') || rest.split('/').includes('..')) {
-      return { ok: false, error: '路径越界' }; // 绝对路径 / 盘符 / ../ 一律拒
-    }
-    target = path.normalize(path.join(root, rest));
-    if (!target.startsWith(root + path.sep)) {
-      return { ok: false, error: '路径越界' };
-    }
-  } else {
-    const rel = raw.replace(/^\/+/, '');
-    if (!rel.startsWith('docs/') || rel.split('/').includes('..')) {
-      return { ok: false, error: '只允许写到运行目录的 docs/ 下' };
-    }
-    target = path.normalize(path.join(ctx.runDir, rel));
-    const docsRoot = path.normalize(path.join(ctx.runDir, 'docs'));
-    if (!target.startsWith(docsRoot + path.sep)) {
-      return { ok: false, error: '路径越界' };
-    }
+  /* ★P3-M7：**统一落 `ctx.docsDir`**（缺省 = 仓库根 `var/docs`，桌面版 = userData/docs）——
+     以前"没传覆盖"时用的是 `runDir/docs`（= 源码树 `web-editor/docs/`），于是 `?spec=1` 生成的
+     说明清单会污染源码树。前端固定发 `docs/xxx.md`，两条分支都先去掉这段前缀。 */
+  const rest = raw.startsWith('docs/') ? raw.slice('docs/'.length) : raw;
+  if (!raw.startsWith('docs/') || !rest || raw.startsWith('/') || raw.includes(':') || rest.split('/').includes('..')) {
+    return { ok: false, error: '只允许写到 docs/ 下（绝对路径 / 盘符 / ../ 一律拒）' };
+  }
+  const root = path.normalize(ctx.docsDir);
+  const target = path.normalize(path.join(root, rest));
+  if (!target.startsWith(root + path.sep)) {
+    return { ok: false, error: '路径越界' };
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, text, { encoding: 'utf8' }); // Python: newline="\n" → 不做换行翻译

@@ -13,6 +13,8 @@ release/
 # 运行数据（P3-M4 起集中到这里）：npm/Electron 缓存、日志、自检报告、生成的说明文档
 # 缓存与日志体积很大（实测 1.1GB+），永远不进库；结构见 REFACTORING §15.22
 var/
+# 生成物（P3-M7 起统一落 var/docs）：源码树里这个目录只作历史兜底，别再让它长回来
+web-editor/docs/
 apps/desktop/.install.log
 apps/desktop/.dist.log
 apps/desktop/.dist-debug.log

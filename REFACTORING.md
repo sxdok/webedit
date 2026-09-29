@@ -2241,6 +2241,31 @@ Python 启动器 `GET /__loginfo` → `"dir": "E:\\可视化编辑器\\var\\logs
 所以"2 条已知失败"的准确表述是：**窄窗口下的画布几何行为不达标**（`check:page` 用它当回归哨兵），
 而不是"自检本身有 2 条坏断言"。
 
+### 15.25 P3-M7 施工记录（生成物出库：`web-editor/docs/` → `<仓库根>/var/docs/`）
+
+改前源码树里躺着三个生成物：`web-editor/docs/组件与属性说明清单.md`（162KB，`?spec=1` 实时生成，**已入库跟踪**）、
+`docx-verify.txt`（621B，历史验证记录，**已入库跟踪**）、`自检-docx.docx.b64`（探针跑出来的临时产物）。
+
+**★修掉一个 M4 漏下的真 bug**：`webServer.js` 的 `saveArtifact()` 有两条分支 ——
+"传了 `docsDir` 覆盖"（桌面版/verify 走这条）用 `ctx.docsDir` ✅；**没传覆盖时用的是 `ctx.runDir + rel`**，
+也就是 `<web-editor>/docs/`。M4 把 `ctx.docsDir` 的默认值改到 `var/docs` 时**没动这条分支**，
+于是"独立起 JS 服务器时 `?spec=1` 仍然写源码树"。M7 把两条分支**统一到 `ctx.docsDir`**
+（缺省 = 仓库根 `var/docs`），并保留原有的路径校验：**必须 `docs/` 前缀、拒绝对路径/盘符/`..`**。
+
+| 项 | 落地 |
+|---|---|
+| 写入端（JS） | `saveArtifact()` 统一落 `ctx.docsDir`（桌面版仍 `userData/docs`，dev 为 `var/docs`） |
+| 写入端（Python） | 新增 `DOCS_ROOT = <仓库根>/var/docs`；`save_artifact()` 先校验 `docs/` 前缀、再剥掉前缀拼到 `DOCS_ROOT` |
+| 迁移 | 三个生成物搬到 `var/docs/`；两个已跟踪的 `git rm --cached`（生成物不该入库）；`.gitignore` 增补 `web-editor/docs/` 作兜底 |
+| 前端注释 | `utils/specSheet.ts` 标明落盘位置；`web-editor/README.md` 目录树与「八」节、`现状文档.md` 三处同步 |
+
+**M7 验收（真跑）**：清掉 `var/docs/组件与属性说明清单.md` → 用**降级启动器**打开 `?spec=1` →
+`POST /__save` 200 → **生成物落 `var/docs/组件与属性说明清单.md`（159KB，时间戳吻合）** ✅，
+且 **`web-editor/docs/` 没有被重新创建** ✅（"仍能生成，但不再污染源码树"）。
+
+**闸门**：根 `npm run verify` **87/87**（含静态服务器契约 **13/13**：`docs/契约.md` 允许、`../逃逸.md` 403）；
+dev `npm run selftest` **10/10**。
+
 ---
 
 ## 第 16 章 数据迁移指南

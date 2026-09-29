@@ -72,7 +72,7 @@ web-editor/
 ├─ tsconfig.json / tsconfig.app.json / tsconfig.node.json
 ├─ 启动编辑器.py                    本地服务器（托管 dist + 提供 /__components + 直接服务 public/组件）
 ├─ public/组件/                     外部（热加载）组件：普通 JS，改完点重载即生效
-├─ docs/组件与属性说明清单.md        ★**从注册表生成**的组件功能属性 + 属性编辑器状态清单（见「八」）
+└─ （生成物已出库：说明清单落 **仓库根 `var/docs/`**，P3-M7 起不再写本目录）
 ├─ logs/                            运行时日志/诊断落盘（启动器写入，已 gitignore）
 └─ src/
    ├─ main.tsx                      入口（挂载 + URL 参数 ?check/?demo/?diag/?theme/?mode/?log/?scroll）
@@ -721,7 +721,7 @@ localStorage（约 5MB/源）写不下 → `setItem` 抛 `QuotaExceededError` �
 
 ## 七、组件与属性说明清单（自动生成，不会与代码脱节）
 
-运行目录下的 `docs/组件与属性说明清单.md` 是**从组件注册表实时生成**的说明清单，回答两件事：
+**仓库根 `var/docs/组件与属性说明清单.md`**（P3-M7 起）是**从组件注册表实时生成**的说明清单，回答两件事：
 
 1. **每个组件有哪些功能属性** —— 逐项列出：面板显示名 / `key` / 控件类型 / 排版（单行式 or 整行式）/
    默认值 / 说明与取值（单位、范围、可选项、是否"按条件显示"、是否通用属性）；

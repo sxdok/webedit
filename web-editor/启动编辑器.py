@@ -51,6 +51,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(ROOT)
 DIST = os.path.join(REPO_ROOT, "dist", "web")
 INDEX = os.path.join(DIST, "index.html")
+# ★P3-M7：前端生成的产物（组件与属性说明清单等）落**仓库根 `var/docs`**，不再写源码树 `web-editor/docs/`。
+DOCS_ROOT = os.path.normpath(os.path.join(REPO_ROOT, "var", "docs"))
 # ★P3-M4：日志/诊断落**仓库根 `var/logs`**（"运行数据"集中到 var/，不再往源码目录写）。
 #   桌面版不读这里：它把日志写到用户数据目录（%APPDATA%\可视化编辑器\logs）。
 LOG_DIR = os.path.join(REPO_ROOT, "var", "logs")
@@ -78,13 +80,16 @@ def append_log(kind: str, lines) -> dict:
 
 
 def save_artifact(rel: str, text: str) -> dict:
-    """把前端生成的产物（如「组件与属性说明清单.md」）写到运行目录。**只允许 docs/ 下**，防止路径越界。"""
+    """把前端生成的产物（如「组件与属性说明清单.md」）写到 **仓库根 var/docs/**（P3-M7 起）。
+    **只允许 docs/ 下**，防止路径越界。"""
     rel = (rel or "").replace("\\", "/").lstrip("/")
     if not rel.startswith("docs/") or ".." in rel.split("/"):
-        return {"ok": False, "error": "只允许写到运行目录的 docs/ 下"}
-    target = os.path.normpath(os.path.join(ROOT, rel))
-    docs_root = os.path.normpath(os.path.join(ROOT, "docs"))
-    if not target.startswith(docs_root + os.sep):
+        return {"ok": False, "error": "只允许写到 docs/ 下"}
+    rest = rel[len("docs/"):]
+    if not rest:
+        return {"ok": False, "error": "只允许写到 docs/ 下"}
+    target = os.path.normpath(os.path.join(DOCS_ROOT, rest))
+    if not target.startswith(DOCS_ROOT + os.sep):
         return {"ok": False, "error": "路径越界"}
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "w", encoding="utf-8", newline="\n") as f:
