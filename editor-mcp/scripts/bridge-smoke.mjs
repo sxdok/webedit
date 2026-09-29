@@ -1,13 +1,16 @@
 /**
- * 阶段二验证：双通道自动降级 + 版本协商（规格 §4.1 / §二）。
+ * 阶段二验证：双通道自动降级 + **协议/能力协商**（规格 §5.1；原来验的是"版本全等"）。
  *
  *   node scripts/bridge-smoke.mjs
  *
  * 场景：
  *   ① 桥接**没开**时：doc.create 走无头 → degraded=true、via=headless，文件真写出来
  *   ② 起 mock 桥接后：同一个调用走 Live → degraded=false、via=live，且拿到 mock 的 docId
- *   ③ 版本不匹配时：hello 被拒 → 自动降级，仍然 via=headless（不会"半信半疑地用 Live"）
- *   ④ 事件订阅：doc.create 之后 mock 推的 document.changed 能被收到
+ *   ③ Live 已连上但编辑器回 `METHOD_NOT_FOUND`（老编辑器不认识这个新方法）→ **降级到无头**并标 degraded
+ *      （规格 §5.1 明确要求；原来这里是"原样抛出业务错误"，会把"版本错开"误报成"工具坏了"）
+ *   ④ 版本不同但**协议相同** → 仍然允许 Live（这正是 §5.1 要替换掉"版本全等"的那条）
+ *   ⑤ 协议不同 + 编辑器明确说缺 `exportDocx` → **依赖该能力的方法**走无头，其它方法仍走 Live
+ *   ⑥ 事件订阅：doc.create 之后 mock 推的 document.changed 能被收到
  */
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -20,6 +23,9 @@ const PORT = 37699; // 用不常见端口，避免和真实编辑器（37650）�
 
 // ★必须在 import 编译产物**之前**设好：config 是模块加载时读环境变量算出来的
 process.env.EDITOR_MCP_BRIDGE_URL = `ws://127.0.0.1:${PORT}`;
+// ★P0 决策 #2 起写操作默认被拒（`EDITOR_MCP_ALLOW_WRITE=false`）：本脚本要建文档（无头回退路径），
+//   不显式申请就会表现为"doc.create 直接失败、via=undefined"（这坑在 5 个 smoke 里都踩过一遍）。
+process.env.EDITOR_MCP_ALLOW_WRITE = 'true';
 
 const failures = [];
 const check = (label, okFlag, detail) => {
@@ -41,6 +47,38 @@ const startMock = (extra = []) =>
   });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 等到**真的就绪**再断言（而不是单次 `ensureReady`）。
+ * ★单次调用会踩到重连退避：`stop()/start()` 之后第一次连接可能排在退避队列里，
+ *   `ensureReady(1500)` 会返回 false —— 但紧接着的调用却成功了（实测：ready=false 却 via=live）。
+ */
+const waitReady = async (maxMs = 8000) => {
+  const t0 = Date.now();
+  for (;;) {
+    if (await liveBridge.ensureReady(600)) return true;
+    if (Date.now() - t0 > maxMs) return false;
+  }
+};
+
+/**
+ * 等 mock **真的开始监听**再继续。
+ * ★不要用固定 sleep：同一端口上前一个 mock 刚被 kill、新 mock 还没绑定完时，
+ *   `liveBridge` 会拿到"未连接"（实测就是这样红的），而红出来的现象像是"协议协商不对"。
+ */
+const waitForListen = (proc, ms = 6000) =>
+  new Promise((resolve) => {
+    let buf = '';
+    const done = (v) => {
+      clearTimeout(t);
+      resolve(v);
+    };
+    const t = setTimeout(() => done(false), ms);
+    proc.stderr.on('data', (d) => {
+      buf += String(d);
+      if (/监听 ws/.test(buf)) done(true);
+    });
+  });
+
 try {
   /* ① 桥接没开 */
   const r1 = await withBridge('doc.create', { title: '降级用例' }, async () => ({ docId: 'headless-1', title: '降级用例' }));
@@ -51,7 +89,7 @@ try {
 
   /* ② 起 mock 桥接 */
   const mock = startMock();
-  await wait(700);
+  await waitForListen(mock);
   liveBridge.start();
   const ready = await liveBridge.ensureReady(2500);
   check('mock 桥接起来后 hello 通过、Live 可用', ready === true, JSON.stringify(liveBridge.status()));
@@ -85,27 +123,44 @@ try {
     bizCode = String(e?.code ?? '');
   }
   check(
-    'Live 已连上时"业务错误"不降级（METHOD_NOT_FOUND 原样抛出、没有偷偷走无头）',
-    bizCode === 'METHOD_NOT_FOUND' && fellBack === false,
-    `err.code=${bizCode || '(空)'}；是否降级=${fellBack}`,
+    /* §5.1：编辑器不认识这个方法 → 降级到无头（不再是"当业务错误抛出"） */
+    'Live 已连上但编辑器回 METHOD_NOT_FOUND → 降级到无头并标 degraded（协议可能偏旧）',
+    bizCode === '' && fellBack === true,
+    `err.code=${bizCode || '(未抛错=已降级)'}；是否降级=${fellBack}`,
   );
 
   mock.kill();
   await wait(400);
 
-  /* ③ 版本不匹配 */
+  /* ③ 版本不同、协议相同 → 仍允许 Live（替换旧的"版本全等"闸门） */
   const mock2 = startMock(['--bad-version']);
-  await wait(700);
+  await waitForListen(mock2);
   liveBridge.stop();
   liveBridge.start();
-  const ready2 = await liveBridge.ensureReady(1500);
-  const r3 = await withBridge('doc.create', { title: '版本不匹配' }, async () => ({ docId: 'headless-2' }));
+  const ready2 = await waitReady();
+  const r3 = await withBridge('doc.create', { title: '版本不同但协议相同' }, async () => ({ docId: 'headless-2' }));
   check(
-    '版本不匹配 → 拒绝 Live、自动降级到无头',
-    ready2 === false && r3.via === 'headless' && r3.degraded === true,
+    '版本不同但协议 v2 相同 → 仍然走 Live（不再因产品版本不同废掉 Live）',
+    ready2 === true && r3.via === 'live' && r3.degraded === false,
     `ready=${ready2} via=${r3.via}；lastError=${liveBridge.status().lastError}`,
   );
   mock2.kill();
+  await wait(400);
+
+  /* ④ 协议不同 + 明确缺能力 → 只有依赖该能力的方法降级 */
+  const mock3 = startMock(['--bad-protocol', '--no-export-docx']);
+  await waitForListen(mock3);
+  liveBridge.stop();
+  liveBridge.start();
+  await waitReady();
+  const e1 = await withBridge('export.docx', { docId: 'x' }, async () => ({ bytes: 'headless-docx' }));
+  const d1 = await withBridge('doc.create', { title: '协议不同但不依赖该能力' }, async () => ({ docId: 'headless-3' }));
+  check(
+    '协议不同 + 缺 exportDocx → export.docx 走无头；doc.create 仍走 Live（逐方法降级）',
+    e1.via === 'headless' && e1.degraded === true && d1.via === 'live' && d1.degraded === false,
+    `export.docx via=${e1.via}；doc.create via=${d1.via}；mismatch=${liveBridge.handshakeMismatch()}`,
+  );
+  mock3.kill();
 
   /* 收尾：无头写出来的临时文档清掉 */
   const ws = path.join(pkgRoot, 'workspace');

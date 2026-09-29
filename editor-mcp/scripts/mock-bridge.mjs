@@ -32,8 +32,20 @@ wss.on('connection', (ws) => {
 
     switch (method) {
       case 'bridge.hello':
-        // 模拟"中转 + 一个已接入的编辑器"：editors/editorVersion 是就绪判定的依据
-        reply(true, { name: 'mock-editor', version, protocol: '2025-06-18', clients: wss.clients.size, editors: 1, editorVersion: version });
+        // 模拟"中转 + 一个已接入的编辑器"：editors/editorVersion 是就绪判定的依据；
+        // §5.1 起还要报 **protocol + features**（MCP 侧据此判 Live 与逐方法降级）
+        reply(true, {
+          name: 'mock-editor',
+          version,
+          protocol: '2025-06-18',
+          clients: wss.clients.size,
+          editors: 1,
+          editorVersion: version,
+          editorProtocol: argv.includes('--bad-protocol') ? 99 : 2,
+          editorFeatures: argv.includes('--no-export-docx')
+            ? { exportDocx: false, liveSelection: true, realtime: true }
+            : { exportDocx: true, liveSelection: true, realtime: true },
+        });
         break;
       case 'doc.create': {
         const docId = `live-${Math.random().toString(36).slice(2, 8)}`;

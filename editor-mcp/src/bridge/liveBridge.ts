@@ -11,12 +11,13 @@
  */
 import { config } from '../config.js';
 import { log } from '../log.js';
+import { EDITOR_PROTOCOL, evaluateHandshake } from './protocolGate.js';
 
 export interface BridgeStatus {
   url: string;
   /** 是否开着连接（= **中转可达**） */
   connected: boolean;
-  /** hello 完成且版本一致（= **且编辑器已接入**） */
+  /** hello 完成**且编辑器已接入**（§5.1 起判据是"协议/能力"，不再要求产品版本全等） */
   ready: boolean;
   /**
    * 中转可达、但**编辑器没接入**（hello 已经问明白了）。
@@ -29,6 +30,13 @@ export interface BridgeStatus {
   version: string | null;
   reconnects: number;
   lastError: string | null;
+  /* ── §5.3：诊断要能看清"协议是否一致、编辑器报了哪些能力" ── */
+  /** 就绪时我们使用的桥接协议版本（未就绪为 null） */
+  protocol?: number | null;
+  /** 编辑器协议与我们对不上（含"未上报"）→ 缺能力的方法会走无头 */
+  protocolMismatch?: boolean;
+  /** 编辑器自报的能力集（未就绪为 null） */
+  features?: Record<string, boolean> | null;
 }
 
 interface WsLike {
@@ -56,6 +64,10 @@ export class LiveBridge {
   private readyVersion: string | null = null;
   /** 中转可达但编辑器未接入（hello 已经问明白了）→ 直接走无头，不再等握手超时 */
   private hubNoEditor = false;
+  /** §5.1：编辑器的桥接协议与我们的对不上（含"没报"）→ 缺能力的方法一律走无头 */
+  private protocolMismatch = false;
+  /** §5.1：编辑器自报的能力集（fallback 用来逐方法判是否能用 Live） */
+  private editorFeatures: Record<string, boolean> | null = null;
   private run = false;
   private connecting = false;
   private helloWaiters: ((ok: boolean) => void)[] = [];
@@ -74,6 +86,10 @@ export class LiveBridge {
       version: this.readyVersion,
       reconnects: this.reconnects,
       lastError: this.lastError,
+      /* §5.3：诊断资源要能看清"协议是否一致、编辑器报了哪些能力" */
+      protocol: this.readyVersion ? EDITOR_PROTOCOL : null,
+      protocolMismatch: this.protocolMismatch,
+      features: this.editorFeatures,
     };
   }
 
@@ -213,7 +229,14 @@ export class LiveBridge {
 
   private async hello(): Promise<void> {
     try {
-      const res = await this.send<{ version?: string; name?: string; editors?: number; editorVersion?: string | null }>(
+      const res = await this.send<{
+        version?: string;
+        name?: string;
+        editors?: number;
+        editorVersion?: string | null;
+        editorProtocol?: number | null;
+        editorFeatures?: Record<string, boolean> | null;
+      }>(
         'bridge.hello',
         {
           client: config.name,
@@ -231,24 +254,18 @@ export class LiveBridge {
       if (editors < 1) {
         this.readyVersion = null;
         this.hubNoEditor = true;
-        this.lastError = '桥接中转已连上，但编辑器未接入（在编辑器菜单「帮助 → 开启 MCP 桥接」）';
+        this.lastError = '桥接中转已连上，但编辑器未接入（在编辑器菜单「工具 → MCP 桥接」）';
         log.info(this.lastError);
         // 立刻给出"不可用"的结论：否则每次工具调用都要白等一个 timeout
         this.helloWaiters.forEach((w) => w(false));
         this.helloWaiters = [];
         return; // 不关连接：等中转推 bridge.editor 说编辑器来了
       }
-      const version = res?.editorVersion ?? res?.version ?? 'unknown';
-      if (version !== 'unknown' && version !== config.version) {
-        this.lastError = `版本不匹配（编辑器 ${version} / MCP ${config.version}），拒绝使用 Live Bridge`;
-        log.warn(this.lastError);
-        this.readyVersion = null;
-        this.ws?.close();
-        return;
-      }
-      this.readyVersion = version;
-      this.lastError = null;
-      log.info(`Live Bridge 就绪：${res?.name ?? 'editor'} v${version}`);
+      this.applyHandshake({
+        version: res?.editorVersion ?? res?.version ?? 'unknown',
+        protocol: res?.editorProtocol ?? undefined,
+        features: res?.editorFeatures ?? undefined,
+      });
       this.helloWaiters.forEach((w) => w(true));
       this.helloWaiters = [];
     } catch (e) {
@@ -257,31 +274,66 @@ export class LiveBridge {
     }
   }
 
+  /**
+   * §5.1：用**协议 + 能力**决定能不能用 Live（**不再要求产品版本全等**）。
+   * 版本不同只记 info；协议不同仍尝试 Live，但标 `protocolMismatch` → 调用前按能力逐方法判
+   * （见 `fallback.ts` 与 `protocolGate.missingFeature`）。
+   */
+  private applyHandshake(h: { version?: string; protocol?: number; features?: Record<string, boolean> }): void {
+    const decision = evaluateHandshake(
+      { protocol: h.protocol, version: h.version, features: h.features },
+      config.version,
+      EDITOR_PROTOCOL,
+    );
+    this.protocolMismatch = decision.protocolMismatch;
+    this.editorFeatures = h.features ?? null;
+    if (!decision.live) {
+      this.readyVersion = null;
+      this.lastError = decision.note;
+      log.warn(decision.note);
+      return;
+    }
+    this.readyVersion = h.version ?? 'unknown';
+    this.lastError = null;
+    if (decision.protocolMismatch) log.warn(`Live Bridge 就绪（协议不一致）：${decision.note}`);
+    else log.info(`Live Bridge 就绪：${h.version ?? 'unknown'}（${decision.note}）`);
+  }
+
+  /** 当前编辑器自报的能力集（fallback 用它判"这个方法该不该走 Live"） */
+  features(): Record<string, boolean> | null {
+    return this.editorFeatures;
+  }
+
+  /** 协议是否与我们对不上（含"编辑器没报协议"）→ 缺能力的方法一律走无头 */
+  handshakeMismatch(): boolean {
+    return this.protocolMismatch;
+  }
+
   /** 中转推来的"编辑器接入/掉线"（bridge.editor）→ 实时切换 Live / 无头 */
   private onEditorPresence(payload: unknown): void {
-    const p = (payload ?? {}) as { editors?: number; version?: string | null };
+    const p = (payload ?? {}) as { editors?: number; version?: string | null; protocol?: number | null; features?: Record<string, boolean> | null };
     const n = Number(p.editors ?? 0);
     if (n < 1) {
       if (this.readyVersion) log.info('编辑器已断开桥接 → 后续调用走无头（degraded=true）');
       this.readyVersion = null;
       this.hubNoEditor = true;
+      this.protocolMismatch = false;
+      this.editorFeatures = null;
       this.lastError = '编辑器未接入桥接（中转在线）';
       return;
     }
-    const version = p.version ?? 'unknown';
-    if (version !== 'unknown' && version !== config.version) {
-      this.readyVersion = null;
-      this.hubNoEditor = false;
-      this.lastError = `版本不匹配（编辑器 ${version} / MCP ${config.version}），拒绝使用 Live Bridge`;
-      log.warn(this.lastError);
-      return;
-    }
-    this.readyVersion = version;
+    // §5.1：接入/掉线同样走协议+能力判据（不再要求版本全等）
     this.hubNoEditor = false;
-    this.lastError = null;
-    log.info(`编辑器已接入桥接（v${version}）→ 调用走 Live`);
-    this.helloWaiters.forEach((w) => w(true));
-    this.helloWaiters = [];
+    this.applyHandshake({
+      version: p.version ?? 'unknown',
+      protocol: p.protocol ?? undefined,
+      features: p.features ?? undefined,
+    });
+    // 编辑器接入后，之前等待握手的调用方可以继续（就绪状态由 applyHandshake 决定）
+    if (this.readyVersion) {
+      this.helloWaiters.forEach((w) => w(true));
+      this.helloWaiters = [];
+    }
   }
 
   private onMessage(data: unknown): void {

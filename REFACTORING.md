@@ -1926,6 +1926,32 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 2. **`interactionChecks()` 加 `.catch`**：任何一条同步抛错都会让这个 promise **静默 reject** → 表现为"自检卡住"；现在会变成一条失败断言（带错误与栈）并照样收尾。
 3. **探针超时 3 分钟 → 8 分钟**：自检实测 **175 秒**，原默认值**踩线**，于是"超时"被我误读成"卡住"两次 —— 本轮最值得记的一条：**先怀疑自己的测量预算，再怀疑被测对象**。
 
+### 15.14 P1 施工记录（② 协议/能力协商 + 未知方法降级）
+
+**为什么改**：原来 `liveBridge.ts` 收到 hello 后是 `version !== config.version` 就**拒绝使用 Live Bridge**
+（不是降级、是拒绝）→ **任何一次发版都会让 Live 直接废掉**，而界面只表现为"连上了但不实时"。
+真正影响互通的是**桥接协议版本**与**能力集**。
+
+| 项 | 落地 |
+|---|---|
+| 判据（纯函数） | 新增 `editor-mcp/src/bridge/protocolGate.ts`：`EDITOR_PROTOCOL = 2`、`EditorFeatures`、`METHOD_FEATURE`（方法→依赖能力）、`evaluateHandshake()`、`missingFeature()`。**做成纯函数**是因为它是跨进程契约，必须能被单测穷举（协议相同/不同/未报 × 能力四组合） |
+| 闸门规则（§5.1） | 协议相同 → Live（版本不同只记 info）；协议不同/未上报 → **仍尝试 Live**，但标 `protocolMismatch`，**调用前按能力逐方法判**；编辑器未接入 → 无头 + degraded（原有）。`liveBridge` 的 `hello()` 与 `onEditorPresence()` 都改走 `applyHandshake()` |
+| 逐方法能力门 | `fallback.ts#withBridge`：`missingFeature(...)` 命中时**只让该方法**走无头并记 warn（"请把编辑器与 MCP 一起升级"），其它方法照走 Live |
+| 未知方法降级 | `METHOD_NOT_FOUND` / `UNKNOWN_METHOD` → **降级到无头并附提示**（原来当业务错误直接抛）。★与"业务错误不降级"不冲突：`NODE_NOT_FOUND` 这类仍然直接抛 |
+| 页面侧 | 新增 `web-editor/src/mcp/protocol.ts`（`EDITOR_PROTOCOL`/`EDITOR_FEATURES`）；`bridge.hello` 改为发送**数字协议版本 + 能力集**（原来把 MCP 传输协议的日期串当 `protocol` 送，语义是错的），并带 `mcpProtocol` 供诊断 |
+| hub | `Peer` 记住 `protocol`/`features`；hello 回包与 `bridge.editor` 推送都带上 `editorProtocol`/`editorFeatures`（下游不必再问一次） |
+| 诊断 | `liveBridge.status()` 增加 `protocol`/`protocolMismatch`/`features`（§5.3 要求诊断能看清"协议是否一致、报了哪些能力"） |
+| 断言 | 单元测试 **+7 → 99/99**；`bridge-smoke` **改为验新契约 → 8/8**（它原来那两条断言正好是旧契约："版本不匹配→拒绝 Live"、"METHOD_NOT_FOUND 不降级"）；verify **+2 → 83/83**（页面与 MCP 的**协议版本**、**能力名**跨包一致） |
+
+**桥接相关闸门复跑**：`bridge-smoke` ✅、`session-revive` 7/7、`multi-connection` 10/10、`auth-check` 13/13、
+`tools-smoke` ✅、`http-smoke` ✅、单元测试 99/99、`verify` 83/83。
+
+**顺带修掉 bridge-smoke 里两处"测试自身不可靠"**（都是排查中被咬出来的）：
+1. 它也没申请写权限（P0 默认拒绝写）→ `doc.create` 直接失败、`via=undefined`，**现象却像"协议协商不对"**
+   （同类问题在这轮之前已修过 5 个脚本）；
+2. 同端口重启 mock 用固定 sleep → 新 mock 还没绑定就断言，出现 `ready=false` 却在紧接着的调用里 `via=live`。
+   现改为**等 mock 打印"监听"**再继续，并用 `waitReady()` 循环等到真的就绪。
+
 ---
 
 ## 第 16 章 数据迁移指南

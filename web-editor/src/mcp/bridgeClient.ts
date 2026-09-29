@@ -18,6 +18,7 @@ import { getLiveTypes } from '../registry/live';
 import { routeLive } from './liveMethods';
 import { log } from '../utils/logger';
 import { desktopApi } from '../utils/desktopChrome';
+import { EDITOR_FEATURES, EDITOR_PROTOCOL } from './protocol';
 
 const BRIDGE_URL_DEFAULT = 'ws://127.0.0.1:37650/bridge';
 let url = BRIDGE_URL_DEFAULT;
@@ -30,11 +31,10 @@ let shouldRun = false;
 let reconnects = 0;
 let lastError: string | null = null;
 /**
- * 发给 hub 的 `bridge.hello` 里的编辑器版本。
- * ★**必须与 `editor-mcp` 的 `config.version` 完全一致**：MCP 侧 `liveBridge.ts` 在收到 hello 时
- *   `version !== config.version` 就直接断言"版本不匹配"并**拒绝使用 Live Bridge**（不是降级、是拒绝），
- *   后果是所有工具退化为无头 degraded，而界面上的表现只是"连上了但内容不实时"。
- *   所以发版时两处必须一起改 —— 迁移到单一版本源之前，`apps/desktop` 的 verify 里有一条断言在盯这个等式。
+ * 发给 hub 的 `bridge.hello` 里的编辑器版本（**对外版本**）。
+ * ★§5.1 起 **Live 的就绪判据不再是"版本全等"**：改看 `protocol`（上面的 `EDITOR_PROTOCOL`）与
+ *   `features`（`EDITOR_FEATURES`）—— 版本不同只记一句 info，协议/能力不满足才逐方法退无头。
+ *   版本号仍然要求跨包一致（发行物/诊断/更新都用它），`apps/desktop` 的 verify 里有断言盯着。
  */
 let editorVersion = '0.2.0';
 const listeners = new Set<(s: BridgeState) => void>();
@@ -290,7 +290,18 @@ function connect(): void {
       send({
         id: 'hello-1',
         method: 'bridge.hello',
-        params: { role: 'editor', version: editorVersion, protocol: '2025-06-18', ...(token ? { token } : {}) },
+        params: {
+          role: 'editor',
+          version: editorVersion,
+          /* §5.1：`protocol` 是**桥接协议版本（数字）**，`features` 是能力集 ——
+             MCP 侧据此判 Live 可用性（协议相同即可 Live，不再要求产品版本全等）。
+             原来这里把 MCP 传输协议的日期串当 `protocol` 送，语义是错的（hub 当时也没用）。 */
+          protocol: EDITOR_PROTOCOL,
+          features: EDITOR_FEATURES,
+          /** MCP 传输协议版本（给诊断看；与桥接协议是两回事） */
+          mcpProtocol: '2025-06-18',
+          ...(token ? { token } : {}),
+        },
       });
       setState('connected');
       subscribeStore(true);

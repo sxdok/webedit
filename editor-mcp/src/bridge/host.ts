@@ -24,6 +24,10 @@ interface Peer {
   ws: WebSocket;
   role: 'editor' | 'mcp' | 'unknown';
   version?: string;
+  /** §5.1：对端自报的桥接协议版本（老客户端不报 → undefined） */
+  protocol?: number;
+  /** §5.1：对端自报的能力集（编辑器据此告诉下游"哪些能力可用"） */
+  features?: Record<string, boolean>;
   connectedAt: number;
 }
 
@@ -117,6 +121,10 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
   const clients = () => [...peers].filter((p) => p.role === 'mcp' && p.ws.readyState === 1).length;
   /** 已接入编辑器的版本（没有编辑器时 null）—— MCP 侧据此做**真正的**版本协商 */
   const editorVersion = (): string | null => editorPeer()?.version ?? null;
+  /** 已接入编辑器的**桥接协议版本**（§5.1：协议相同就能 Live，不必版本全等） */
+  const editorProtocol = (): number | null => (editorPeer()?.protocol as number | undefined) ?? null;
+  /** 已接入编辑器自报的**能力集**（协议不一致时，MCP 侧按它逐方法判是否走无头） */
+  const editorFeatures = (): Record<string, boolean> | null => (editorPeer()?.features as Record<string, boolean> | undefined) ?? null;
 
   /**
    * 编辑器"在不在线"发生变化时，主动告诉所有 MCP 侧连接。
@@ -125,7 +133,14 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
    *   所以就绪状态必须由"编辑器接入/断开"来驱动。
    */
   const announce = (): void => {
-    const payload = { editors: editors(), clients: clients(), version: editorVersion() };
+    const payload = {
+      editors: editors(),
+      clients: clients(),
+      version: editorVersion(),
+      /* §5.1：一起把协议与能力推下去，MCP 侧才不用再问一次 */
+      protocol: editorProtocol(),
+      features: editorFeatures(),
+    };
     for (const p of peers) if (p.role === 'mcp') send(p, { event: 'bridge.editor', payload });
     log.debug(`桥接编辑器状态：editors=${payload.editors} version=${payload.version ?? '无'}`);
   };
@@ -165,7 +180,7 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
 
       // ① 握手 / 身份
       if (msg.method === 'bridge.hello') {
-        const params = (msg.params ?? {}) as { role?: string; version?: string; token?: string };
+        const params = (msg.params ?? {}) as { role?: string; version?: string; token?: string; protocol?: number; features?: Record<string, boolean> };
         // token 校验：与 HTTP 同一把 token（决策 #1）。token 不对 → 不认这个对端，直接关闭。
         const auth = isAuthorized(
           params.token ? `Bearer ${params.token}` : undefined,
@@ -185,7 +200,12 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
         const wasEditor = peer.role === 'editor';
         peer.role = params.role === 'editor' ? 'editor' : 'mcp';
         peer.version = params.version;
-        log.info(`桥接身份：${peer.role}（版本 ${peer.version ?? '未知'}）；编辑器 ${editors()} / 客户端 ${clients()}`);
+        /* §5.1：协议与能力也记下来 —— 下游据此判 Live 可用性与逐方法降级 */
+        if (typeof params.protocol === 'number') peer.protocol = params.protocol;
+        if (params.features && typeof params.features === 'object') peer.features = params.features;
+        log.info(
+          `桥接身份：${peer.role}（版本 ${peer.version ?? '未知'}、协议 ${peer.protocol ?? '未报'}）；编辑器 ${editors()} / 客户端 ${clients()}`,
+        );
         // 回它自己的 hello：
         //   · `version` 是**中转自身**的版本 → 只表示"中转可达"，≠ 编辑器在线；
         //   · `editors` / `editorVersion` 才是"编辑器在不在线、什么版本"，MCP 侧据此判定是否可用 Live。
@@ -200,6 +220,9 @@ export async function startBridgeHub(port?: number): Promise<BridgeHubHandle> {
             clients: clients(),
             /** 已接入编辑器的版本；没有编辑器时 null */
             editorVersion: editorVersion(),
+            /** 编辑器的桥接协议版本与能力集（§5.1 的协商依据） */
+            editorProtocol: editorProtocol(),
+            editorFeatures: editorFeatures(),
             protocol: config.protocolVersion,
           },
         });

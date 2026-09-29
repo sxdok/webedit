@@ -681,10 +681,9 @@ async function testPackagingManifest() {
   ok('server/ 目录在 build.files 里（它不在 src/ 下，最容易漏）', hasServerGlob, (pkg.build?.files ?? []).join(', '));
 
   /**
-   * ★版本号必须**跨包一致**。这不是洁癖：`editor-mcp/src/bridge/liveBridge.ts` 收到编辑器的
-   * `bridge.hello` 后是 `version !== config.version` 就**拒绝使用 Live Bridge**（不是降级，是拒绝），
-   * 后果是所有工具退化为无头 degraded、界面只表现为"连上了但不实时"。版本号散落在 4 个文件里，
-   * 只改 package.json 或只改一边就会静默炸掉 Live —— 所以这条断言是发布前的硬闸门。
+   * ★版本号必须**跨包一致**（对外版本号 0.3.0 这类）。
+   * 注意：**Live 的就绪判据已经不是版本全等**了 —— §5.1 起改成"桥接协议 + 能力"（见下一条断言），
+   * 所以版本号不一致**不再**直接废掉 Live，但"对外版本"仍然只能有一个来源（发行物、诊断、更新都要用）。
    */
   const repo = resolve(APP_DIR, '..', '..');
   const readJsonVersion = (rel) => JSON.parse(readFileSync(join(repo, rel), 'utf8')).version;
@@ -698,9 +697,41 @@ async function testPackagingManifest() {
   };
   const uniq = [...new Set(Object.values(versions).filter(Boolean))];
   ok(
-    '版本号跨包一致（Live 的版本闸门要求 editor-mcp 与编辑器完全相同）',
+    '版本号跨包一致（对外版本只有一个来源：发行物/诊断/更新都用它）',
     uniq.length === 1 && Object.values(versions).every(Boolean),
     Object.entries(versions).map(([k, v]) => `${k}=${v ?? '?'}`).join('；'),
+  );
+
+  /**
+   * ★§5.1：**桥接协议版本与能力集必须跨包一致**。
+   * 这两样现在是 Live 的判据：页面 `bridge.hello` 里报 `protocol`/`features`，MCP 据此决定
+   * "能不能走 Live、哪些方法要退无头"。两边漂移的后果比版本号更隐蔽 ——
+   * 协议号不一致会让**所有**依赖能力的方法静默走无头（界面只表现为"不实时"）。
+   */
+  const num = (rel, re) => Number(grab(rel, re));
+  const pageProtocol = num(join('web-editor', 'src', 'mcp', 'protocol.ts'), /EDITOR_PROTOCOL\s*=\s*(\d+)/);
+  const mcpProtocol = num(join('editor-mcp', 'src', 'bridge', 'protocolGate.ts'), /EDITOR_PROTOCOL\s*=\s*(\d+)/);
+  const featsOf = (rel, re, kind) => {
+    const text = readFileSync(join(repo, rel), 'utf8');
+    const block = re.exec(text)?.[1] ?? '';
+    // 页面是**值**（`exportDocx: true`）；MCP 侧是**接口类型声明**（`exportDocx?: boolean`）
+    const names =
+      kind === 'types'
+        ? [...block.matchAll(/^\s*(\w+)\?:/gm)].map((m) => m[1])
+        : [...block.matchAll(/(\w+)\s*:\s*(?:true|false)/g)].map((m) => m[1]);
+    return [...new Set(names)].sort();
+  };
+  const pageFeats = featsOf(join('web-editor', 'src', 'mcp', 'protocol.ts'), /EDITOR_FEATURES[^=]*=\s*\{([\s\S]*?)\n\};/, 'values');
+  const mcpFeats = featsOf(join('editor-mcp', 'src', 'bridge', 'protocolGate.ts'), /interface EditorFeatures\s*\{([\s\S]*?)\n\}/, 'types');
+  ok(
+    '§5.1：桥接**协议版本**跨包一致（页面 vs MCP）',
+    pageProtocol > 0 && pageProtocol === mcpProtocol,
+    `页面=${pageProtocol || '?'} MCP=${mcpProtocol || '?'}`,
+  );
+  ok(
+    '§5.1：**能力集**跨包一致（页面报的能力名都在 MCP 的契约里）',
+    pageFeats.length > 0 && pageFeats.every((f) => mcpFeats.includes(f)),
+    `页面=[${pageFeats.join(',')}] MCP=[${mcpFeats.join(',')}]`,
   );
   // 打包版要用的两个数据文件必须在 asar **外面**（密钥要能被替换、密文要能现场换）
   const er = (pkg.build?.extraResources ?? []).map((r) => String(r.to));

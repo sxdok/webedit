@@ -130,9 +130,12 @@ console.log(`MCP→hub：connected=${s.connected} ready=${s.ready}（${s.lastErr
 console.log(`页面→hub：editors=${editors ?? '(读不到)'}`);
 /**
  * ★判据必须带 `ready`：
- *   `connected` 只说明"本侧连上了中转"，编辑器没接入、或**版本不匹配被拒绝**时它同样是 true
- *   （实测：页面 0.1.0 / MCP 0.2.0 → connected=true 但 lastError=版本不匹配、ready=false）。
- *   只看 connected + editors 会把"被拒绝的 Live"报成可用 —— 本脚本第一版就是这么错的。
+ *   `connected` 只说明"本侧连上了中转"；编辑器没接入时它同样是 true
+ *   （实测：编辑器没开 → connected=true、hubNoEditor=true、ready=false）。
+ *   §5.1 起 ready 的判据是**协议 + 能力**（不再要求产品版本全等）：
+ *   版本不同但协议相同 → ready=true（只记 info）；协议不同 → 仍尝试 Live，
+ *   但依赖缺失能力的方法会退无头（`protocolMismatch` / `features` 现在进状态里了）。
+ *   只看 connected + editors 会把"不可用的 Live"报成可用 —— 本脚本第一版就是这么错的。
  */
 const live = s.connected === true && s.ready === true && s.mode === 'live' && typeof editors === 'number' && editors >= 1;
 console.log(live ? '★ Live 通道可用（三段都通）' : '★ Live 通道不可用（看上两行缺哪一段）');

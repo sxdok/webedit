@@ -914,6 +914,6 @@ REFACTORING.md 的**基线与能力描述准确**（三包 0.2.0、108/23/12、8
 
 | **P4.5 导出契约（E1/E2/E3）** | ✅ **已完成（2026-09-28）** | **E2**：`desktop:export-pdf` 用**隐藏窗口加载「导出 HTML」**再 `printToPDF`（PDF ≡ HTML 版式，B1/B5 构造性消除）+ 空白页 B1–B5 修法 + **固定样张矩阵**（`npm run check:pdf`，6 张 / **31/31 全绿**，含"末尾/连续分页符页数必须与底稿相同"的关系断言与防"空过"的载入核对）；顺带修掉静态服务器 **16KB 请求头上限**（会让 `?load=<data:…>` 白屏）。**E1**：docx **图片内嵌**（media 部件 + `w:drawing`）、**页眉页脚 `PAGE`/`NUMPAGES`/`DATE` 域**、**Heading1–6** 样式集；`docx-word-check.mjs` 用**真 Word（COM）**转 PDF 复核 → **12/12**（两页页码不同即证明是域）。**E3**：Markdown 有损/单向说明（弹窗常驻 + 导出弹提示条），页面自检 2 条断言。施工记录见 REFACTORING §15.8–§15.10 |
 
-| **P1 单一来源** | 🔄 **① 已完成（2026-09-28）** | ① **清单形状**：`parseManifest`/`serializeManifest` 纯函数（写入端只写 `{files:[…]}`、读取端兼容裸数组）＋编辑器侧 `parseManifestFiles`；单元测试 **90/90**（+7）、页面自检 +1、`plugin-smoke` 显式验规范形状。顺带修掉"P0 写保护/token 让 5 个 smoke 脚本静默变红"（plugin/rpc/table/tools/http 全部转绿，http-smoke 另增"不带 token → 401"断言）。② 协议/能力协商 + 未知方法降级 ③ `sync-contracts.mjs` ④ 表格内核同源 待做。施工记录见 REFACTORING §15.11–§15.13 |
+| **P1 单一来源** | 🔄 **①② 已完成（2026-09-28）** | ① **清单形状**：`parseManifest`/`serializeManifest` 纯函数（写入端只写 `{files:[…]}`、读取端兼容裸数组）＋编辑器侧 `parseManifestFiles`；单元测试 **90/90**（+7）、页面自检 +1。② **协议/能力协商**：`protocolGate.ts` 纯判据（协议相同即 Live，版本不同只记 info；协议不同则按 `features` 逐方法判）＋未知方法 `METHOD_NOT_FOUND` **降级到无头**；页面发数字协议版本+能力集、hub 透传、`liveBridge.status()` 增 `protocol`/`features`；单元测试 **99/99**、`bridge-smoke` 8/8、`verify` **83/83**（协议与能力跨包一致）。顺带修掉"P0 写保护/token 让 6 个 smoke 脚本静默变红"。③ `sync-contracts.mjs` ④ 表格内核同源 待做。施工记录见 REFACTORING §15.11–§15.14 |
 
 
