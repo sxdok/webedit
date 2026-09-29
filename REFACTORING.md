@@ -1952,6 +1952,44 @@ P0 ─▶ P1 ─▶ P2 ─┬─▶ P3（目录）─▶ P3.5（改名 + userDat
 2. 同端口重启 mock 用固定 sleep → 新 mock 还没绑定就断言，出现 `ready=false` 却在紧接着的调用里 `via=live`。
    现改为**等 mock 打印"监听"**再继续，并用 `waitReady()` 循环等到真的就绪。
 
+### 15.15 P1 施工记录（③ 契约生成器：版本与方法清单）
+
+**做法**：新增根 `package.json`（`version` = **唯一版本源**）与 `tools/sync-contracts.mjs`：
+
+```
+node tools/sync-contracts.mjs          # 生成（幂等）
+node tools/sync-contracts.mjs --check   # 只校验，不一致就退出码 1（进闸门）
+```
+
+生成/同步五处（**都不要手改**）：
+
+| 生成物 | 内容 |
+|---|---|
+| `contracts/version.json` | `{ version, protocol }` —— 对外版本与桥接协议的机器可读投影 |
+| `contracts/bridge-methods.json` | MCP 工具名清单（**104** 个，取自 `reg(server, …)`）＋编辑器 live 方法清单（**88** 个，取自 `case '…'`） |
+| `editor-mcp/src/version.ts` | `VERSION` + `EDITOR_PROTOCOL`（供 MCP `config.ts` 直接 import） |
+| `web-editor/src/version.ts` | 同上（供页面 `bridgeClient`/`protocol.ts` import） |
+| 三个 `package.json` 的 `version` | 与根同步（发行物/诊断/更新都读它） |
+
+**单一来源链**：`version` ← 根 `package.json`；`protocol` ← `editor-mcp/src/bridge/protocolGate.ts`（协议号的唯一权威，因为判据在那里）。
+消费方全部改成**引用生成物**：`editor-mcp/src/config.ts` 用 `VERSION`、页面 `bridgeClient.ts` 用 `VERSION`、
+`web-editor/src/mcp/protocol.ts` 变成 `import { EDITOR_PROTOCOL } from '../version'` 再 re-export（**页面不再手写协议号**）。
+
+**断言（verify +4 → 84/84）**：
+1. **版本单一来源**：根 package.json ＝ `contracts/version.json` ＝ 三个包 package.json ＝ 两端 `version.ts`；
+2. **协议单一来源链**：`protocolGate.ts` → `contracts/version.json` → 页面生成物，三者相等；
+3. **能力集跨包一致**（页面报的能力名都在 MCP 的契约里）；
+4. **生成物与源一致**：直接跑 `--check`（抓"有人手改了生成物"）。
+
+**负例实测**（证明闸门不是空过）：把 `web-editor/src/version.ts` 手改成 `9.9.9` → `--check` **退出 1** 并指名该文件；
+重新生成后回到 `0.2.0`、`--check` 退出 0。★第一次做这个负例时 PowerShell 把引号吃了、脚本压根没跑，
+于是"check exit=0"看起来像通过 —— 我重做了一次才算数：**负例本身也要验证它真的执行了**。
+
+**闸门**：`editor-mcp tsc -b` 0 错、`npm test` **99/99**、`web-editor build` ✅、`verify` **84/84**、
+页面自检 **320/322**（仍是那 2 条既有画布几何问题），`bridge-smoke`/`session-revive`/`multi-connection`/`auth-check`/各 smoke 均保持全绿。
+
+**P1 剩余**：④ 表格内核同源（两份实现收敛，65 例一致性测试守着）。
+
 ---
 
 ## 第 16 章 数据迁移指南

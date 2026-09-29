@@ -8,6 +8,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_ORIGIN_ALLOW, parseOriginAllow } from './security/guard.js';
+import { VERSION } from './version.js';
 
 /** editor-mcp/ 目录（dist/config.js 或 src/config.ts 的上一级都指向包根） */
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,9 +48,10 @@ function readToken(): string | null {
 }
 
 export const config = {
-  /** 服务器标识（会打印并参与 bridge.hello 版本协商） */
+  /** 服务器标识（会打印并参与 bridge.hello 的握手） */
   name: 'editor-mcp',
-  version: '0.2.0',
+  /** ★版本来自根 `package.json` —— 由 `tools/sync-contracts.mjs` 生成到 `src/version.ts`，别手改 */
+  version: VERSION,
   /** 支持的 MCP 协议版本（打印用；握手由 SDK 负责） */
   protocolVersion: '2025-06-18',
 

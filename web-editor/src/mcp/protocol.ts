@@ -1,13 +1,13 @@
 /**
  * 编辑器侧的**握手契约**（ARCHITECTURE §5.1）。
  *
- * ★这里的常量必须与 `editor-mcp/src/bridge/protocolGate.ts` 一致 —— verify 有一条跨包断言守着。
- *   为什么现在是"两处 + 断言"而不是"一处生成"：现阶段不改目录（P1 结论），
- *   等 P2 的 `contracts/` 落地后再由 `tools/sync-contracts.mjs` 生成；在那之前**断言**就是防漂移的手段。
+ * ★`EDITOR_PROTOCOL` 不再手写：它由 `tools/sync-contracts.mjs` 从 MCP 的判据模块
+ *   （`editor-mcp/src/bridge/protocolGate.ts`，协议号的唯一权威）生成到 `web-editor/src/version.ts`。
+ *   verify 里有断言盯着"生成物 ↔ 双方声明"三者一致。
  */
+import { EDITOR_PROTOCOL, VERSION } from '../version';
 
-/** 桥接协议版本：**只有破坏性协议变更才 +1**（与产品版本无关） */
-export const EDITOR_PROTOCOL = 2;
+export { EDITOR_PROTOCOL, VERSION };
 
 /**
  * 编辑器自报的能力集。MCP 用它决定"某个方法能不能走 Live"：

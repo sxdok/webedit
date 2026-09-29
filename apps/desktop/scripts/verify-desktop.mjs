@@ -681,36 +681,47 @@ async function testPackagingManifest() {
   ok('server/ 目录在 build.files 里（它不在 src/ 下，最容易漏）', hasServerGlob, (pkg.build?.files ?? []).join(', '));
 
   /**
-   * ★版本号必须**跨包一致**（对外版本号 0.3.0 这类）。
+   * ★版本号必须**单一来源**（根 `package.json`）。
    * 注意：**Live 的就绪判据已经不是版本全等**了 —— §5.1 起改成"桥接协议 + 能力"（见下一条断言），
-   * 所以版本号不一致**不再**直接废掉 Live，但"对外版本"仍然只能有一个来源（发行物、诊断、更新都要用）。
+   * 所以版本号不一致**不再**直接废掉 Live；但"对外版本"只能有一个来源（发行物、诊断、更新都用它）。
+   * P1③ 起版本由 `tools/sync-contracts.mjs` **生成**到各包（`package.json` 与 `version.ts`），
+   * 所以这里比对的是生成物，而不是"每个文件里手写的字面量"。
    */
   const repo = resolve(APP_DIR, '..', '..');
-  const readJsonVersion = (rel) => JSON.parse(readFileSync(join(repo, rel), 'utf8')).version;
+  const readJson = (rel) => JSON.parse(readFileSync(join(repo, rel), 'utf8'));
   const grab = (rel, re) => (re.exec(readFileSync(join(repo, rel), 'utf8'))?.[1] ?? null);
+  const rootVersion = readJson('package.json').version;
+  const versionOf = (rel) => readJson(rel).version;
+  const generatedVersion = (rel) => grab(rel, /VERSION\s*=\s*'([^']+)'/);
   const versions = {
-    'apps/desktop/package.json': readJsonVersion(join('apps', 'desktop', 'package.json')),
-    'web-editor/package.json': readJsonVersion(join('web-editor', 'package.json')),
-    'editor-mcp/package.json': readJsonVersion(join('editor-mcp', 'package.json')),
-    'editor-mcp/src/config.ts': grab(join('editor-mcp', 'src', 'config.ts'), /version:\s*'([^']+)'/),
-    'web-editor/src/mcp/bridgeClient.ts': grab(join('web-editor', 'src', 'mcp', 'bridgeClient.ts'), /let editorVersion\s*=\s*'([^']+)'/),
+    '根 package.json（唯一来源）': rootVersion,
+    'contracts/version.json': readJson(join('contracts', 'version.json')).version,
+    'apps/desktop/package.json': versionOf(join('apps', 'desktop', 'package.json')),
+    'web-editor/package.json': versionOf(join('web-editor', 'package.json')),
+    'editor-mcp/package.json': versionOf(join('editor-mcp', 'package.json')),
+    'editor-mcp/src/version.ts（生成）': generatedVersion(join('editor-mcp', 'src', 'version.ts')),
+    'web-editor/src/version.ts（生成）': generatedVersion(join('web-editor', 'src', 'version.ts')),
   };
   const uniq = [...new Set(Object.values(versions).filter(Boolean))];
   ok(
-    '版本号跨包一致（对外版本只有一个来源：发行物/诊断/更新都用它）',
+    '版本号单一来源（根 package.json → 各包 package.json 与 version.ts 由生成器同步）',
     uniq.length === 1 && Object.values(versions).every(Boolean),
     Object.entries(versions).map(([k, v]) => `${k}=${v ?? '?'}`).join('；'),
   );
 
   /**
-   * ★§5.1：**桥接协议版本与能力集必须跨包一致**。
-   * 这两样现在是 Live 的判据：页面 `bridge.hello` 里报 `protocol`/`features`，MCP 据此决定
-   * "能不能走 Live、哪些方法要退无头"。两边漂移的后果比版本号更隐蔽 ——
-   * 协议号不一致会让**所有**依赖能力的方法静默走无头（界面只表现为"不实时"）。
+   * ★§5.1：**桥接协议版本**跨包一致，且**能力名**都在 MCP 的契约里。
+   * 协议号现在是"生成链"：`protocolGate.ts`（权威）→ `contracts/version.json` → 两端的 `version.ts`。
+   * 漂移的后果比版本号更隐蔽 —— 协议号不一致会让所有依赖能力的方法静默走无头（界面只表现为"不实时"）。
    */
-  const num = (rel, re) => Number(grab(rel, re));
-  const pageProtocol = num(join('web-editor', 'src', 'mcp', 'protocol.ts'), /EDITOR_PROTOCOL\s*=\s*(\d+)/);
-  const mcpProtocol = num(join('editor-mcp', 'src', 'bridge', 'protocolGate.ts'), /EDITOR_PROTOCOL\s*=\s*(\d+)/);
+  const mcpProtocol = Number(grab(join('editor-mcp', 'src', 'bridge', 'protocolGate.ts'), /EDITOR_PROTOCOL\s*=\s*(\d+)/));
+  const fileProtocol = Number(readJson(join('contracts', 'version.json')).protocol);
+  const pageProtocol = Number(grab(join('web-editor', 'src', 'version.ts'), /EDITOR_PROTOCOL\s*=\s*(\d+)/));
+  ok(
+    '§5.1：桥接**协议版本**单一来源（protocolGate → contracts/version.json → 两端生成物）',
+    mcpProtocol > 0 && mcpProtocol === fileProtocol && fileProtocol === pageProtocol,
+    `protocolGate=${mcpProtocol || '?'} contracts=${fileProtocol || '?'} 页面生成物=${pageProtocol || '?'}`,
+  );
   const featsOf = (rel, re, kind) => {
     const text = readFileSync(join(repo, rel), 'utf8');
     const block = re.exec(text)?.[1] ?? '';
@@ -724,14 +735,24 @@ async function testPackagingManifest() {
   const pageFeats = featsOf(join('web-editor', 'src', 'mcp', 'protocol.ts'), /EDITOR_FEATURES[^=]*=\s*\{([\s\S]*?)\n\};/, 'values');
   const mcpFeats = featsOf(join('editor-mcp', 'src', 'bridge', 'protocolGate.ts'), /interface EditorFeatures\s*\{([\s\S]*?)\n\}/, 'types');
   ok(
-    '§5.1：桥接**协议版本**跨包一致（页面 vs MCP）',
-    pageProtocol > 0 && pageProtocol === mcpProtocol,
-    `页面=${pageProtocol || '?'} MCP=${mcpProtocol || '?'}`,
-  );
-  ok(
     '§5.1：**能力集**跨包一致（页面报的能力名都在 MCP 的契约里）',
     pageFeats.length > 0 && pageFeats.every((f) => mcpFeats.includes(f)),
     `页面=[${pageFeats.join(',')}] MCP=[${mcpFeats.join(',')}]`,
+  );
+
+  /**
+   * ★生成物不得漂移：`--check` 会比对"磁盘上现在的内容"与"重新生成的结果"。
+   * 这条抓的是"有人手改了 `version.ts`/`contracts/*.json`/某个 package.json 的版本号"。
+   */
+  const gen = spawnSync(process.execPath, [join(repo, 'tools', 'sync-contracts.mjs'), '--check'], {
+    cwd: repo,
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  ok(
+    '契约生成物与源一致（`tools/sync-contracts.mjs --check`：版本/协议/方法清单都无法手改）',
+    gen.status === 0,
+    (gen.stdout || '').trim().split('\n').slice(-2).join(' ｜ ') || (gen.stderr || '').trim().slice(0, 200),
   );
   // 打包版要用的两个数据文件必须在 asar **外面**（密钥要能被替换、密文要能现场换）
   const er = (pkg.build?.extraResources ?? []).map((r) => String(r.to));

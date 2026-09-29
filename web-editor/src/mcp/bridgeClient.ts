@@ -19,6 +19,7 @@ import { routeLive } from './liveMethods';
 import { log } from '../utils/logger';
 import { desktopApi } from '../utils/desktopChrome';
 import { EDITOR_FEATURES, EDITOR_PROTOCOL } from './protocol';
+import { VERSION } from '../version';
 
 const BRIDGE_URL_DEFAULT = 'ws://127.0.0.1:37650/bridge';
 let url = BRIDGE_URL_DEFAULT;
@@ -36,7 +37,7 @@ let lastError: string | null = null;
  *   `features`（`EDITOR_FEATURES`）—— 版本不同只记一句 info，协议/能力不满足才逐方法退无头。
  *   版本号仍然要求跨包一致（发行物/诊断/更新都用它），`apps/desktop` 的 verify 里有断言盯着。
  */
-let editorVersion = '0.2.0';
+let editorVersion = VERSION;
 const listeners = new Set<(s: BridgeState) => void>();
 
 /**
