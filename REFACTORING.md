@@ -2128,6 +2128,27 @@ web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…）�
 ② `npm run selftest` **10/10**；③ 根 `npm run verify` **87/87**；
 ④ 探针实测：`session-revive` 7/7、`multi-connection` 10/10、`probe-capabilities`（108 工具）✅。
 
+### 15.21 P3-M3 施工记录（发行物出包：`apps/desktop/release/` → 仓库根 `release/`）
+
+| 项 | 落地 |
+|---|---|
+| 输出位置 | `apps/desktop/package.json` 的 `build.directories.output` → `../../release`（electron-builder 支持相对包根） |
+| 忽略规则 | `.gitignore`：`apps/desktop/release/` → **`release/`**（新位置整目录不入库） |
+| 旧产物搬迁 | 用**同盘移动**（瞬时）把 `apps/desktop/release/` 下的 `win-unpacked` 与三个 0.1.0 安装包搬到 `release/`，再删空旧目录 —— 事先确认过**没有进程在用它**（用户当时没开编辑器） |
+| 文档 | `apps/desktop/README.md`（产物位置、asar 定位命令）、`现状文档.md`（产物表、`directories.output` 行） |
+
+**M3 验收实测**：
+① `npm run dist:dir`（`bundle:mcp` + `electron-builder --win --dir`）→ 输出落在 **`E:\可视化编辑器\release\win-unpacked`** ✅；
+② **打包版自检**：`release/win-unpacked/可视化编辑器.exe --selftest --selftest-out <tmp>` → 退出码 0、
+报告 `mode=packaged`、**10/10 全部通过** ✅（含"加密配置读取（随包 buildKey）"、"内置静态服务器返回首页"、
+"页面渲染出编辑器界面"、"MCP 服务就绪"、"不带 token 被拒 401"、"外部客户端带 token 能列出 108 工具"）
+—— 这一次同时验证了 M1（`dist/web`）与 M2（`dist/mcp`）在**打包布局**下都成立。
+
+**排查插曲（记一笔，避免下次再花时间）**：打包版第一次跑报 `可视化编辑器.exe: bad option: --selftest`、
+退出码 9 —— 根因是**我的 shell 里 `ELECTRON_RUN_AS_NODE=1`**，Electron 被按 Node 运行，
+于是 `--selftest` 成了 Node 的非法参数。清掉该变量即正常（dev 的 `npm run selftest` 同理，见 §15.19）。
+**这不是代码问题，但现象极像"打包坏了"**，值得写进排查笔记。
+
 ---
 
 ## 第 16 章 数据迁移指南

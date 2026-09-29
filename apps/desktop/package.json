@@ -36,7 +36,7 @@
     "productName": "可视化编辑器",
     "copyright": "Copyright © 可视化编辑器",
     "directories": {
-      "output": "release",
+      "output": "../../release",
       "buildResources": "build"
     },
     "files": [

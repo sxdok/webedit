@@ -8,7 +8,8 @@ dist/
 .vite/
 
 # 桌面分发版（apps/desktop）：打包产物与本地下载缓存，都可由 npm run dist 再生
-apps/desktop/release/
+# 发行物在**仓库根 release/**（P3-M3 起；原来在 apps/desktop/release/）
+release/
 apps/desktop/.npm-cache/
 apps/desktop/.electron-cache/
 apps/desktop/.electron-builder-cache/

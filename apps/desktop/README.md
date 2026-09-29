@@ -226,7 +226,7 @@ npm run dist         # 打 Windows 安装包（NSIS + 免安装 portable）
 
 ```bash
 npm run bundle:mcp   # 只打 MCP 单文件 → <仓库根>/dist/mcp/editor-mcp.bundle.mjs
-npm run dist         # 产物在 apps/desktop/release/
+npm run dist         # 产物在**仓库根** release/（P3-M3 起）
 ```
 
 > ⚠ **2026-09-28 现状：`npm run dist` 的第一步会失败** —— `bundle:mcp` 用 esbuild 打 `editor-mcp/dist/index.js`，
@@ -299,7 +299,7 @@ hub 侧：editors=1, clients=2
 
 1. **`build.files` 漏了 `server/**`** → asar 里没有 `server/webServer.js` → 打包版 ESM 入口
    一 `import` 就崩。桌面程序**没有终端**，现象只是"双击没反应/卡住"（主进程还活着、不写日志、不开端口）。
-   定位办法：把 asar 当应用跑一次 `electron release/win-unpacked/resources/app.asar --selftest`，
+   定位办法：把 asar 当应用跑一次 `electron <仓库根>/release/win-unpacked/resources/app.asar --selftest`，
    stderr 会直接给出 `ERR_MODULE_NOT_FOUND`。**断言**：`verify` 的 F2 段扫描入口的所有相对依赖，
    逐个对 `build.files` 做 glob 匹配，缺一个就 FAIL。
 2. **随包密钥以前叫 `buildKey.js` 但内容是 ESM 语法** → 在免安装版的 `%TEMP%` 解包目录、
