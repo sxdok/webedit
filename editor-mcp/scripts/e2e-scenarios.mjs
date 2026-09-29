@@ -19,10 +19,26 @@ import { startClient } from './mcp-client.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(here, '..');
+/**
+ * ★工作区目录（MCP 的无头文档/资源落盘处）。P3-M5 起**默认搬到了仓库根 `var/mcp-workspace`**
+ *（原来在 `editor-mcp/workspace`）—— 本脚本以前写死旧路径，于是"文件在不在"这类断言全部假红。
+ * 这里按与 `src/config.ts` 相同的规则推导，并允许用 `EDITOR_MCP_WORKSPACE` 覆盖。
+ */
+const workspaceDir = path.resolve(process.env.EDITOR_MCP_WORKSPACE ?? path.join(pkgRoot, '..', 'var', 'mcp-workspace'));
 const argv = process.argv.slice(2);
 const wantLive = argv.includes('--live');
 const requireLive = argv.includes('--require-live');
-const editorUrl = process.env.EDITOR_URL ?? 'http://127.0.0.1:5179/?bridge=1';
+/**
+ * ★Live 场景必须带 token（P0 决策 #1：hub 的 `bridge.hello` 强制校验）。
+ * MCP 子进程与**页面**必须是同一个 token，否则页面握手被拒、`Live 就绪` 永远 false（实测踩过：
+ * 以前这里两边都没给 token，live 场景静默 SKIP）。
+ *   · MCP 侧：`EDITOR_MCP_TOKEN`
+ *   · 页面侧：URL 参数 `?bridgeToken=…`（页面支持的自检/开发用入口）
+ */
+const LIVE_TOKEN = `e2e-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+const editorUrl =
+  (process.env.EDITOR_URL ?? 'http://127.0.0.1:5179/?bridge=1') +
+  (wantLive && !/bridgeToken=/.test(process.env.EDITOR_URL ?? '') ? `${process.env.EDITOR_URL ? '&' : '&'}bridgeToken=${LIVE_TOKEN}` : '');
 const edgeBin =
   process.env.EDGE_BIN ??
   ['C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', 'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'].find((p) =>
@@ -87,7 +103,7 @@ async function main(liveReady) {
   {
     const created = await client.call('doc.create', { docId: DOC, title: '端到端验收', mode: 'document' });
     const body = created.body?.data ?? {};
-    const file = path.join(pkgRoot, 'workspace', `${DOC}.editor.json`);
+    const file = path.join(workspaceDir, `${DOC}.editor.json`);
     const onDisk = fs.existsSync(file);
     let idMatches = false;
     if (onDisk) idMatches = JSON.parse(fs.readFileSync(file, 'utf8')).id === DOC;
@@ -294,7 +310,7 @@ async function main(liveReady) {
 
   /* 13. 导出 JSON 落盘 */
   {
-    const p = path.join(pkgRoot, 'workspace', `${DOC}.export.json`);
+    const p = path.join(workspaceDir, `${DOC}.export.json`);
     const res = await client.call('export.json', { docId: DOC, path: p });
     const exists = fs.existsSync(p);
     let nodeCount = -1;
@@ -507,8 +523,8 @@ async function main(liveReady) {
   {
     const pix = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
     const b64 = pix.split(',')[1];
-    const imgPath = path.join(pkgRoot, 'workspace', `${DOC}-tiny.gif`);
-    const htmlPath = path.join(pkgRoot, 'workspace', `${DOC}-inline.html`);
+    const imgPath = path.join(workspaceDir, `${DOC}-tiny.gif`);
+    const htmlPath = path.join(workspaceDir, `${DOC}-inline.html`);
     fs.writeFileSync(imgPath, Buffer.from(b64, 'base64'));
     fs.writeFileSync(
       htmlPath,
@@ -548,7 +564,7 @@ async function main(liveReady) {
 try {
   // 顺序很重要：先起 MCP 客户端（=先有桥接中转），再拉编辑器，最后等它就绪
   // ★写权限要显式申请：P0 决策 #2 默认 `EDITOR_MCP_ALLOW_WRITE=false`（写操作默认拒绝）
-  client = await startClient({ env: { EDITOR_MCP_RATE_LIMIT: '1000', EDITOR_MCP_ALLOW_WRITE: 'true' } });
+  client = await startClient({ env: { EDITOR_MCP_RATE_LIMIT: '1000', EDITOR_MCP_ALLOW_WRITE: 'true', EDITOR_MCP_TOKEN: LIVE_TOKEN } });
 
   if (wantLive) {
     if (!edgeBin) throw new Error('找不到 msedge.exe，用 EDGE_BIN 指定');

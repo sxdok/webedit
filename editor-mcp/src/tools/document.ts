@@ -28,7 +28,7 @@ export async function docCreate(args: {
   pageSize?: 'A4' | 'A3' | 'A5' | 'Letter' | 'Legal' | 'Custom';
   device?: 'Desktop' | 'Laptop' | 'Tablet' | 'Mobile' | 'Custom';
 }): Promise<ToolResult<{ docId: string; path?: string; mode: string; title: string; via: string; degraded: boolean }>> {
-  const res = await viaBridge<{ docId: string; path?: string; mode?: string; title?: string }>(
+  const res = await viaBridge<{ docId: string; path?: string; mode?: string; title?: string; pageId?: string; created?: string; pages?: number }>(
     'doc.create',
     args as Record<string, unknown>,
     async () => {
@@ -52,6 +52,12 @@ export async function docCreate(args: {
   const data = {
     docId: d.docId,
     ...(d.path ? { path: d.path } : {}),
+    /* ★Live 专属字段（2026-09-29 起 `doc.create` 可以在编辑器里新建一页）：
+       透出去，agent 才能分辨"在编辑器里新开了一页"（`created:'editor-page'` + `pageId`）
+       与"只写了一份工作区文件"（有 `path`、无 `created`）。 */
+    ...(d.pageId ? { pageId: d.pageId } : {}),
+    ...(d.created ? { created: d.created } : {}),
+    ...(typeof d.pages === 'number' ? { pages: d.pages } : {}),
     mode: d.mode ?? args.mode ?? 'document',
     title: d.title ?? args.title ?? '未命名文档',
     via: d.via,

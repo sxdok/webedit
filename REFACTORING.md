@@ -2535,6 +2535,30 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 **Agent 约定**（写进 `editor-mcp/README.md`，这就是用户问的"写入前检测"）：
 `doc.attach` →（`doc.get`/`doc.summary`）看是否为空 → 空就写；**非空就 `doc.create`（Live 新建一页）再写**。
 
+### 15.34 `doc.create` 的端到端 Live 验收 + 修掉 e2e live 套件被 P0/M5 打破的两处（用户："编辑器已经关闭"）
+
+用户在关闭打包版后让我跑真实链路验收。**结果：页面自检 325/325；e2e live 套件全部通过（含新场景 20b）；真机 DSH→MCP→Live 全流程走通**（截图 `var/shots/live-convention-final.png`）。
+
+**跑之前先修了两处"静默失效"的基础设施问题**（不修的话 live 场景只会 SKIP，等于没测）：
+
+| 现象 | 根因 | 修法 |
+|---|---|---|
+| `Live 就绪=false（20305ms）`，场景 20/20b 直接 SKIP | **e2e 起 MCP 时没给 `EDITOR_MCP_TOKEN`**（MCP 自随机 token），页面又拿不到 token → hub 拒绝 `bridge.hello`。这是 P0"token 强制"影响的**第 8 个脚本**（前 7 个是各 smoke） | 生成一次 token 同时给两边：MCP 子进程 `EDITOR_MCP_TOKEN`、页面 URL `?bridgeToken=…`（页面本来就支持这个自检/开发入口） |
+| 场景 1/13 断言"文件不在"、`文件节点数=-1` | 脚本还写死旧工作区 `editor-mcp/workspace`，**P3-M5 已搬到 `var/mcp-workspace`** | 按与 `src/config.ts` 相同的规则推导 `workspaceDir`（支持 `EDITOR_MCP_WORKSPACE` 覆盖） |
+
+**另外补了一个真问题**：MCP 的 `doc.create` 工具把 Live 返回的附加字段**过滤掉了** —— agent 无法分辨"在编辑器里新开了一页"还是"只写了一份工作区文件"。现在透传 `pageId / created / pages`（`editor-mcp/src/tools/document.ts`），于是真实链路返回：
+`{docId, pageId, created:"editor-page", pages:2, mode, title, via:"live", degraded:false}`。
+
+**验收（三个层次，都是"走 live"）**：
+
+| 层次 | 做法 | 结果 |
+|---|---|---|
+| 页面内（同一入口 `routeLive`） | 自检两条：单页空白→替换；非空→新增一页 | **325/325** |
+| 端到端脚本（真 hub + 真无头页面） | `node editor-mcp/scripts/e2e-scenarios.mjs --live --require-live`（含新场景 20b） | **结果：全部通过**；20b：`起始 nodes=0；① via=live；② created=editor-page pages=2 新页标题=「Live 新建页（e2e 20b）」节点=0；③ via=live` |
+| 真机（DSH → MCP(token) → 编辑器界面） | dev 版（最新 `dist/web` + 新 bundle）：`doc.attach`→空文档→①写→②`doc.create`→③写进新页 | 全部 `via:"live"`；界面出现**两个页标签**、新页内容与属性面板一致；`doc.create` 返回 `created:"editor-page" pages:2` |
+
+**注意**：dev/打包版加载的是 `dist/mcp/editor-mcp.bundle.mjs`（单文件），它由 `apps/desktop` 的 `bundle:mcp` 生成 —— 改了 `editor-mcp/src` 后**必须重跑 `bundle:mcp`**（已在根 `npm run build`/`verify` 链路里），否则应用里跑的还是旧 MCP 代码（本轮就踩到：第一次真机复测只看到 `via:live`、没有 `created`）。
+
 ---
 
 ## 第 16 章 数据迁移指南
