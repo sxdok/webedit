@@ -2559,6 +2559,20 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 
 **注意**：dev/打包版加载的是 `dist/mcp/editor-mcp.bundle.mjs`（单文件），它由 `apps/desktop` 的 `bundle:mcp` 生成 —— 改了 `editor-mcp/src` 后**必须重跑 `bundle:mcp`**（已在根 `npm run build`/`verify` 链路里），否则应用里跑的还是旧 MCP 代码（本轮就踩到：第一次真机复测只看到 `via:live`、没有 `created`）。
 
+**发行物（`npm run dist` 重打包 + 校验）**：
+`release/webedit-0.3.0-x64.exe` 109.7MB / `webedit-0.3.0-portable.exe` 109.5MB（22:06/22:07）。
+
+| 校验项 | 结果 |
+|---|---|
+| 打包版 `webedit.exe --selftest` | **10/10 通过**（之前被单实例锁挡住的那道闸门） |
+| MCP bundle 是否与 `dist` 同一份 | SHA-256 **一致**（`EAA39AD8…`） |
+| 打包的 Web 产物里有没有今天的两处修复 | 含 `data-pref-tip`（首选项气泡）✅；含 `…pages:Ae,created:"editor-page"}`（live 新建页）✅；`data-tooltip`、`loadDocument` ✅ |
+| `dist/web` 与打包物哈希 | **一致**（同一份构建） |
+| 打包的 MCP bundle 透传 | 含 `d.created` / `pageId` ✅ |
+
+布局提醒（省下次找）：Web 与 MCP 产物**不在 app.asar 里**，而在
+`release/win-unpacked/resources/web-editor/dist/` 与 `…/resources/editor-mcp-bundle/`（`build.extraResources`）。
+
 ---
 
 ## 第 16 章 数据迁移指南
