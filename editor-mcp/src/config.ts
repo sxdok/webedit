@@ -8,7 +8,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_ORIGIN_ALLOW, parseOriginAllow } from './security/guard.js';
-import { VERSION } from './version.js';
+import { MCP_PROTOCOL_VERSION, VERSION } from './version.js';
 
 /** editor-mcp/ 目录（dist/config.js 或 src/config.ts 的上一级都指向包根） */
 const pkgRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -53,7 +53,7 @@ export const config = {
   /** ★版本来自根 `package.json` —— 由 `tools/sync-contracts.mjs` 生成到 `src/version.ts`，别手改 */
   version: VERSION,
   /** 支持的 MCP 协议版本（打印用；握手由 SDK 负责） */
-  protocolVersion: '2025-06-18',
+  protocolVersion: MCP_PROTOCOL_VERSION,
 
   /** 桥接中转地址（Hub 监听它；LiveBridge 也连它） */
   bridgeUrl: env('EDITOR_MCP_BRIDGE_URL', 'ws://127.0.0.1:37650/bridge'),

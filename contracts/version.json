@@ -1,4 +1,5 @@
 {
   "version": "0.2.0",
-  "protocol": 2
+  "protocol": 2,
+  "mcpProtocol": "2025-06-18"
 }

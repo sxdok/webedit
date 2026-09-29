@@ -2290,6 +2290,39 @@ dev `npm run selftest` **10/10**（应用真从新位置读到密钥）；**打�
 **这是正常的**：AES-GCM 每次加密用随机 nonce，同一明文两次加密必然不同密文。
 正确的不变式是"**能解开且字段一致**"（脚本与自检都在验这个），不是哈希相等。差点把一个正常现象当成回归。
 
+### 15.27 P3-M9 施工记录（契约与版本）—— **P3 完成**
+
+M9 的规格是"契约与版本：`contracts/` + 生成到两端的 `version.ts`" + "手改任一处会被断言抓住"。
+其中**大部分在 P1③ 已完成**（`contracts/version.json`、`bridge-methods.json`、两端 `version.ts`、
+"版本号单一来源"断言）。这一轮补的是**当时漏掉的两处手写版本**：
+
+| 发现的硬编码 | 处置 |
+|---|---|
+| `apps/desktop/src/mcpSupervisor.js` 里 `let clientVersion = '0.2.0'`（桌面壳自报版本） | 新增**第三个生成物** `apps/desktop/src/version.js`（桌面壳是纯 JS，没有 TS 构建），改成 `import { VERSION }` |
+| `'2025-06-18'` 在 `editor-mcp/src/config.ts`（initialize 上报）、`web-editor/src/mcp/bridgeClient.ts`（页面上报）、`apps/desktop/src/mcpSupervisor.js`（连 MCP 时声明）**三处各写一遍** | 生成器里钉 `MCP_PROTOCOL = '2025-06-18'`，写进 **三端生成物 + `contracts/version.json`**；三个消费端全部改为 import |
+
+**新增 3 条断言**（verify **89 → 92**）：① MCP 协议号单一来源（三端生成物 + contracts 一致）；
+② 三个消费端**不再硬编码** `'2025-06-18'`；③ 桌面壳版本来自生成物（等于根 `package.json`）。
+**负例实测**：手改 `apps/desktop/src/version.js` → `--check` **退出 1**；重新生成 → 恢复 `0.2.0`、退出 0。
+
+**★两个坑（都值得记）**：
+1. 我先在断言里用了 `text(rel)` 这个 helper，**它不在该作用域** → `verify` 直接 `ReferenceError` 崩掉
+   （现象是"退出 1 但没有 FAIL 行"）。教训：**"脚本崩了"与"断言失败"现象不同** —— 只看"有没有 FAIL"会误判。
+2. **负例又空转了一次**（本会话第 2 次）：内联 `node -e "...'9.9.9'..."` 的引号被 PowerShell 吃掉，
+   报 `SyntaxError: Expected unicode escape` → 改动根本没发生，于是 `--check` 照旧报"一致"，
+   **看起来像"护栏没生效"**。改用 `edit` 工具真改才验出退出 1。
+   **结论：负例必须确认"变异真的发生了"（查文件内容/哈希），否则等于没测。**
+
+**P3 完成**（M1–M9）：交付物 → `dist/`；发行物 → `release/`；运行数据 → `var/`；
+探针入库 `tools/cdp/`；生成物 → `var/docs/`；活文档 → `var/mcp-workspace/`；密钥 → `var/keys/`；
+契约与版本五处生成物 + `--check` 护栏。
+
+**本轮另按要求构建了一版发行物**（M9 代码在内）：
+`release/可视化编辑器-0.2.0-x64.exe`（**109.7MB**，NSIS 安装包）与 `可视化编辑器-0.2.0-portable.exe`（**109.5MB**），
+打包版 `--selftest` **10/10**（`mode=packaged`、`config=encrypted`、密钥走随包 `resources/config/buildKey.mjs`）——
+即这一版已带上 P0 的 token 强制/写默认关闭与 P1–P3 的全部目录重排。
+（改名 `webedit` + 版本 0.3.0 属 **P3.5**，本轮不做。）
+
 ---
 
 ## 第 16 章 数据迁移指南

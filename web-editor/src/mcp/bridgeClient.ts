@@ -19,7 +19,7 @@ import { routeLive } from './liveMethods';
 import { log } from '../utils/logger';
 import { desktopApi } from '../utils/desktopChrome';
 import { EDITOR_FEATURES, EDITOR_PROTOCOL } from './protocol';
-import { VERSION } from '../version';
+import { MCP_PROTOCOL_VERSION, VERSION } from '../version';
 
 const BRIDGE_URL_DEFAULT = 'ws://127.0.0.1:37650/bridge';
 let url = BRIDGE_URL_DEFAULT;
@@ -294,7 +294,7 @@ function connect(): void {
           protocol: EDITOR_PROTOCOL,
           features: EDITOR_FEATURES,
           /** MCP 传输协议版本（给诊断看；与桥接协议是两回事） */
-          mcpProtocol: '2025-06-18',
+          mcpProtocol: MCP_PROTOCOL_VERSION,
           ...(token ? { token } : {}),
         },
       });

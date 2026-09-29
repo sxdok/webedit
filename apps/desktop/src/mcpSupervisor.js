@@ -18,19 +18,22 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 
+import { MCP_PROTOCOL_VERSION, VERSION } from './version.js';
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * 探测/握手时自报的客户端身份。
- * 版本由 `main.js` 在启动时用 `app.getVersion()` 覆盖（`setClientVersion`），
- * 这里只是模块被单独 import（例如 verify 脚本）时的兜底值 —— 这样"版本号散落多处"少一处。
+ * 版本**来自生成物**（`./version.js`，P3-M9 起；唯一源是根 `package.json`），
+ * `main.js` 启动时还会用 `app.getVersion()` 覆盖一次（打包态以 exe 为准）。
  */
-let clientVersion = '0.2.0';
+let clientVersion = VERSION;
 const mcpClientInfo = () => ({ name: 'visual-editor-desktop', version: clientVersion });
 /** 覆盖自报版本（main.js 启动时调用；测试脚本也可用） */
 export function setClientVersion(v) {
   if (v) clientVersion = String(v);
 }
-const PROTOCOL_VERSION = '2025-06-18';
+/** 我们说的那版 MCP 规范（同样来自生成物，不在各处手写） */
+const PROTOCOL_VERSION = MCP_PROTOCOL_VERSION;
 
 /**
  * 入站 token（P0 决策 #1）。

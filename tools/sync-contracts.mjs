@@ -4,11 +4,12 @@
  *   node tools/sync-contracts.mjs            # 生成（幂等）
  *   node tools/sync-contracts.mjs --check    # 只校验：与磁盘不一致就退出码 1（进闸门用）
  *
- * 生成的四处（**都不要手改**）：
- *   · `contracts/version.json`            —— 版本 + 桥接协议（对外版本的机器可读投影）
+ * 生成的五处（**都不要手改**）：
+ *   · `contracts/version.json`            —— 版本 + 桥接协议 + MCP 协议号（对外版本的机器可读投影）
  *   · `contracts/bridge-methods.json`     —— MCP 工具名清单 + 编辑器 live 方法清单
  *   · `editor-mcp/src/version.ts`         —— 供 MCP 直接 `import { VERSION }`
  *   · `web-editor/src/version.ts`         —— 供页面直接 `import { VERSION }`
+ *   · `apps/desktop/src/version.js`       —— 供桌面壳直接 `import { VERSION }`（P3-M9 起）
  * 同步的三处 `package.json` 版本号（三个包必须与根一致，否则发行物/诊断/更新会各说各话）。
  *
  * ★为什么用"生成 + --check 断言"而不是现在就把版本搬进共享包：
@@ -56,21 +57,41 @@ const liveSrc = read(path.join('web-editor', 'src', 'mcp', 'liveMethods.ts'));
 const bridgeMethods = [...liveSrc.matchAll(/case\s+'([^']+)'/g)].map((m) => m[1]);
 
 const uniq = (a) => [...new Set(a)].sort();
+
+/**
+ * ★P3-M9：MCP 协议修订号也**单一来源**。
+ * 它是我们"说的那版 MCP 规范"，三端必须一模一样（编辑器在 hello 里报、MCP 在 initialize 里报、
+ * 桌面壳连 MCP 时也要声明）；以前这个字符串在 `config.ts` / `bridgeClient.ts` / `mcpSupervisor.js`
+ * 三处各写一遍 —— 升级时漏一处就会出现"工具表飘忽"的怪问题。这里钉一次，写进三个生成物。
+ */
+const MCP_PROTOCOL = '2025-06-18';
+const generatedBanner = (source) =>
+  `/**\n * ★本文件由 \`tools/sync-contracts.mjs\` 生成，**不要手改**。\n` +
+  ` * 版本源 = 根 \`package.json\`；桥接协议源 = \`editor-mcp/src/bridge/protocolGate.ts\`；\n` +
+  ` * MCP 协议号 = 生成器里钉的 MCP_PROTOCOL（${MCP_PROTOCOL}）。\n * 改完跑 \`node tools/sync-contracts.mjs\`。\n */\n`;
+
 const outputs = {
-  'contracts/version.json': `${JSON.stringify({ version: VERSION, protocol: PROTOCOL }, null, 2)}\n`,
+  'contracts/version.json': `${JSON.stringify({ version: VERSION, protocol: PROTOCOL, mcpProtocol: MCP_PROTOCOL }, null, 2)}\n`,
   'contracts/bridge-methods.json': `${JSON.stringify({ tools: uniq(tools), bridgeMethods: uniq(bridgeMethods) }, null, 2)}\n`,
   'editor-mcp/src/version.ts':
-    `/**\n * ★本文件由 \`tools/sync-contracts.mjs\` 生成，**不要手改**。\n` +
-    ` * 唯一版本源是根 \`package.json\` 的 version；改完跑 \`node tools/sync-contracts.mjs\`。\n */\n` +
+    generatedBanner() +
     `export const VERSION = '${VERSION}';\n` +
     `/** 桥接协议版本（与 web-editor/src/mcp/protocol.ts 一致，verify 有断言） */\n` +
-    `export const EDITOR_PROTOCOL = ${PROTOCOL};\n`,
+    `export const EDITOR_PROTOCOL = ${PROTOCOL};\n` +
+    `/** 我们说的那版 MCP 规范（initialize 里上报） */\n` +
+    `export const MCP_PROTOCOL_VERSION = '${MCP_PROTOCOL}';\n`,
   'web-editor/src/version.ts':
-    `/**\n * ★本文件由 \`tools/sync-contracts.mjs\` 生成，**不要手改**。\n` +
-    ` * 唯一版本源是根 \`package.json\` 的 version；协议源是 \`editor-mcp/src/bridge/protocolGate.ts\`。\n */\n` +
+    generatedBanner() +
     `export const VERSION = '${VERSION}';\n` +
     `/** 桥接协议版本（页面在 bridge.hello 里上报，MCP 据此判 Live） */\n` +
-    `export const EDITOR_PROTOCOL = ${PROTOCOL};\n`,
+    `export const EDITOR_PROTOCOL = ${PROTOCOL};\n` +
+    `/** 我们说的那版 MCP 规范（页面把 MCP 版本一并上报，便于诊断） */\n` +
+    `export const MCP_PROTOCOL_VERSION = '${MCP_PROTOCOL}';\n`,
+  /* 桌面壳是纯 JS（没有 TS 构建），所以给它一份 `.js`；否则 `mcpSupervisor.js` 只能写死版本号。 */
+  'apps/desktop/src/version.js':
+    generatedBanner() +
+    `export const VERSION = '${VERSION}';\n` +
+    `export const MCP_PROTOCOL_VERSION = '${MCP_PROTOCOL}';\n`,
 };
 
 /* ── 表格内核同源（P1④）：MCP 侧那份改为**从 web 的规范模块复制生成** ──

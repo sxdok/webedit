@@ -729,6 +729,37 @@ async function testPackagingManifest() {
     mcpProtocol > 0 && mcpProtocol === fileProtocol && fileProtocol === pageProtocol,
     `protocolGate=${mcpProtocol || '?'} contracts=${fileProtocol || '?'} 页面生成物=${pageProtocol || '?'}`,
   );
+
+  /**
+   * ★P3-M9：**MCP 协议号**也必须单一来源。
+   * 以前 `'2025-06-18'` 在 `config.ts`（MCP 上报）、`bridgeClient.ts`（页面上报）、`mcpSupervisor.js`（桌面壳声明）
+   * 三处各写一遍 —— 升级漏一处就会出现"工具表飘忽"这类难查的问题。现在统一由生成器钉，
+   * 写进三端生成物；这里断言：① 三端生成物一致；② 三个消费端**不再手写**这个字符串。
+   */
+  const mcpVerOf = (rel) => grab(rel, /MCP_PROTOCOL_VERSION\s*=\s*'([^']+)'/);
+  const mcpVers = {
+    'editor-mcp/src/version.ts': mcpVerOf(join('editor-mcp', 'src', 'version.ts')),
+    'web-editor/src/version.ts': mcpVerOf(join('web-editor', 'src', 'version.ts')),
+    'apps/desktop/src/version.js': mcpVerOf(join('apps', 'desktop', 'src', 'version.js')),
+    'contracts/version.json': readJson(join('contracts', 'version.json')).mcpProtocol,
+  };
+  const mcpUniq = [...new Set(Object.values(mcpVers).filter(Boolean))];
+  ok(
+    'MCP 协议号单一来源（生成器 → 三端生成物 + contracts/version.json）',
+    mcpUniq.length === 1 && Object.values(mcpVers).every(Boolean),
+    Object.entries(mcpVers).map(([k, v]) => `${k}=${v ?? '?'}`).join('；'),
+  );
+  {
+    const consumers = ['editor-mcp/src/config.ts', 'web-editor/src/mcp/bridgeClient.ts', 'apps/desktop/src/mcpSupervisor.js'];
+    const hard = consumers.filter((rel) => /['"]2025-06-18['"]/.test(readFileSync(join(REPO_ROOT, rel), 'utf8')));
+    ok(
+      '三个消费端不再硬编码 MCP 协议号（改由生成物提供）',
+      hard.length === 0,
+      hard.length ? `仍写死：${hard.join('、')}` : consumers.join('、'),
+    );
+    const desktopVer = grab(join('apps', 'desktop', 'src', 'version.js'), /VERSION\s*=\s*'([^']+)'/);
+    ok('桌面壳版本来自生成物（不再写死）', desktopVer === rootVersion, `生成物=${desktopVer ?? '?'}，根=${rootVersion}`);
+  }
   const featsOf = (rel, re, kind) => {
     const text = readFileSync(join(repo, rel), 'utf8');
     const block = re.exec(text)?.[1] ?? '';
