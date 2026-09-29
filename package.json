@@ -4,6 +4,11 @@
   "private": true,
   "description": "可视化编辑器（web-editor + editor-mcp + 桌面分发）。★本 package.json 的 `version` 是**唯一版本源**：其余位置的版本由 `tools/sync-contracts.mjs` 生成，别手改。",
   "scripts": {
+    "setup": "node tools/orchestrate.mjs setup",
+    "build": "node tools/orchestrate.mjs build",
+    "verify": "node tools/orchestrate.mjs verify",
+    "verify:full": "node tools/orchestrate.mjs verify --full",
+    "dist": "node tools/orchestrate.mjs dist",
     "sync-contracts": "node tools/sync-contracts.mjs",
     "check-contracts": "node tools/sync-contracts.mjs --check"
   }

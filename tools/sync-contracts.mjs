@@ -25,6 +25,16 @@ const checkOnly = process.argv.includes('--check');
 const read = (rel) => fs.readFileSync(path.join(repo, rel), 'utf8');
 const readJson = (rel) => JSON.parse(read(rel));
 
+/** 递归列出目录下的文件绝对路径（用于扫环境变量） */
+function walk(dir, out = []) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) walk(p, out);
+    else out.push(p);
+  }
+  return out;
+}
+
 /** 唯一版本源 */
 const rootPkg = readJson('package.json');
 const VERSION = String(rootPkg.version);
@@ -77,6 +87,15 @@ outputs['editor-mcp/src/engine/tableKit.ts'] =
   ` *   改语义请改源文件，然后跑 \`node tools/sync-contracts.mjs\`；\n` +
   ` *   \`--check\` 会比对两边内容（机械护栏），65 例一致性测试是语义护栏。\n */\n\n` +
   tableKitPure;
+
+/* ── 环境变量契约（P2②）：MCP 认哪些 `EDITOR_MCP_*` 键，从源码里扫出来（别手抄） ──
+   谁在用：桌面壳启动 MCP 子进程时注入这些键；agent/运维排查时也要照着这份清单查。 */
+const envVars = new Set();
+for (const rel of walk(path.join(repo, 'editor-mcp', 'src'))) {
+  if (!/\.ts$/.test(rel)) continue;
+  for (const m of read(path.relative(repo, rel)).matchAll(/EDITOR_MCP_[A-Z0-9_]+/g)) envVars.add(m[0]);
+}
+outputs['contracts/env-vars.json'] = `${JSON.stringify({ vars: [...envVars].sort() }, null, 2)}\n`;
 
 /* 三个包的 package.json 版本必须与根一致（同步而不是"断言失败后让人手改"） */
 const pkgPaths = ['editor-mcp/package.json', 'web-editor/package.json', 'apps/desktop/package.json'];

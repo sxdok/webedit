@@ -27,7 +27,8 @@
   },
   "devDependencies": {
     "electron": "44.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.12"
   },
   "build": {
     "appId": "com.visual-editor.desktop",

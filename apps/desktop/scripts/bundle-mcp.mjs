@@ -22,14 +22,24 @@
  *   node scripts/bundle-mcp.mjs --print            # 只打印会写到哪里
  */
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_DIR = resolve(HERE, '..');
 const REPO_ROOT = resolve(APP_DIR, '..', '..');
 const MCP_ROOT = join(REPO_ROOT, 'editor-mcp');
-const ESBUILD = join(REPO_ROOT, 'web-editor', 'node_modules', 'esbuild', 'lib', 'main.js');
+/**
+ * esbuild 的解析顺序（P2③：**自带**，不再依赖别人装了没有）：
+ *   ① 本包 `apps/desktop/node_modules/esbuild`（`devDependencies` 里已声明 → 干净克隆 `npm install` 就有）；
+ *   ② 退一步用 `web-editor` 那份（老机器上可能只装过 web-editor，不至于因此打不了包）；
+ *   ③ 都没有 → 给出可行动的提示。
+ * ★为什么不用 `npx esbuild`：那会去网上抓包，离线机器/内网会卡住或静默装错版本。
+ */
+const ESBUILD_CANDIDATES = [
+  join(APP_DIR, 'node_modules', 'esbuild', 'lib', 'main.js'),
+  join(REPO_ROOT, 'web-editor', 'node_modules', 'esbuild', 'lib', 'main.js'),
+];
 export const DEFAULT_OUT = join(APP_DIR, 'dist-mcp', 'editor-mcp.bundle.mjs');
 
 /** ws 的可选原生加速包：装了就用、没装自己降级，所以不进包 */
@@ -44,14 +54,15 @@ const OPTIONAL_NATIVE = ['bufferutil', 'utf-8-validate'];
  */
 export async function bundleMcp({ outfile = DEFAULT_OUT, entry = join(MCP_ROOT, 'dist', 'index.js'), quiet = false } = {}) {
   if (!existsSync(entry)) throw new Error(`入口不存在：${entry}（先在 editor-mcp 下跑 npx tsc -b / npm run build）`);
-  if (!existsSync(ESBUILD)) {
+  const esbuildPath = ESBUILD_CANDIDATES.find((p) => existsSync(p));
+  if (!esbuildPath) {
     throw new Error(
-      `找不到 esbuild：${ESBUILD}\n` +
-        '它随 web-editor 一起安装（web-editor/node_modules/esbuild）。若那台机器上没有，' +
-        '请先在 web-editor 下 npm install，或改用 `npx esbuild` 手动打。',
+      `找不到 esbuild。找过：\n  ${ESBUILD_CANDIDATES.join('\n  ')}\n` +
+        '在 apps/desktop（或仓库根）跑一次 `npm install` 即可 —— esbuild 已声明为本包 devDependency。',
     );
   }
-  const { build } = await import(pathToFileURL(ESBUILD).href);
+  const { build } = await import(pathToFileURL(esbuildPath).href);
+  if (!quiet) console.log(`esbuild：${relative(REPO_ROOT, esbuildPath)}`);
   mkdirSync(dirname(outfile), { recursive: true });
   const result = await build({
     entryPoints: [entry],

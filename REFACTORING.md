@@ -2016,6 +2016,35 @@ web 侧另有 12 个 MCP 用不到的助手（排序/选区/行高解析…）�
 
 **P1 全部完成**：① 清单形状 ② 协议/能力协商 + 未知方法降级 ③ 契约生成器 ④ 表格内核同源。下一步 **P2**。
 
+### 15.17 P2 施工记录（① 根编排 + ③ bundle:mcp 自带 esbuild + ② contracts/ 起步）
+
+**P2① 一条命令**：新增 `tools/orchestrate.mjs`，根 `package.json` 挂上：
+
+| 命令 | 做的事 |
+|---|---|
+| `npm run setup` | 三个包各自 `npm install` |
+| `npm run build` | 生成契约 → `editor-mcp` tsc -b → `web-editor` vite build → `bundle:mcp` |
+| `npm run verify` | **默认快档**：契约 `--check` → MCP 类型检查 → MCP 单测 → 编辑器构建 → `bundle:mcp` → 桌面 `verify` |
+| `npm run verify:full` | 再加 auth/session/multi/各 smoke/页面自检/PDF 样张/Word 端到端 |
+| `npm run dist` | electron-builder 打包发行物（先检查 web 构建产物存在） |
+
+★为什么用脚本而不是一串 `&&`：每步要打印结论、失败要给可行动提示、还要共享上下文（仓库根、Windows 的 `.cmd` 后缀、将来 P3 改路径只改一处）。
+
+**P2③ `bundle:mcp` 自带 esbuild**：原来它**借用** `web-editor/node_modules/esbuild`（干净克隆里 web-editor 没装就白搭）。
+现在 esbuild 声明进 `apps/desktop` 的 devDependencies，解析顺序为"本包 → web-editor → 明确报错"，
+并打印实际用的是哪一份。实测：`esbuild：apps\desktop\node_modules\esbuild\lib\main.js` ✅
+
+**本轮踩到并立刻修掉的一个"闸门漏项"**：我改了 `bundle-mcp.mjs` 的 esbuild 解析，顺手写了 `path.relative(...)`，
+但那个文件只导入了 `dirname/join/resolve` → `bundle:mcp` **直接报错**。
+而**默认闸门当时没跑 `bundle:mcp`**，所以 `npm run verify` 依然全绿 —— 这正是"闸门没覆盖的东西等于没有"。
+处置：① 修 import；② **把 `bundle:mcp` 加进默认闸门**（它是发行物前置步骤，代价 100ms）。
+
+**P2② `contracts/` 起步**：新增生成物 `contracts/env-vars.json`（从 `editor-mcp/src/**` 扫出 13 个 `EDITOR_MCP_*` 键）
+与手写的 `contracts/README.md`（谁生成、谁读、以及**刻意不放这里**的东西：组件契约是运行时事实、
+加密配置属桌面壳、授权属 P6、表格内核是代码不是数据契约）。
+
+**P2 剩余**：④ 静态服务器归一（Python 启动器降级 + 契约测试）、⑤ 删空挂点/冗余导出、⑥ README 去重。
+
 ---
 
 ## 第 16 章 数据迁移指南
