@@ -56,80 +56,91 @@ export function PageTabs() {
   );
 
   return (
-    <div
-      data-page-tabs="1"
-      className="no-print flex h-8 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-line bg-white px-2"
-    >
-      {list.map((p) => {
-        const active = p.id === activeId;
-        const Icon = p.mode === 'web' ? Monitor : FileText;
-        const editing = renaming === p.id;
-        return (
-          <div
-            key={p.id}
-            data-page-tab={p.id}
-            data-page-mode={p.mode}
-            data-page-active={active ? '1' : '0'}
-            className={`group flex shrink-0 items-center gap-1 border-b-2 px-2 text-2xs ${
-              active ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+    /**
+     * ★布局要点（bug 修复，2026-09-29）：**固定高度必须放在内层"标签行"上，不能放在滚动容器上**。
+     *
+     * 原来外层同时是 `h-8`（固定 32px）与 `overflow-x-auto`：标签多到第 5 个时出现横向滚动条，
+     * Windows 经典滚动条约 15px 被塞进这 32px 里 → 标签行被压到 16px、文字与下边框被切掉，
+     * 视觉上就是"新建到第 6 页时标签条变形"（实测：2–4 页标签高 31px，第 5/6 页掉到 16px）。
+     * 现在外层高度随内容（滚动条**长在行下面**），内层行恒定 `h-8`，标签再也不会被压扁。
+     * `thin-scroll` 把滚动条细化到 8px，减少出现滚动条时的整体高度跳变。
+     */
+    <div data-page-tabs="1" className="no-print flex shrink-0 items-stretch border-b border-line bg-white">
+      <div data-page-tabs-scroll="1" className="thin-scroll flex min-w-0 flex-1 items-stretch overflow-x-auto">
+        <div data-page-tab-row="1" className="flex h-8 items-stretch gap-1 px-2">
+          {list.map((p) => {
+            const active = p.id === activeId;
+            const Icon = p.mode === 'web' ? Monitor : FileText;
+            const editing = renaming === p.id;
+            return (
+              <div
+                key={p.id}
+                data-page-tab={p.id}
+                data-page-mode={p.mode}
+                data-page-active={active ? '1' : '0'}
+                className={`group flex shrink-0 items-center gap-1 border-b-2 px-2 text-2xs ${
+                  active ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {editing ? (
+                  <input
+                    data-page-rename-input={p.id}
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onBlur={commitRename}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitRename();
+                      if (e.key === 'Escape') setRenaming('');
+                    }}
+                    className="my-1 w-32 rounded border border-primary/60 px-1 text-2xs outline-none"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    data-page-select={p.id}
+                    data-tip-text={`${p.title}（${p.mode === 'web' ? 'Web 模式' : '文档模式'}）—— 点击切换；双击 / F2 改名`}
+                    className="flex max-w-[180px] items-center gap-1 truncate py-1"
+                    onClick={() => setActivePage(p.id)}
+                    onDoubleClick={() => {
+                      setActivePage(p.id);
+                      startRename(p.id, p.title);
+                    }}
+                  >
+                    <Icon className={`h-3 w-3 shrink-0 ${p.mode === 'web' ? 'text-emerald-600' : 'text-primary'}`} />
+                    <span className="truncate">{p.title || '未命名'}</span>
+                    <span className="shrink-0 rounded bg-gray-100 px-1 text-[9px] leading-4 text-gray-500">
+                      {p.mode === 'web' ? 'Web' : '文档'}
+                    </span>
+                  </button>
+                )}
+                {pages.length > 1 && (
+                  <button
+                    type="button"
+                    data-page-close={p.id}
+                    data-tip-text="关闭这一页"
+                    className="rounded p-0.5 text-gray-300 opacity-0 hover:bg-gray-100 hover:text-red-500 group-hover:opacity-100"
+                    onClick={() => closePage(p.id)}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          <button
+            type="button"
+            data-page-add="1"
+            data-tip-text="新建一页（先选模式 → 再填参数）"
+            className="my-1 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-dashed border-line text-gray-400 hover:border-primary hover:text-primary"
+            onClick={() => setNewDocOpen(true)}
           >
-            {editing ? (
-              <input
-                data-page-rename-input={p.id}
-                autoFocus
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={commitRename}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitRename();
-                  if (e.key === 'Escape') setRenaming('');
-                }}
-                className="my-1 w-32 rounded border border-primary/60 px-1 text-2xs outline-none"
-              />
-            ) : (
-              <button
-                type="button"
-                data-page-select={p.id}
-                data-tip-text={`${p.title}（${p.mode === 'web' ? 'Web 模式' : '文档模式'}）—— 点击切换；双击 / F2 改名`}
-                className="flex max-w-[180px] items-center gap-1 truncate py-1"
-                onClick={() => setActivePage(p.id)}
-                onDoubleClick={() => {
-                  setActivePage(p.id);
-                  startRename(p.id, p.title);
-                }}
-              >
-                <Icon className={`h-3 w-3 shrink-0 ${p.mode === 'web' ? 'text-emerald-600' : 'text-primary'}`} />
-                <span className="truncate">{p.title || '未命名'}</span>
-                <span className="shrink-0 rounded bg-gray-100 px-1 text-[9px] leading-4 text-gray-500">
-                  {p.mode === 'web' ? 'Web' : '文档'}
-                </span>
-              </button>
-            )}
-            {pages.length > 1 && (
-              <button
-                type="button"
-                data-page-close={p.id}
-                data-tip-text="关闭这一页"
-                className="rounded p-0.5 text-gray-300 opacity-0 hover:bg-gray-100 hover:text-red-500 group-hover:opacity-100"
-                onClick={() => closePage(p.id)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </div>
-        );
-      })}
-      <button
-        type="button"
-        data-page-add="1"
-        data-tip-text="新建一页（先选模式 → 再填参数）"
-        className="my-1 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded border border-dashed border-line text-gray-400 hover:border-primary hover:text-primary"
-        onClick={() => setNewDocOpen(true)}
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-      <span className="ml-auto flex shrink-0 items-center py-1 text-[10px] text-gray-400">
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+      {/* 提示放**滚动区之外**：标签多的时候它不会把标签挤走，也不需要横向滚动才看得见 */}
+      <span className="flex shrink-0 items-center pr-2 text-[10px] text-gray-400">
         共 {pages.length} 页 · 每页可独立选择模式（文档 / Web）
       </span>
     </div>

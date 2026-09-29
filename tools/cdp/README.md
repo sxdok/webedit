@@ -4,7 +4,7 @@
 每次都靠"翻旧日志找一个能用的脚本"。P3-M6 把**通用**的那几条收进这里，
 以后要复现"要真实交互才出现"的问题，从这里开始。
 
-## 三条常用探针
+## 常用探针
 
 | 探针 | 用途 | 命令 |
 |---|---|---|
@@ -12,6 +12,7 @@
 | **shot** | 截图；可先用一段脚本把界面点成想要的状态再拍 | `node tools/cdp/shot.mjs "<url>" [输出png] [--js pre.js] [--full]` |
 | **summary** | 页面脚本：界面关键结构（标题/面板/组件按钮数/纸张尺寸/菜单栏） | `node tools/cdp/eval.mjs "<url>" tools/cdp/probes/summary.js` |
 | **selfcheck** | 页面脚本：轮询 `?check=1` 报告**直到稳定**，返回好/总数/失败清单 | `node tools/cdp/eval.mjs "<url>?check=1" tools/cdp/probes/selfcheck.js` |
+| **pagetabs-geometry** | 页面脚本：连点「＋」造到 6 页，逐页量分页标签条的几何（标签行高/是否出滚动条/容器高）—— 用于"标签多到出滚动条时被压扁"这类布局 bug 的复现与回归 | `node tools/cdp/eval.mjs "<url>" tools/cdp/probes/pagetabs-geometry.js` |
 
 ## 典型用法
 

@@ -3799,6 +3799,34 @@ async function interactionChecks(): Promise<Result[]> {
       add('新建文档：Web 模式按参数创建（Mobile 375×812 / 模式=web / 又是一页）', false, '第 2 步没有设备/标题字段');
     }
 
+    /* ── ★bug 回归：标签条出横向滚动条时**不能把标签压扁** ──
+       用户报告"新建到第 6 页时标签条变形"。根因：32px 的固定高度压在**滚动容器**上，
+       第 5 个标签起出现 15px 横向滚动条，它挤进这 32px 里 → 标签行从 31px 掉到 16px。
+       这里不靠"造 6 个标签"，而是把标签条**临时压到 160px** 逼出滚动条再量高度 —— 任何一次自检都能拦。 */
+    {
+      const strip = document.querySelector('[data-page-tabs="1"]') as HTMLElement | null;
+      const scrollBox = document.querySelector('[data-page-tabs-scroll="1"]') as HTMLElement | null;
+      const row = document.querySelector('[data-page-tab-row="1"]') as HTMLElement | null;
+      let rowNormal = 0;
+      let squeezed = 0;
+      let scrolled = false;
+      const prevWidth = strip?.style.width ?? '';
+      if (strip && scrollBox && row) {
+        rowNormal = Math.round(row.getBoundingClientRect().height);
+        strip.style.width = '160px';
+        await wait(180);
+        squeezed = Math.round(row.getBoundingClientRect().height);
+        scrolled = scrollBox.scrollWidth > scrollBox.clientWidth + 1;
+        strip.style.width = prevWidth;
+        await wait(180);
+      }
+      add(
+        '分页标签条：出横向滚动条时**不压扁标签**（bug：第 6 页时标签高从 31px 掉到 16px）',
+        !!strip && !!scrollBox && !!row && scrolled && squeezed >= 26 && Math.abs(squeezed - rowNormal) <= 2,
+        `常态高 ${rowNormal}px；压窄逼出滚动条后 ${squeezed}px（出现滚动条=${scrolled}）`,
+      );
+    }
+
     /* ── 分页：点标签切换页面 → 模式与属性面板跟着换 ── */
     {
       const before = S().pages.length;
