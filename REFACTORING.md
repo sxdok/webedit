@@ -2478,6 +2478,36 @@ PASS  实探：配置里的 token 能建立会话（200）      → HTTP 200
 `degraded:true`），稍后重试即恢复 live。判断"当前到底 live 不 live"用 `editor-mcp/scripts/bridge-status.mjs`
 （`connected/ready/editors`），比看单次返回的 `via` 更可靠。
 
+### 15.32 首选项布局优化（长说明进气泡）+ **顺带修掉 `data-tip-text` 气泡"闪现即消失"的真 bug**
+
+**用户要求**：首选项里长说明内联，太乱 → 布局优化、提示类内容改悬浮气泡。
+
+**改法**（`components/panels/PreferencesDialog.tsx`）：
+- 统一的 `Row`（`grid-cols-[1fr_auto]`）+ `Label`（标签 + ⓘ + **≤16 字短状态**）+ 右侧控件；
+  分组标题也改成"标题 + ⓘ"。解释性长句**一律进 ⓘ 的气泡**（`data-tip-text`，`data-pref-tip="1"` 便于自检）。
+- 保留全部原有自检钩子（`data-pref` / `data-pref-value` / `data-pref-hint` / `data-save-status` /
+  `data-bridge-summary` / `data-reload-live` / `data-pref-select` / `data-pref-restore`），只把**长文案**搬进气泡。
+
+**实测（`var/probe-prefs-layout.js`）**：17 行、控件右边缘**只有一个取值**（1105 = 完全对齐）、行高统一 32px、
+行内超长说明 0、气泡 23 个且内容非空、**原生 `title` 0**、行内溢出 0；截图见 `var/shots/prefs-after.png`。
+
+**★但改完发现气泡根本不显示 —— 牵出一个一直存在的真 bug**：
+`components/ui/Tooltip.tsx` 的 **`data-tip-text` 事件委托层**的 `useEffect` 依赖是 `[state]`，而 cleanup 里调 `clear()`：
+气泡状态一变 → React 跑上一次 effect 的 cleanup → 刚设好的 state 立刻被清空。
+**MutationObserver 实测**：气泡在 408ms 被加入、**同一毫秒**被移除 —— **存活 0 ms**。
+也就是说全站 **59 个**只写 `data-tip-text` 的元素（标签条、工具按钮、首选项……）hover 其实**什么都看不到**；
+而属性面板用的是 React 版 `<Tooltip>`（`data-tip="1"`），所以既有的 D16 断言没发现这条***。
+
+**修法**：监听只绑一次（依赖 `[]`），把最新状态放进 `stateRef` 供"跟随鼠标"读取；`clear()` 仍挂在
+mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0 次**、存活 ≥1500ms ✅。
+
+**新增两条自检断言**（页自检 321 → **323/323**）：
+1. `data-tip-text` 气泡出现后**保持显示**（0.7s 在、1.4s 仍在）—— 正是上面那个"闪现 0ms"的回归哨兵；
+2. 首选项布局规则：长说明只在气泡里 / 行内提示 ≤16 字 / 无原生 `title` / 控件列右边缘对齐。
+并顺手把原来那条"保存开关说明"断言从"读行内 `data-pref-hint`"改成"读**气泡** `data-tip-text`"。
+
+**闸门**：页自检 **323/323**；根 `npm run verify` 见下；`web-editor` 构建 ✅。
+
 ---
 
 ## 第 16 章 数据迁移指南

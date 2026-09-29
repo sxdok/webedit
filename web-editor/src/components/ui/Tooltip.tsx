@@ -159,7 +159,21 @@ export function TooltipLayer() {
   const timer = useRef<number | null>(null);
   const anchor = useRef<Element | null>(null);
   const pointer = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** 最新气泡状态（给"跟随鼠标"用；见下面为什么不把 state 放进 effect 依赖） */
+  const stateRef = useRef<LayerState | null>(null);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
+  /**
+   * ★监听只绑一次（依赖 `[]`）。
+   *
+   * 原来依赖是 `[state]`：气泡状态一变 → React 跑上一次 effect 的 cleanup → cleanup 里 `clear()`
+   * → 刚设好的 state 立刻被清空 → **气泡"闪现即消失"**。
+   * 实测（MutationObserver 抓 DOM）：气泡在 408ms 被加入、**同一毫秒**被移除，存活 0ms，
+   * 所以 `data-tip-text` 这条路一直等于"不显示"（属性面板用的是 React 版 `<Tooltip>`，所以没被发现）。
+   * 现在把 state 读进 `stateRef`，effect 只在挂载时绑一次，气泡能稳定停留到鼠标移出。
+   */
   useEffect(() => {
     const clear = (): void => {
       if (timer.current != null) {
@@ -205,9 +219,9 @@ export function TooltipLayer() {
       schedule(el, e.clientX, e.clientY);
     };
     const onMove = (e: MouseEvent): void => {
-      if (!state) return; // 只在气泡已显示时跟随，避免高频 setState
-      const lines = state.lines.length;
-      setState({ ...place(e.clientX, e.clientY, lines), lines: state.lines });
+      const cur = stateRef.current; // ← 从 ref 读最新状态（不能闭包捕获 state，否则 effect 得依赖它）
+      if (!cur) return; // 只在气泡已显示时跟随，避免高频 setState
+      setState({ ...place(e.clientX, e.clientY, cur.lines.length), lines: cur.lines });
     };
     const onFocusIn = (e: FocusEvent): void => {
       const el = targetOf(e.target);
@@ -235,7 +249,8 @@ export function TooltipLayer() {
       window.removeEventListener('blur', clear);
       clear();
     };
-  }, [state]);
+    /* ★依赖必须是空数组：见上面的说明 —— 依赖 state 会让 cleanup 把刚弹出的气泡清掉。 */
+  }, []);
 
   if (!state) return null;
   return (

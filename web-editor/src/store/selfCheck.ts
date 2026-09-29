@@ -1010,6 +1010,37 @@ async function interactionChecks(): Promise<Result[]> {
       `说明段落 ${prose} 个、缺气泡的属性行 ${noTip} 行`,
     );
 
+    /* ★2026-09-29 修 bug 后加的回归：`data-tip-text` **委托层**的气泡必须**持续显示**。
+       修前它是"闪现即消失"（effect 依赖 state → 状态一变 cleanup 就把刚弹出的气泡清掉；
+       MutationObserver 实测：加入与移除同一毫秒、存活 0ms），等于全站带提示的元素 hover 什么都看不到 ——
+       而属性面板用的是 React 版 `<Tooltip>`（`data-tip="1"`），所以这条一直没被上面那条断言发现。
+       这里用**两次采样都还在**来拦：0.7s 时在、1.4s 时仍在。 */
+    {
+      const tipHost = document.querySelector('[data-tip-text]') as HTMLElement | null;
+      let shown1 = false;
+      let shown2 = false;
+      let text = '';
+      if (tipHost) {
+        const b = tipHost.getBoundingClientRect();
+        const x = Math.round(b.left + b.width / 2);
+        const y = Math.round(b.top + b.height / 2);
+        tipHost.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
+        await wait(700);
+        const t1 = document.querySelector('[data-tooltip="1"]') as HTMLElement | null;
+        shown1 = !!t1;
+        text = (t1?.textContent ?? '').trim().slice(0, 40);
+        await wait(700);
+        shown2 = !!document.querySelector('[data-tooltip="1"]');
+        document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+        await wait(160);
+      }
+      add(
+        'data-tip-text 气泡出现后**保持显示**（修前"闪现 0ms"：effect 依赖 state，cleanup 立刻清掉）',
+        !!tipHost && shown1 && shown2,
+        `触发元素=${tipHost ? tipHost.tagName.toLowerCase() : '缺'}；0.7s 在=${shown1}、1.4s 在=${shown2}；文本=「${text}」`,
+      );
+    }
+
     const bandBox = pagePanel?.querySelector('[data-band-editor="1"]') as HTMLElement | null;
     add(
       '页眉/页脚编辑区不溢出面板宽度',
@@ -2926,16 +2957,40 @@ async function interactionChecks(): Promise<Result[]> {
       S().toggleUI('prefsOpen');
       await wait(360);
       const saveRow = document.querySelector('[data-pref="autoSave"]') as HTMLElement | null;
-      const saveHint = (saveRow?.querySelector('[data-pref-hint="1"]')?.textContent ?? '').trim();
+      /* 2026-09-29 布局改版：解释性长句搬进悬浮气泡（`data-tip-text`），行内只留 ≤16 字短状态 */
+      const saveTip = (saveRow?.querySelector('[data-pref-tip="1"]')?.getAttribute('data-tip-text') ?? '').trim();
       const saveInfo = (document.querySelector('[data-save-status="1"]')?.textContent ?? '').trim();
       const saveDefaultOff = saveRow?.getAttribute('data-pref-value') === '0';
       S().toggleUI('prefsOpen');
       await wait(240);
       add(
-        '首选项 → 保存：开关**默认关**，且写清了"关 = 刷新后是全新文档"与存档位置',
-        saveDefaultOff && saveHint.includes('刷新后是全新文档') && saveInfo.includes(PERSIST_KEY),
-        `开关默认=${saveDefaultOff ? '关' : '开'}；说明=「${saveHint}」；存储行=「${saveInfo}」`,
+        '首选项 → 保存：开关**默认关**，且**气泡里**写清了"关 = 刷新后是全新文档"与存档位置',
+        saveDefaultOff && saveTip.includes('刷新后是全新文档') && saveInfo.includes(PERSIST_KEY),
+        `开关默认=${saveDefaultOff ? '关' : '开'}；气泡=「${saveTip.slice(0, 40)}…」；存储行=「${saveInfo}」`,
       );
+
+      /* ★2026-09-29 用户要求："首选项布局优化，提示类内容改为悬浮气泡展示，现在这样太乱了"
+         → 变成可核对的规则：行内只留短状态、长说明都在气泡、无原生 title、控件列右边缘对齐 */
+      S().toggleUI('prefsOpen');
+      await wait(320);
+      {
+        const prefsRows = [...document.querySelectorAll('[data-pref]')] as HTMLElement[];
+        const longInline = prefsRows
+          .map((r) => ({ key: r.getAttribute('data-pref') ?? '', text: (r.querySelector('[data-pref-hint="1"]')?.textContent ?? '').trim() }))
+          .filter((x) => x.text.length > 16);
+        const tips = [...document.querySelectorAll('[data-pref-tip="1"]')] as HTMLElement[];
+        const emptyTips = tips.filter((t) => !(t.getAttribute('data-tip-text') ?? '').trim());
+        const withTitle = [...document.querySelectorAll('[data-pref], [data-pref-tip], [data-pref-select], [data-reload-live], [data-pref-restore]')].filter((el) => el.hasAttribute('title'));
+        const controls = prefsRows.map((r) => r.lastElementChild as HTMLElement | null).filter(Boolean) as HTMLElement[];
+        const rights = [...new Set(controls.map((c) => Math.round(c.getBoundingClientRect().right)))];
+        add(
+          '首选项布局：长说明只在气泡里 / 行内提示 ≤16 字 / 无原生 title / 控件列右边缘对齐',
+          prefsRows.length >= 8 && longInline.length === 0 && tips.length >= 6 && emptyTips.length === 0 && withTitle.length === 0 && rights.length <= 2,
+          `共 ${prefsRows.length} 行；行内超长=${longInline.length}（${longInline.map((x) => x.key).join(',') || '无'}）；气泡 ${tips.length} 个（空 ${emptyTips.length}）；原生 title=${withTitle.length}；控件右边缘=${rights.join('/')}`,
+        );
+      }
+      S().toggleUI('prefsOpen');
+      await wait(220);
 
       S().clearAll();
       await wait(240);

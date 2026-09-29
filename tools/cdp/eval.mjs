@@ -233,6 +233,43 @@ for (let i = 0; i < args.length; i += 1) {
   if (file) out[`改窗口后 ${w}x${h}`] = await evaluate(await runFile(file), `改窗口后 ${w}x${h}`);
 }
 
+/* --hover <选择器> [--hover-hold <毫秒>]：**真**把鼠标移到元素中心（CDP 派发受信任事件）——
+   用于验证"悬浮气泡/悬浮态"这类必须真实指针事件才出现的东西（合成 MouseEvent 委托层不认）。
+   可以放在 --shot 之前，用来拍下气泡弹出的样子。 */
+const hoverSel = argAfter('--hover');
+if (hoverSel) {
+  const hold = Number(argAfter('--hover-hold') ?? 900);
+  const box = await send('Runtime.evaluate', {
+    expression: `(() => { const el = document.querySelector(${JSON.stringify(hoverSel)}); if (!el) return null; const b = el.getBoundingClientRect(); return JSON.stringify({ x: Math.round(b.left + b.width / 2), y: Math.round(b.top + b.height / 2) }); })()`,
+    returnByValue: true,
+  });
+  const pos = box.result?.result?.value ? JSON.parse(box.result.result.value) : null;
+  if (!pos) {
+    console.error(`--hover: 找不到元素 ${hoverSel}`);
+  } else {
+    /* 先移到旁边再移进来（有些实现要"真的移动过"才触发），然后**多次微动** ——
+       静态停住不动的话，只依赖单次 mouseover 的实现可能不弹（真人鼠标总会有一点点抖动）。 */
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x - 40, y: pos.y - 40, buttons: 0 });
+    await sleep(100);
+    let tipText = '';
+    for (let i = 0; i < 10 && !tipText; i += 1) {
+      const jx = pos.x + (i % 3) - 1;
+      const jy = pos.y + (i % 2);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: jx, y: jy, buttons: 0 });
+      await sleep(Math.max(hold / 10, 120));
+      const tip = await send('Runtime.evaluate', {
+        expression: `(() => { const t = document.querySelector('[data-tooltip="1"], [role="tooltip"]'); return t ? (t.textContent || '').trim().slice(0, 80) : ''; })()`,
+        returnByValue: true,
+      });
+      tipText = tip.result?.result?.value || '';
+    }
+    /* 拍图前再保持一次移动 —— 让气泡稳定显示在鼠标右下 */
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pos.x, y: pos.y, buttons: 0 });
+    await sleep(220);
+    out['悬浮'] = { 选择器: hoverSel, 位置: pos, 气泡内容: tipText || '(没出现)' };
+  }
+}
+
 /* --shot [路径]：缺省落 var/shots（截图是"运行数据"，不进源码树） */
 if (wantShot) {
   const shotPath = shotArg
