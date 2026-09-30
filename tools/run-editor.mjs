@@ -63,8 +63,14 @@ if (!already) {
   }
   console.log(wantDev ? '▸ 启动开发态桌面版（apps/desktop）…' : `▸ 启动打包版桌面版：${packaged}`);
   const child = wantDev
-    ? spawn(process.execPath, [join(ROOT, 'node_modules', '.bin', 'electron.cmd'), '.'], { cwd: join(ROOT, 'apps', 'desktop'), env: childEnv, stdio: 'ignore', shell: true })
-    : spawn(packaged, [], { cwd: dirname(packaged), env: childEnv, stdio: 'ignore' });
+    ? spawn(process.execPath, [join(ROOT, 'node_modules', '.bin', 'electron.cmd'), '.'], {
+        cwd: join(ROOT, 'apps', 'desktop'),
+        env: childEnv,
+        stdio: 'ignore',
+        shell: true,
+        detached: true, // ★脱离本进程：脚本退出/被杀时窗口不被连带带走（DSH 的作业对象会杀整棵子进程树）
+      })
+    : spawn(packaged, [], { cwd: dirname(packaged), env: childEnv, stdio: 'ignore', detached: true });
 
   let up = false;
   for (let i = 0; i < 40 && !up; i += 1) {
@@ -77,6 +83,9 @@ if (!already) {
     process.exit(1);
   }
   console.log('✓ 真窗口已起：hub WS 37650 ✅  MCP HTTP 37651 ✅');
+  /* ★必须 unref：否则 Node 的事件循环会被这个长期运行的子进程吊住 ——
+     脚本"跑完不退"（实测卡了 10 分钟），调用方会以为它挂了。unref 之后脚本退出、窗口继续留着。 */
+  child.unref();
 } else {
   console.log('✓ 桌面版已经在跑（37650/37651 都在听），跳过启动');
 }
