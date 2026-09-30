@@ -1064,6 +1064,66 @@ async function interactionChecks(): Promise<Result[]> {
       );
     }
 
+    /* ★2026-09-30 用户报："首选项里的问号气泡不会消失，鼠标移走了气泡还在"。
+       修法：委托层在 `mousemove` 时校验"指针是否还在锚点范围内"，不在就收起 ——
+       覆盖指针直接移出窗口、锚点被重渲染/移除等**收不到 mouseout** 的情形。
+       这里就按那条路径测：只派 mousemove（**故意不派 mouseout**），气泡必须消失。 */
+    {
+      const host = document.querySelector('[data-tip-text]') as HTMLElement | null;
+      let shown = false;
+      let goneAfterMove = false;
+      if (host) {
+        const b = host.getBoundingClientRect();
+        host.dispatchEvent(
+          new MouseEvent('mouseover', { bubbles: true, clientX: Math.round(b.left + b.width / 2), clientY: Math.round(b.top + b.height / 2) }),
+        );
+        await wait(600);
+        shown = !!document.querySelector('[data-tooltip="1"]');
+        document.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 2, clientY: 2 }));
+        await wait(220);
+        goneAfterMove = !document.querySelector('[data-tooltip="1"]');
+      }
+      add(
+        '气泡：指针移开就消失（用户报"鼠标移走了气泡还在"；只派 mousemove 不派 mouseout，专测新兜底）',
+        !!host && shown && goneAfterMove,
+        `触发元素=${host ? host.tagName.toLowerCase() : '缺'}；先出现=${shown}；指针移开后消失=${goneAfterMove}`,
+      );
+    }
+
+    /* ★2026-09-30 用户报："提示气泡挡住菜单了"：委托层是 z-[9999]，比菜单（z-50/60）高，
+       鼠标停在「导出 ▸」上弹出的气泡会**盖住刚展开的子菜单**。
+       修法：锚点只要在菜单里就整条不弹（菜单项的名字本身就是动作，不需要解释），菜单项也不带解释文字。
+       ★不依赖"把真实菜单点开"（无头下点不开，会误报）：① 查菜单栏子树里没有 data-tip-text；
+         ② 临时造一个 `[data-menu-panel]` 子树，塞一个带 tip 的锚点进去悬停 → 断言**不弹**。 */
+    {
+      const menubarHasTip = !!document.querySelector('[data-menubar] [data-tip-text]');
+      const probePanel = document.createElement('div');
+      probePanel.setAttribute('data-menu-panel', 'selfcheck-probe');
+      probePanel.style.position = 'fixed';
+      probePanel.style.left = '8px';
+      probePanel.style.top = '8px';
+      probePanel.style.zIndex = '1';
+      const probeAnchor = document.createElement('span');
+      probeAnchor.setAttribute('data-tip-text', '自检临时：菜单里的锚点不该弹气泡');
+      probeAnchor.textContent = '菜单项';
+      probePanel.appendChild(probeAnchor);
+      document.body.appendChild(probePanel);
+      const r = probeAnchor.getBoundingClientRect();
+      const cx = Math.round(r.left + r.width / 2);
+      const cy = Math.round(r.top + r.height / 2);
+      probeAnchor.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: cx, clientY: cy }));
+      probeAnchor.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: cx, clientY: cy }));
+      await wait(620);
+      const noBubbleInMenu = !document.querySelector('[data-tooltip="1"]');
+      probePanel.remove();
+      await wait(160);
+      add(
+        '气泡不挡菜单：菜单栏子树里不挂解释文字，且**锚点在菜单里一律不弹**（造一个菜单子树实测）',
+        !menubarHasTip && noBubbleInMenu,
+        `菜单栏子树里有解释=${menubarHasTip}；菜单子树里悬停后弹了气泡=${!noBubbleInMenu}`,
+      );
+    }
+
     const bandBox = pagePanel?.querySelector('[data-band-editor="1"]') as HTMLElement | null;
     add(
       '页眉/页脚编辑区不溢出面板宽度',

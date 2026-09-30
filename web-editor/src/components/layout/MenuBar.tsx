@@ -144,7 +144,6 @@ export function MenuBar() {
       key: 'new',
       label: '新建…',
       shortcut: 'Ctrl+N',
-      tip: '先选模式（文档 / Web）再填参数；创建走一步历史，可 Ctrl+Z 撤销',
       // 先选模式再填参数（类似 PS 的新建）；创建走 importJSON → 一步历史，可 Ctrl+Z 撤销
       onClick: () => S().setNewDocOpen(true),
     },
@@ -152,7 +151,6 @@ export function MenuBar() {
       key: 'open',
       label: '打开项目…',
       shortcut: 'Ctrl+O',
-      tip: '打开 .editor.json 工程文件（可继续编辑）。要导入导出的 HTML 请用「导入组件 → 从本地 HTML 导入」',
       onClick: () => {
         void openJsonFile().then((msg) => {
           if (msg != null) setNotice(msg);
@@ -164,7 +162,6 @@ export function MenuBar() {
     {
       key: 'recent-sub',
       label: '最近打开',
-      tip: '桌面版点一下就重开（清单存在 userData/recent-docs.json）；浏览器里只记名字、点不开',
       submenu: [
         ...(recents.length
           ? recents.map((r) => ({
@@ -194,7 +191,6 @@ export function MenuBar() {
     {
       key: 'save-as-sub',
       label: '另存为',
-      tip: '把当前文档另存成别的形态：可独立打开的 HTML，或可再编辑的工程文件',
       submenu: [
         {
           /* M-10 + 决策 #12 / Q3：**「保存」= 保存为可独立打开的 HTML 文件**。
@@ -203,14 +199,12 @@ export function MenuBar() {
           key: 'save-html',
           label: 'HTML 文件',
           shortcut: 'Ctrl+S',
-          tip: '含 @page 版式，能独立在浏览器里打开（交付 / 预览用）',
           onClick: () => setNotice(saveAsHtmlFile()),
         },
         {
           key: 'save-json',
           label: '工程文件（.editor.json）',
           shortcut: 'Ctrl+Shift+S',
-          tip: '可再编辑的工程文件：以后用「文件 → 打开项目…」接着编',
           onClick: () => setNotice(exportJsonFile()),
         },
       ],
@@ -218,25 +212,21 @@ export function MenuBar() {
     {
       key: 'import-sub',
       label: '导入组件',
-      tip: 'HTML 会作为**整份文档**载入（按 data-node-type 精确识别、识别不了的按标签猜），不是单个组件',
       submenu: [
         {
           key: 'open-html',
           label: '从本地 HTML 导入…',
-          tip: '整份 HTML → 一份可编辑文档（含分页、按识别结果统计顶部组件数）',
           onClick: () => void openHtmlFile(),
         },
         {
           key: 'load-html-url',
           label: '从 URL 导入 HTML…',
-          tip: '跨域地址需要对方允许 CORS；本站页面 / 本站导出物没有这个限制',
           onClick: () => void loadHtmlFromUrl(),
         },
         { key: 'imp-sep', separator: true },
         {
           key: 'pkg-import',
           label: '导入组件包…',
-          tip: '.json 组件包：每个 .js 写回组件目录（启动器有 /__savePlugin 时持久化，否则仅本次会话注册）',
           onClick: importPluginPackage,
         },
       ],
@@ -247,14 +237,12 @@ export function MenuBar() {
     {
       key: 'export-sub',
       label: '导出',
-      tip: '交付物导出：HTML / PDF / Word / React 代码 / 组件说明清单',
       submenu: [
-        { key: 'html', label: '导出 HTML', tip: '与「另存为 → HTML 文件」同源（含 @page）', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
+        { key: 'html', label: '导出 HTML', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
         {
           /* E2 / 决策 #9：桌面版真产出文件（与导出 HTML 同源版式），浏览器版退回打印对话框 */
           key: 'pdf',
           label: '导出 PDF',
-          tip: '桌面版直接落盘成文件；浏览器版退回打印对话框（在打印里选"另存为 PDF"）',
           onClick: () => {
             void exportPdf().then((r) =>
               setNotice(
@@ -270,7 +258,6 @@ export function MenuBar() {
         {
           key: 'docx',
           label: '导出 Word（.docx）',
-          tip: '图片目前以占位符形式保留、页眉页脚与页码域未写入（历史限制，见 现状文档 L11）',
           onClick: () => {
             void import('../../utils/export/docx').then((m) => {
               const r = m.downloadDocx(S().doc, getForest(S().doc));
@@ -278,12 +265,11 @@ export function MenuBar() {
             });
           },
         },
-        { key: 'react', label: '导出 React 代码', tip: '把当前文档导成一个 React 组件（.tsx）', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
+        { key: 'react', label: '导出 React 代码', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
         {
           /* M-5：说明清单是**交付物**，原来在「帮助」里不合惯例 → 归到「文件 → 导出」。 */
           key: 'specsheet',
           label: '导出组件与属性说明清单',
-          tip: 'Markdown；桌面版写进运行目录并弹路径，浏览器版直接下载',
           onClick: () => {
             const text = buildComponentSpecSheet();
             void saveToRunDir('docs/组件与属性说明清单.md', text).then((r) => {
@@ -303,7 +289,6 @@ export function MenuBar() {
         {
           key: 'pkg-export',
           label: '导出组件包',
-          tip: `当前 ${getLiveTypes().length} 个外部组件；导出 .json（含源码），可在别的机器用「导入组件包」还原`,
           disabled: getLiveTypes().length === 0,
           onClick: exportPluginPackage,
         },
@@ -313,14 +298,12 @@ export function MenuBar() {
       key: 'print',
       label: '打印…',
       shortcut: 'Ctrl+P',
-      tip: '打印设置：A4、缩放 100%、边距「无 / 默认」、勾选「背景图形」',
       onClick: () => window.print(),
     },
     { key: 's3', separator: true },
     {
       key: 'quit',
       label: '退出',
-      tip: '桌面版退出编辑器；浏览器里请直接关闭标签页（未保存内容先用「另存为」导出）',
       onClick: () => {
         const d = desktopApi();
         if (d?.quit) {

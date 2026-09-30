@@ -75,6 +75,31 @@ export function Tooltip({
 
   const lines = content ? [content.name, content.keyText, ...(content.detail ?? [])].filter(Boolean).length : 0;
   const estH = 16 + lines * 17;
+  const visible = pos != null;
+
+  /**
+   * ★兜底隐藏（2026-09-30 修用户报的"鼠标移走了气泡还在"）：
+   * 只靠 `onMouseLeave` 不够 —— 指针直接移出窗口、锚点被重渲染/移除、或事件路径被遮挡时都不会触发 leave，
+   * 气泡就**赖在屏幕上**。这里在气泡可见期间盯住 document 的 mousemove：指针一旦离开触发元素的范围就收起。
+   */
+  useEffect(() => {
+    if (!visible) return;
+    const onDocMove = (e: MouseEvent): void => {
+      const r = wrapRef.current?.getBoundingClientRect();
+      if (!r || (r.width === 0 && r.height === 0)) {
+        clear();
+        return;
+      }
+      const inside = e.clientX >= r.left - 2 && e.clientX <= r.right + 2 && e.clientY >= r.top - 2 && e.clientY <= r.bottom + 2;
+      if (!inside) clear();
+    };
+    document.addEventListener('mousemove', onDocMove, true);
+    window.addEventListener('blur', clear);
+    return () => {
+      document.removeEventListener('mousemove', onDocMove, true);
+      window.removeEventListener('blur', clear);
+    };
+  }, [visible]);
 
   const place = (x: number, y: number): Pos => {
     const flipX = x + OFFSET + MAX_W > window.innerWidth;
@@ -210,7 +235,27 @@ export function TooltipLayer() {
     const targetOf = (node: EventTarget | null): Element | null =>
       node instanceof Element ? node.closest(`[${TIP_ATTR}]`) : null;
 
+    /**
+     * ★菜单里不弹气泡（2026-09-30 用户报"气泡挡住菜单了"）：
+     * 气泡层是 `z-[9999]`，比菜单（`z-50/60`）高，鼠标停在「导出 ▸」这类项上时气泡会**盖住刚展开的子菜单**。
+     * 菜单项的名字本身就是动作，不需要解释 —— 锚点在菜单里就整条不弹。
+     */
+    const inMenuChrome = (el: Element): boolean => !!el.closest('[data-menubar],[data-menu-panel],[data-menu]');
+
+    /** 指针是否还在锚点范围内（留 2px 余量）；锚点被移除/重渲染（isConnected=false）也算离开 */
+    const stillOnAnchor = (x: number, y: number): boolean => {
+      const el = anchor.current;
+      if (!el || !el.isConnected) return false;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return false;
+      return x >= r.left - 2 && x <= r.right + 2 && y >= r.top - 2 && y <= r.bottom + 2;
+    };
+
     const schedule = (el: Element, x: number, y: number): void => {
+      if (inMenuChrome(el)) {
+        clear();
+        return;
+      }
       if (anchor.current === el) return; // 同一元素（含其子元素间移动）不重排计时
       clear();
       anchor.current = el;
@@ -232,7 +277,16 @@ export function TooltipLayer() {
       }
       schedule(el, e.clientX, e.clientY);
     };
+    /**
+     * ★mousemove 是**兜底收口**（用户报"鼠标移走了气泡还在"）：
+     * 只靠 `mouseout` 会漏 —— 指针直接移出窗口、锚点被重渲染/移除、或从某个不吃事件的浮层上划过去都收不到 mouseout，
+     * 气泡就赖在屏幕上。这里每次都校验"指针是否还在锚点上"，不在就立刻收起（顺带覆盖计时未到就移开的情形）。
+     */
     const onMove = (e: MouseEvent): void => {
+      if (anchor.current && !stillOnAnchor(e.clientX, e.clientY)) {
+        clear();
+        return;
+      }
       const cur = stateRef.current; // ← 从 ref 读最新状态（不能闭包捕获 state，否则 effect 得依赖它）
       if (!cur) return; // 只在气泡已显示时跟随，避免高频 setState
       setState({ ...place(e.clientX, e.clientY, cur.lines.length), lines: cur.lines });
