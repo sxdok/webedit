@@ -49,8 +49,13 @@ export const DEFAULT_CONFIG = {
   update: {
     /** 预留的更新接口总开关 */
     enabled: true,
-    /** 更新服务器根地址（**换地址只改这里、重新加密一份 app-config.enc 即可**）*/
-    baseUrl: 'https://updates.example.com/visual-editor/',
+    /**
+     * 更新源根地址（**换地址只改这里 + `config/app-config.example.json`，再跑
+     * `node scripts/embed-key.mjs` 重新加密 `app-config.enc` 即可**）。
+     * 2026-09-30：接到 GitHub Releases —— `releases/latest/download/latest.json` 是"最新一条 release 的资产"，
+     * 所以每次发版把 `release/latest.json`（由 `scripts/make-update-manifest.mjs` 生成）当资产传上去就行。
+     */
+    baseUrl: 'https://github.com/sxdok/webedit/releases/latest/download/',
     /** 版本清单文件名，最终请求 <baseUrl><manifest> */
     manifest: 'latest.json',
     /** 通道，清单里可据此给不同通道不同版本 */

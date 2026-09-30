@@ -2479,10 +2479,13 @@ async function interactionChecks(): Promise<Result[]> {
         await wait(300);
         const panel = document.querySelector('[data-multi-select="1"]') as HTMLElement | null;
         const txt = panel?.textContent ?? '';
+        /* 2026-09-30 D16 审计：那句"—— 这里只显示可批量修改的属性"搬进了横幅的气泡（行内只留「已选中 N 个组件」），
+           所以这里改为断言**结构 + 气泡**，不再依赖行内文案。 */
+        const bannerTip = panel?.querySelector('[data-tip-text]')?.getAttribute('data-tip-text') ?? '';
         add(
-          '多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除）',
-          !!panel && txt.includes('批量修改') && txt.includes('位置与尺寸') && txt.includes('层级'),
-          panel ? `面板文本：${txt.slice(0, 40).replace(/\s+/g, ' ')}…` : '未渲染多选面板',
+          '多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除；"只显示可批量修改的属性"在横幅气泡里）',
+          !!panel && txt.includes('已选中') && bannerTip.includes('批量修改') && txt.includes('位置与尺寸') && txt.includes('层级'),
+          panel ? `面板文本：${txt.slice(0, 30).replace(/\s+/g, ' ')}…；横幅气泡：${bannerTip.slice(0, 30)}` : '未渲染多选面板',
         );
       } else {
         add('多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除）', false, '插入两个组件失败');
@@ -4618,6 +4621,10 @@ async function interactionChecks(): Promise<Result[]> {
 
     const exportSub = await openSub('文件', 'export-sub');
     await closeMenu();
+    const importSub = await openSub('文件', 'import-sub');
+    await closeMenu();
+    const saveAsSub = await openSub('文件', 'save-as-sub');
+    await closeMenu();
     const fileItems = await openMenu('文件');
     await closeMenu();
     add(
@@ -4626,10 +4633,41 @@ async function interactionChecks(): Promise<Result[]> {
       `导出 ▸：${exportSub.join(' / ') || '(打不开)'}`,
     );
     add(
-      '菜单：文件 → 有 HTML 载入入口（打开 HTML / 从 URL 载入，就是 ?load= 的可视化入口）',
-      fileItems.includes('open-html') && fileItems.includes('load-html-url'),
-      `含 open-html=${fileItems.includes('open-html')}、load-html-url=${fileItems.includes('load-html-url')}`,
+      '菜单：文件 → 有 HTML 载入入口（在「导入组件 ▸」里：从本地 HTML / 从 URL，就是 ?load= 的可视化入口）',
+      importSub.includes('open-html') && importSub.includes('load-html-url'),
+      `导入组件 ▸：${importSub.join(' / ') || '(打不开)'}`,
     );
+    /* ★2026-09-30 用户要求的"文件菜单按常见排版重排 + 去掉无意义描述"：
+       把**结构与文案**都钉住（键位顺序、分组、标签不含解释性括号、解释在 tip 里）。 */
+    {
+      /* 顶层行既有普通项（data-menu-item）也有子菜单触发器（data-menu-sub），按 **DOM 顺序**一起收；
+         注意 openMenu 是"点一下切换"，所以这次打开后就别再用 openMenuLabels（会把菜单点关）。 */
+      await openMenu('文件');
+      const rows = [...document.querySelectorAll('[data-menu-item],[data-menu-sub]')] as HTMLElement[];
+      const fileKeys = rows.map((el) => el.getAttribute('data-menu-item') ?? el.getAttribute('data-menu-sub') ?? '');
+      const labels = rows.map((el) => (el.textContent ?? '').trim());
+      await closeMenu();
+      const want = ['new', 'open', 'recent-sub', 'save-as-sub', 'import-sub', 'export-sub', 'print', 'quit'];
+      const order = want.filter((k) => fileKeys.includes(k));
+      const dirty = labels.filter((l) => /（免费|可再编辑|导入成组件|写回组件目录|当前 \d+ 个外部组件）/.test(l));
+      add(
+        '菜单：文件按常见排版分组（新建/打开项目/最近打开 · 另存为/导入组件 · 导出/打印/退出）',
+        order.length === want.length &&
+          fileKeys.indexOf('new') < fileKeys.indexOf('open') &&
+          fileKeys.indexOf('open') < fileKeys.indexOf('recent-sub') &&
+          fileKeys.indexOf('recent-sub') < fileKeys.indexOf('save-as-sub') &&
+          fileKeys.indexOf('save-as-sub') < fileKeys.indexOf('import-sub') &&
+          fileKeys.indexOf('import-sub') < fileKeys.indexOf('export-sub') &&
+          fileKeys.indexOf('export-sub') < fileKeys.indexOf('print') &&
+          fileKeys.lastIndexOf('quit') > fileKeys.indexOf('print'),
+        `文件菜单项（顺序）：${fileKeys.join(' / ')}`,
+      );
+      add(
+        '菜单：文案只留动作名（「导出 PDF」「另存为」「导入组件」…），解释性括号已进气泡',
+        dirty.length === 0 && labels.some((l) => l.includes('打开项目')) && !labels.some((l) => l.includes('免费')),
+        `可疑标签：${dirty.join(' / ') || '无'}；标签样例：${labels.slice(0, 6).join(' | ')}`,
+      );
+    }
 
     /* ★2026-09-29 用户报「鼠标放到导出上弹出正常，移到具体导出项时快速消失点不到」：
        钉住**宽限本身**（bug 的本质是"零延迟"）。合成事件只能验到这一步 ——
@@ -4638,12 +4676,13 @@ async function interactionChecks(): Promise<Result[]> {
        `tools/cdp/probes/menu-submenu.js --moves` 验证（走"导出→掠过组件包→折回导出面板→Word 项"，
        实测面板仍在且目标项可点到）。修复点见 Menu.tsx 的 CLOSE_DELAY_MS / SWITCH_DELAY_MS。 */
     {
+      /* 2026-09-30 菜单重排后，"下面紧跟另一个子菜单行"的一对变成 另存为 ▸ / 导入组件 ▸（原来 导出 ▸ / 组件包 ▸） */
       await openMenu('文件');
-      const trig = document.querySelector('[data-menu-sub="export-sub"]') as HTMLElement | null;
+      const trig = document.querySelector('[data-menu-sub="save-as-sub"]') as HTMLElement | null;
       trig?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await wait(240);
-      const panelBefore = !!document.querySelector('[data-menu-panel="export-sub"]');
-      const sib = document.querySelector('[data-menu-sub="pkg-sub"]') as HTMLElement | null;
+      const panelBefore = !!document.querySelector('[data-menu-panel="save-as-sub"]');
+      const sib = document.querySelector('[data-menu-sub="import-sub"]') as HTMLElement | null;
       const sibRect = sib?.getBoundingClientRect();
       const dip = sibRect
         ? { x: Math.round(sibRect.left + sibRect.width / 2), y: Math.round(sibRect.top + sibRect.height / 2) }
@@ -4651,9 +4690,9 @@ async function interactionChecks(): Promise<Result[]> {
       // 离开父项、指针落到兄弟子菜单行上（React 会同时触发它的 mouseenter → 就是原来"抢走"的那条路径）
       trig?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: dip.x, clientY: dip.y, relatedTarget: sib }));
       await wait(60);
-      const stillOpenAt60 = !!document.querySelector('[data-menu-panel="export-sub"]');
+      const stillOpenAt60 = !!document.querySelector('[data-menu-panel="save-as-sub"]');
       await wait(700);
-      const closedLater = !document.querySelector('[data-menu-panel="export-sub"]');
+      const closedLater = !document.querySelector('[data-menu-panel="save-as-sub"]');
       await closeMenu();
       add(
         '菜单：二级菜单有 hover 宽限（离开父项 60ms 内面板仍在；修前 21ms 就关 → 用户点不到）',
@@ -4711,12 +4750,9 @@ async function interactionChecks(): Promise<Result[]> {
     await closeMenu();
     const helpItems3 = await openMenu('帮助');
     await closeMenu();
-    const fileItems2 = await openMenu('文件');
-    await closeMenu();
     /* 子菜单内容先算出来（M-5 要用；也避免"先断言后声明"的 TDZ）。
-       `exportSub` 已在上面（docx 断言处）取过 —— 同一块作用域里只能声明一次。 */
-    const pkgSub = await openSub('文件', 'pkg-sub');
-    await closeMenu();
+       `exportSub` / `importSub` / `saveAsSub` 已在上面取过；2026-09-30 菜单重排后
+       原来的「组件包 ▸」拆成了「导入组件 ▸ 的 pkg-import」与「导出 ▸ 的 pkg-export」。 */
     const modeSub = await openSub('视图', 'mode-sub');
     await closeMenu();
     const modeEntryInView = await hasSub('视图', 'mode-sub');
@@ -4737,14 +4773,14 @@ async function interactionChecks(): Promise<Result[]> {
       `工具菜单项：${toolsItems.join(' / ')}`,
     );
     add(
-      'M-5：组件包与说明清单在「文件」（数据导入导出不属于"帮助"）—— 分别在 导出 ▸ / 组件包 ▸ 子菜单里',
-      exportSub.includes('specsheet') && pkgSub.includes('pkg-export') && pkgSub.includes('pkg-import') && !helpItems3.includes('pkg-export') && !helpItems3.includes('specsheet'),
-      `导出 ▸ 含 specsheet=${exportSub.includes('specsheet')}；组件包 ▸ 含 export/import=${pkgSub.includes('pkg-export')}/${pkgSub.includes('pkg-import')}；帮助含 pkg=${helpItems3.includes('pkg-export')}/spec=${helpItems3.includes('specsheet')}`,
+      'M-5：组件包与说明清单在「文件」（数据导入导出不属于"帮助"）—— 导入组件 ▸ / 导出 ▸ 里',
+      exportSub.includes('specsheet') && exportSub.includes('pkg-export') && importSub.includes('pkg-import') && !helpItems3.includes('pkg-export') && !helpItems3.includes('specsheet'),
+      `导出 ▸ 含 specsheet=${exportSub.includes('specsheet')}/pkg-export=${exportSub.includes('pkg-export')}；导入组件 ▸ 含 pkg-import=${importSub.includes('pkg-import')}；帮助含 pkg=${helpItems3.includes('pkg-export')}/spec=${helpItems3.includes('specsheet')}`,
     );
     add(
-      'M-10：文件里有「保存为 HTML 文件」与「导出 JSON…」（语义拆开，旧的「保存（导出 JSON）」不再存在）',
-      fileItems2.includes('save-html') && fileItems2.includes('save-json') && !fileItems2.includes('save'),
-      `文件菜单项：${fileItems2.join(' / ')}`,
+      'M-10：文件里有「另存为 ▸ HTML 文件 / 工程文件（.editor.json）」（语义拆开，旧「保存（导出 JSON）」不再存在）',
+      saveAsSub.includes('save-html') && saveAsSub.includes('save-json'),
+      `另存为 ▸：${saveAsSub.join(' / ') || '(打不开)'}`,
     );
     add(
       'M-12：视图里有「模式」入口（Ctrl+Shift+M 不再是"快捷键孤儿"）',
@@ -4759,14 +4795,19 @@ async function interactionChecks(): Promise<Result[]> {
 
     /* ── 子菜单（§7.3 的 导出 ▸ / 组件包 ▸ / 模式 ▸）：防止退回平铺 ── */
     add(
-      '子菜单：文件 → 导出 ▸ 含 HTML / React / Word / 说明清单',
-      ['html', 'react', 'docx', 'specsheet'].every((k) => exportSub.includes(k)),
+      '子菜单：文件 → 导出 ▸ 含 HTML / PDF / Word / React / 说明清单 / 组件包',
+      ['html', 'pdf', 'docx', 'react', 'specsheet', 'pkg-export'].every((k) => exportSub.includes(k)),
       `导出 ▸：${exportSub.join(' / ') || '(打不开)'}`,
     );
     add(
-      '子菜单：文件 → 组件包 ▸ 含 导出 / 导入',
-      pkgSub.includes('pkg-export') && pkgSub.includes('pkg-import'),
-      `组件包 ▸：${pkgSub.join(' / ') || '(打不开)'}`,
+      '子菜单：文件 → 导入组件 ▸ 含 本地 HTML / URL / 组件包（导入）',
+      importSub.includes('open-html') && importSub.includes('load-html-url') && importSub.includes('pkg-import'),
+      `导入组件 ▸：${importSub.join(' / ') || '(打不开)'}`,
+    );
+    add(
+      '子菜单：文件 → 另存为 ▸ 含 HTML 文件 / 工程文件（含 Ctrl+S 与 Ctrl+Shift+S 标注）',
+      saveAsSub.includes('save-html') && saveAsSub.includes('save-json'),
+      `另存为 ▸：${saveAsSub.join(' / ') || '(打不开)'}`,
     );
     add(
       '子菜单：视图 → 模式 ▸ 含 文档 / Web（编辑器实际只有两种模式；PPT 是组件类别，见 M-12 注）',

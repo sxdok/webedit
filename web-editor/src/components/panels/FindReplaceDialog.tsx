@@ -108,10 +108,10 @@ export function FindReplaceDialog() {
             placeholder="留空 = 删除命中的文字"
             className="h-7 min-w-0 flex-1 rounded border border-line bg-white px-2 text-xs outline-none focus:border-primary"
           />
-          <button type="button" data-find-replace="1" disabled={!hits.length || !query} onClick={replaceCurrent} className="flex h-7 flex-none items-center gap-1 rounded border border-line px-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-40">
+          <button type="button" data-find-replace="1" data-tip-text="替换当前这一处并跳到下一处；可 Ctrl+Z 撤销" disabled={!hits.length || !query} onClick={replaceCurrent} className="flex h-7 flex-none items-center gap-1 rounded border border-line px-2 text-xs text-gray-700 hover:bg-gray-100 disabled:opacity-40">
             <Replace className="h-3 w-3" /> 替换
           </button>
-          <button type="button" data-find-replace-all="1" disabled={!hits.length || !query} onClick={replaceAll} className="flex h-7 flex-none items-center gap-1 rounded border border-primary bg-primary/10 px-2 text-xs text-primary hover:bg-primary/20 disabled:opacity-40">
+          <button type="button" data-find-replace-all="1" data-tip-text="替换全部命中；按节点合并成若干步历史（可逐步撤销）。表格单元格按「a | b」序列化格式处理" disabled={!hits.length || !query} onClick={replaceAll} className="flex h-7 flex-none items-center gap-1 rounded border border-primary bg-primary/10 px-2 text-xs text-primary hover:bg-primary/20 disabled:opacity-40">
             <ReplaceAll className="h-3 w-3" /> 全部替换
           </button>
         </label>
@@ -138,9 +138,8 @@ export function FindReplaceDialog() {
             ))
           )}
         </div>
-        <p className="m-0 text-2xs text-gray-400">
-          替换会写进文档（可 Ctrl+Z 撤销）；「全部替换」按节点合并成若干步历史。表格单元格按 `a | b` 序列化格式处理。
-        </p>
+        {/* 原来这里有一整段内联说明（替换写进文档 / 全部替换的历史合并 / 表格单元格序列化格式）
+            → 已分别挂到上面两颗按钮的 data-tip-text（D16 审计 2026-09-30）。 */}
       </div>
     </Modal>
   );

@@ -298,7 +298,7 @@ export function NewDocDialog() {
                     成品尺寸 {pageW}×{pageH}mm
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-2" data-tip-text="单位 mm；上下 25.4 / 左右 31.7 是 Word 的默认页边距">
                   {(['top', 'right', 'bottom', 'left'] as const).map((k) => (
                     <Field key={k} label={{ top: '上', right: '右', bottom: '下', left: '左' }[k]}>
                       <input
@@ -313,7 +313,8 @@ export function NewDocDialog() {
                     </Field>
                   ))}
                 </div>
-                <p className="text-2xs text-gray-400">页边距单位 mm（上下 25.4 / 左右 31.7 是 Word 默认）。</p>
+                {/* 原来这里有一行内联说明「页边距单位 mm（上下 25.4 / 左右 31.7 是 Word 默认）。」
+                    → 已挂到上面这个栅格的 data-tip-text（D16 审计 2026-09-30）。 */}
               </>
             ) : (
               <>
@@ -367,8 +368,7 @@ export function NewDocDialog() {
             )}
 
             <p className="rounded bg-amber-50 px-2 py-1.5 text-2xs leading-5 text-amber-700">
-              创建后会「新增一页」（画布上方的分页标签），当前 {pageCount} 页保持不变；
-              新页的模式决定画布预览与右侧属性面板。
+              当前 {pageCount} 页保持不变
             </p>
           </div>
         )}
@@ -387,6 +387,7 @@ export function NewDocDialog() {
             <button
               type="button"
               data-new-doc-create="1"
+              data-tip-text="创建后会「新增一页」（画布上方的分页标签）；新页的模式决定画布预览与右侧属性面板"
               className="h-7 rounded-md bg-primary px-3 text-2xs text-white hover:opacity-90"
               onClick={create}
             >

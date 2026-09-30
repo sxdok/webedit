@@ -402,8 +402,10 @@ export function PreferencesDialog() {
           <RotateCcw className="h-3.5 w-3.5" /> 恢复默认设置
         </button>
         <span className="flex items-center gap-1.5 text-2xs text-gray-400">
-          <span>所有设置随「ui」持久化保存（刷新后保持），不影响文档内容与导出</span>
-          <InfoTip text="这些设置写在 localStorage 的 ui 里，与文档内容分开：恢复默认设置不会动你的文档，也不会动导出的结果" />
+          <span>设置随「ui」保存</span>
+          {/* 原来这里还有一整句内联说明（"所有设置随「ui」持久化保存…不影响文档内容与导出"），
+              与旁边这颗 ⓘ 讲的是同一件事 → 合并进气泡，行内只留短状态（D16 审计 2026-09-30）。 */}
+          <InfoTip text="写在 localStorage 的 ui 里，刷新后保持。与**文档内容分开**：恢复默认设置不会动你的文档，也不影响导出结果" />
         </span>
       </div>
     </Modal>

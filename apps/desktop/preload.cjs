@@ -41,6 +41,8 @@ const api = {
   checkUpdate: () => ipcRenderer.invoke('desktop:check-update'),
   /** 打开更新下载页（只有查到了新版本才有地址） */
   openDownload: () => ipcRenderer.invoke('desktop:open-download'),
+  /** 退出应用（文件 → 退出）；主进程走 app.quit()，会等 MCP 子进程收尾 */
+  quit: () => ipcRenderer.invoke('desktop:quit'),
   /** 用系统浏览器打开 http/https 链接（其它协议会被主进程拒绝） */
   openExternal: (url) => ipcRenderer.invoke('desktop:open-external', String(url)),
   openLogDir: () => ipcRenderer.invoke('desktop:open-log-dir'),

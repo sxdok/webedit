@@ -17,6 +17,14 @@ export interface MenuItem {
    * 有 `submenu` 时本项**不再触发 onClick**，鼠标悬停/聚焦时向右展开；靠近视口右缘自动向左翻。
    */
   submenu?: MenuEntry[];
+  /**
+   * 解释性说明 → **悬浮气泡**（`data-tip-text`，走全局委托层）。
+   * 设计规矩：菜单**标签只留动作名**（「导出 PDF」），把"为什么/有什么后果/什么格式"这类解释放这里；
+   * 例如 `导出 PDF` 的 tip 写「桌面版直接落盘；浏览器版退回打印对话框」。
+   * 注意：`disabled` 的项**不会**触发 hover（浏览器不给禁用按钮派发鼠标事件），
+   * 所以"为什么点不了"这种必须让对方看见的解释要留在 label 里。
+   */
+  tip?: string;
 }
 
 export type MenuEntry = MenuItem | { key: string; separator: true };
@@ -110,7 +118,7 @@ function SubMenu({ entry, onPicked }: { entry: MenuItem; onPicked: () => void })
         }`}
       >
         <span className="w-3 text-primary">{entry.checked ? '✓' : ''}</span>
-        <span className="flex-1 pr-3">{entry.label}</span>
+        <span className="flex-1 pr-3" data-tip-text={entry.tip ?? undefined}>{entry.label}</span>
         {entry.shortcut && <span className="flex-none text-2xs text-gray-400">{entry.shortcut}</span>}
         <span className="flex-none text-2xs text-gray-400">▸</span>
       </button>
@@ -147,7 +155,7 @@ function SubMenu({ entry, onPicked }: { entry: MenuItem; onPicked: () => void })
                 <span className="w-2 shrink-0">
                   {child.checked ? '✓' : child.danger ? '·' : ''}
                 </span>
-                <span className="flex-1 pr-3">{child.label}</span>
+                <span className="flex-1 pr-3" data-tip-text={child.tip ?? undefined}>{child.label}</span>
                 {child.shortcut && <span className="flex-none text-2xs text-gray-400">{child.shortcut}</span>}
               </button>
             ),
@@ -216,7 +224,7 @@ export function DropdownMenu({ label, items }: { label: string; items: MenuEntry
                 }`}
               >
                 <span className="w-3 text-primary">{entry.checked ? '✓' : ''}</span>
-                <span className="flex-1 pr-3">{entry.label}</span>
+                <span className="flex-1 pr-3" data-tip-text={entry.tip ?? undefined}>{entry.label}</span>
                 {entry.shortcut && <span className="flex-none text-2xs text-gray-400">{entry.shortcut}</span>}
               </button>
             ),

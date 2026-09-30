@@ -54,7 +54,15 @@ export function TableSortControl({ value, nodeId, onChange }: ControlProps) {
       </select>
       <Tooltip
         side="right"
-        content={{ name: '升序 / 降序', detail: ['按所选列排序；表格开了「首行为表头」时表头行不参与排序。', '排的是**渲染顺序**，`props.data` 里原始行序不变（单元格格式跟着行走）。'] }}
+        content={{
+          name: '升序 / 降序',
+          detail: [
+            '按所选列排序；表格开了「首行为表头」时表头行不参与排序。',
+            '排的是**渲染顺序**，props.data 里原始行序不变（单元格格式跟着行走）。',
+            // 原来这颗按钮自己还挂了 data-tip-text → 同处会弹两个气泡；并入这里（D16 审计 2026-09-30）
+            dir === 'asc' ? '当前升序，点击改降序' : '当前降序，点击改升序',
+          ],
+        }}
       >
         <button
           type="button"
@@ -62,7 +70,6 @@ export function TableSortControl({ value, nodeId, onChange }: ControlProps) {
           disabled={by < 0}
           onClick={() => updateProps(nodeId, { sortDir: dir === 'asc' ? 'desc' : 'asc' })}
           className={`${btnCls} disabled:opacity-40`}
-          data-tip-text={dir === 'asc' ? '当前升序，点击改降序' : '当前降序，点击改升序'}
         >
           {dir === 'asc' ? <ArrowUpAZ className="h-3 w-3" /> : <ArrowDownAZ className="h-3 w-3" />}
           {dir === 'asc' ? '升序' : '降序'}

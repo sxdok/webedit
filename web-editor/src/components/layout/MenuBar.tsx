@@ -92,18 +92,67 @@ export function MenuBar() {
     }
   };
 
+  /* ── 组件包：导入/导出（M-5：属于"文件"的数据导入导出，不归"帮助"）──
+     2026-09-30 从 JSX 里挪成具名处理器：菜单重排后它们被放进不同的分组，写在菜单里会重复。 */
+  const exportPluginPackage = (): void => {
+    void buildPluginPackage().then(({ pkg, errors }) => {
+      downloadText(packageFileName(), JSON.stringify(pkg, null, 2), 'application/json');
+      setNotice(
+        `已导出 ${pkg.plugins.length} 个组件的源码：\n${pkg.plugins.map((p) => `· ${p.name}（${p.code.length} 字符）`).join('\n')}` +
+          (errors.length ? `\n\n读取失败 ${errors.length} 个：${errors.map((e) => `${e.name}（${e.error}）`).join('、')}` : ''),
+      );
+    });
+  };
+  const importPluginPackage = (): void => {
+    void pickTextFile('.json,application/json').then(async (text) => {
+      if (text == null) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch (e) {
+        setNotice(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      const check = validatePluginPackage(parsed);
+      if (!check.ok) {
+        setNotice(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
+        return;
+      }
+      const r = await installPluginPackage(parsed as PluginPackage);
+      const reload = await loadRuntimeComponents(true);
+      S().bumpRegistry();
+      setNotice(
+        `组件包导入完成：写回组件目录 ${r.saved.length} 个` +
+          (r.runtime.length ? `、仅本次会话注册 ${r.runtime.length} 个` : '') +
+          (r.failed.length ? `、失败 ${r.failed.length} 个（${r.failed.map((f) => `${f.name}：${f.error}`).join('；')}）` : '') +
+          `\n重新加载外部组件：${reload.ok}/${reload.total}` +
+          (r.persisted ? '\n（已写盘，刷新后仍在）' : '\n（启动器没有 /__savePlugin 接口，或写盘失败 → 只在本会话生效，刷新会丢）'),
+      );
+    });
+  };
+
+  /**
+   * 文件菜单（2026-09-30 按"常见软件排版"重排，用户要求）：
+   *   新建… / 打开项目… / 最近打开 ▸ ····· 另存为 ▸ / 导入组件 ▸ ····· 导出 ▸ / 打印… / 退出
+   * 两条规矩：
+   *   ① **标签只留动作名**，解释性括号一律搬进 `tip`（气泡）—— 例：`导出 PDF（免费）` → `导出 PDF` + tip；
+   *   ② 分组用分隔线，不靠括号凑。
+   */
   const fileMenu: MenuEntry[] = [
+    /* ── 第一组：新建 / 打开 / 最近 ── */
     {
       key: 'new',
       label: '新建…',
       shortcut: 'Ctrl+N',
+      tip: '先选模式（文档 / Web）再填参数；创建走一步历史，可 Ctrl+Z 撤销',
       // 先选模式再填参数（类似 PS 的新建）；创建走 importJSON → 一步历史，可 Ctrl+Z 撤销
       onClick: () => S().setNewDocOpen(true),
     },
     {
       key: 'open',
-      label: '打开…（.editor.json）',
+      label: '打开项目…',
       shortcut: 'Ctrl+O',
+      tip: '打开 .editor.json 工程文件（可继续编辑）。要导入导出的 HTML 请用「导入组件 → 从本地 HTML 导入」',
       onClick: () => {
         void openJsonFile().then((msg) => {
           if (msg != null) setNotice(msg);
@@ -114,11 +163,13 @@ export function MenuBar() {
        浏览器版只记名字、条目置灰并说明"重开请用 打开…"——说清做不到，不给点了没反应的入口。 */
     {
       key: 'recent-sub',
-      label: `最近打开${recents.length ? `（${recents.length}）` : ''}`,
+      label: '最近打开',
+      tip: '桌面版点一下就重开（清单存在 userData/recent-docs.json）；浏览器里只记名字、点不开',
       submenu: [
         ...(recents.length
           ? recents.map((r) => ({
               key: `recent-${r.title}-${r.at}`,
+              // disabled 的菜单项**不会**触发 hover（浏览器不给禁用按钮派发鼠标事件）→ 原因必须写在标签上
               label: r.kind === 'name' ? `${r.title}（浏览器里点不开）` : r.title,
               disabled: r.kind === 'name',
               onClick: () => {
@@ -137,34 +188,73 @@ export function MenuBar() {
         },
       ],
     },
-    { key: 'open-html', label: '打开 HTML（导入成组件）…', onClick: () => void openHtmlFile() },
-    { key: 'load-html-url', label: '从 URL 载入 HTML…', onClick: () => void loadHtmlFromUrl() },
     { key: 's1', separator: true },
+
+    /* ── 第二组：另存为 / 导入组件 ── */
     {
-      /* M-10 + 决策 #12 / Q3：**「保存」= 保存为可独立打开的 HTML 文件**。
-         复用已有 `exportHTML()`（含 `@page`），不新造实现；Ctrl+S 也指到这里；
-         「保存到浏览器」那个含糊入口去掉（它的老用途——只读态自救——正好由这条承担）。 */
-      key: 'save-html',
-      label: '保存为 HTML 文件',
-      shortcut: 'Ctrl+S',
-      onClick: () => setNotice(saveAsHtmlFile()),
+      key: 'save-as-sub',
+      label: '另存为',
+      tip: '把当前文档另存成别的形态：可独立打开的 HTML，或可再编辑的工程文件',
+      submenu: [
+        {
+          /* M-10 + 决策 #12 / Q3：**「保存」= 保存为可独立打开的 HTML 文件**。
+             复用已有 `exportHTML()`（含 `@page`），不新造实现；Ctrl+S 也指到这里；
+             「保存到浏览器」那个含糊入口去掉（它的老用途——只读态自救——正好由这条承担）。 */
+          key: 'save-html',
+          label: 'HTML 文件',
+          shortcut: 'Ctrl+S',
+          tip: '含 @page 版式，能独立在浏览器里打开（交付 / 预览用）',
+          onClick: () => setNotice(saveAsHtmlFile()),
+        },
+        {
+          key: 'save-json',
+          label: '工程文件（.editor.json）',
+          shortcut: 'Ctrl+Shift+S',
+          tip: '可再编辑的工程文件：以后用「文件 → 打开项目…」接着编',
+          onClick: () => setNotice(exportJsonFile()),
+        },
+      ],
     },
     {
-      key: 'save-json',
-      label: '导出 JSON…（可再编辑的工程文件）',
-      shortcut: 'Ctrl+Shift+S',
-      onClick: () => setNotice(exportJsonFile()),
+      key: 'import-sub',
+      label: '导入组件',
+      tip: 'HTML 会作为**整份文档**载入（按 data-node-type 精确识别、识别不了的按标签猜），不是单个组件',
+      submenu: [
+        {
+          key: 'open-html',
+          label: '从本地 HTML 导入…',
+          tip: '整份 HTML → 一份可编辑文档（含分页、按识别结果统计顶部组件数）',
+          onClick: () => void openHtmlFile(),
+        },
+        {
+          key: 'load-html-url',
+          label: '从 URL 导入 HTML…',
+          tip: '跨域地址需要对方允许 CORS；本站页面 / 本站导出物没有这个限制',
+          onClick: () => void loadHtmlFromUrl(),
+        },
+        { key: 'imp-sep', separator: true },
+        {
+          key: 'pkg-import',
+          label: '导入组件包…',
+          tip: '.json 组件包：每个 .js 写回组件目录（启动器有 /__savePlugin 时持久化，否则仅本次会话注册）',
+          onClick: importPluginPackage,
+        },
+      ],
     },
     { key: 's2', separator: true },
+
+    /* ── 第三组：导出 / 打印 / 退出 ── */
     {
       key: 'export-sub',
       label: '导出',
+      tip: '交付物导出：HTML / PDF / Word / React 代码 / 组件说明清单',
       submenu: [
-        { key: 'html', label: '导出 HTML', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
+        { key: 'html', label: '导出 HTML', tip: '与「另存为 → HTML 文件」同源（含 @page）', onClick: () => downloadText(`${title || 'export'}.html`, S().exportHTML(), 'text/html') },
         {
-          /* E2 / 决策 #9：#PDF 免费** —— 桌面版真产出文件（与导出 HTML 同源版式），浏览器版退回打印对话框 */
+          /* E2 / 决策 #9：桌面版真产出文件（与导出 HTML 同源版式），浏览器版退回打印对话框 */
           key: 'pdf',
-          label: '导出 PDF（免费）',
+          label: '导出 PDF',
+          tip: '桌面版直接落盘成文件；浏览器版退回打印对话框（在打印里选"另存为 PDF"）',
           onClick: () => {
             void exportPdf().then((r) =>
               setNotice(
@@ -177,10 +267,10 @@ export function MenuBar() {
             );
           },
         },
-        { key: 'react', label: '导出 React 代码', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
         {
           key: 'docx',
           label: '导出 Word（.docx）',
+          tip: '图片目前以占位符形式保留、页眉页脚与页码域未写入（历史限制，见 现状文档 L11）',
           onClick: () => {
             void import('../../utils/export/docx').then((m) => {
               const r = m.downloadDocx(S().doc, getForest(S().doc));
@@ -188,10 +278,12 @@ export function MenuBar() {
             });
           },
         },
+        { key: 'react', label: '导出 React 代码', tip: '把当前文档导成一个 React 组件（.tsx）', onClick: () => downloadText(`${title || 'export'}.tsx`, S().exportReact(), 'text/plain') },
         {
           /* M-5：说明清单是**交付物**，原来在「帮助」里不合惯例 → 归到「文件 → 导出」。 */
           key: 'specsheet',
-          label: '导出组件与属性说明清单（Markdown）',
+          label: '导出组件与属性说明清单',
+          tip: 'Markdown；桌面版写进运行目录并弹路径，浏览器版直接下载',
           onClick: () => {
             const text = buildComponentSpecSheet();
             void saveToRunDir('docs/组件与属性说明清单.md', text).then((r) => {
@@ -207,63 +299,37 @@ export function MenuBar() {
             });
           },
         },
+        { key: 'exp-sep', separator: true },
+        {
+          key: 'pkg-export',
+          label: '导出组件包',
+          tip: `当前 ${getLiveTypes().length} 个外部组件；导出 .json（含源码），可在别的机器用「导入组件包」还原`,
+          disabled: getLiveTypes().length === 0,
+          onClick: exportPluginPackage,
+        },
       ],
     },
     {
-      /* M-5：组件包是**数据导入导出**，不是"帮助" → 归到「文件」。 */
-      key: 'pkg-sub',
-      label: '组件包',
-      submenu: [
-        {
-          key: 'pkg-export',
-          label: `导出组件包（当前 ${getLiveTypes().length} 个外部组件）`,
-          disabled: getLiveTypes().length === 0,
-          onClick: () => {
-            void buildPluginPackage().then(({ pkg, errors }) => {
-              downloadText(packageFileName(), JSON.stringify(pkg, null, 2), 'application/json');
-              setNotice(
-                `已导出 ${pkg.plugins.length} 个组件的源码：\n${pkg.plugins.map((p) => `· ${p.name}（${p.code.length} 字符）`).join('\n')}` +
-                  (errors.length ? `\n\n读取失败 ${errors.length} 个：${errors.map((e) => `${e.name}（${e.error}）`).join('、')}` : ''),
-              );
-            });
-          },
-        },
-        {
-          key: 'pkg-import',
-          label: '导入组件包（.json，写回组件目录）…',
-          onClick: () => {
-            void pickTextFile('.json,application/json').then(async (text) => {
-              if (text == null) return;
-              let parsed: unknown;
-              try {
-                parsed = JSON.parse(text);
-              } catch (e) {
-                setNotice(`不是合法 JSON：${e instanceof Error ? e.message : String(e)}`);
-                return;
-              }
-              const check = validatePluginPackage(parsed);
-              if (!check.ok) {
-                setNotice(`组件包未通过校验，已整包拒收：\n${check.errors.map((e) => `· ${e}`).join('\n')}`);
-                return;
-              }
-              const r = await installPluginPackage(parsed as PluginPackage);
-              const reload = await loadRuntimeComponents(true);
-              S().bumpRegistry();
-              setNotice(
-                `组件包导入完成：写回组件目录 ${r.saved.length} 个` +
-                  (r.runtime.length ? `、仅本次会话注册 ${r.runtime.length} 个` : '') +
-                  (r.failed.length ? `、失败 ${r.failed.length} 个（${r.failed.map((f) => `${f.name}：${f.error}`).join('；')}）` : '') +
-                  `\n重新加载外部组件：${reload.ok}/${reload.total}` +
-                  (r.persisted ? '\n（已写盘，刷新后仍在）' : '\n（启动器没有 /__savePlugin 接口，或写盘失败 → 只在本会话生效，刷新会丢）'),
-              );
-            });
-          },
-        },
-      ],
+      key: 'print',
+      label: '打印…',
+      shortcut: 'Ctrl+P',
+      tip: '打印设置：A4、缩放 100%、边距「无 / 默认」、勾选「背景图形」',
+      onClick: () => window.print(),
     },
     { key: 's3', separator: true },
-    /* 打印是"另存为 PDF"的通路；P4.5-E2 会在这里再加「导出 PDF【免费】」（桌面版走 printToPDF 真落盘） */
-    { key: 'print', label: '打印…', shortcut: 'Ctrl+P', onClick: () => window.print() },
+    {
+      key: 'quit',
+      label: '退出',
+      tip: '桌面版退出编辑器；浏览器里请直接关闭标签页（未保存内容先用「另存为」导出）',
+      onClick: () => {
+        const d = desktopApi();
+        if (d?.quit) {
+          void d.quit();
+          return;
+        }
+        setNotice('浏览器里没有"退出"：直接关闭这个标签页即可。\n（未保存的内容请先用 文件 → 另存为 导出）');
+      },
+    },
   ];
 
   const editMenu: MenuEntry[] = [
@@ -604,14 +670,25 @@ export function MenuBar() {
       </Modal>
 
       {/* 组件包导入 / 导出结果（B14） */}
-      <Modal open={notice != null} title="提示" onClose={() => setNotice(null)} width={620}>
-        <pre data-notice-msg="1" className="m-0 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-gray-700">
+      <Modal
+        open={notice != null}
+        title="提示"
+        onClose={() => setNotice(null)}
+        width={620}
+      >
+        {/* 原来标题下面**常驻**一段"包格式：editor-plugin-package/v1 · 导入会把 .js 逐个写回…"，
+            连"检查更新""MCP 状态"这类与本主题无关的提示也带着它 → 收进标题的悬浮气泡（D16 审计 2026-09-30）。 */}
+        <div className="flex items-center gap-1.5">
+          <span
+            className="text-2xs text-gray-400"
+            data-tip-text={`包格式：${PACKAGE_FORMAT} · 导入会把 .js 逐个写回组件目录（启动器 /__savePlugin），没有该接口时退化为"仅本次会话注册"`}
+          >
+            提示信息
+          </span>
+        </div>
+        <pre data-notice-msg="1" className="m-0 mt-1 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-gray-700">
           {notice ?? ''}
         </pre>
-        <p className="mt-3 text-2xs text-gray-400">
-          包格式：<code>{PACKAGE_FORMAT}</code> · 导入会把 <code>.js</code> 逐个写回组件目录（启动器
-          <code>/__savePlugin</code>），没有该接口时退化为"仅本次会话注册"。
-        </p>
       </Modal>
     </MenuBarShell>
   );

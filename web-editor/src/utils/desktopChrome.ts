@@ -96,6 +96,8 @@ export interface DesktopApi {
   onStatus: (fn: (s: DesktopStatus) => void) => () => void;
   checkUpdate: () => Promise<DesktopUpdateResult | null>;
   openDownload: () => Promise<{ ok: boolean; url?: string; error?: string }>;
+  /** 文件 → 退出（桌面版；浏览器里没有这个 API，菜单会给一句提示） */
+  quit: () => Promise<{ ok: boolean }>;
   openExternal: (url: string) => Promise<{ ok: boolean; error?: string }>;
   openLogDir: () => Promise<{ ok: boolean; path?: string; error?: string | null }>;
   openDataDir: () => Promise<{ ok: boolean; path?: string; error?: string | null }>;

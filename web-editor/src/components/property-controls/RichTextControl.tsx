@@ -119,9 +119,8 @@ export function RichTextControl({ item, value, onChange }: ControlProps) {
           data-placeholder={item.placeholder ?? '在此输入富文本…'}
         />
       </div>
-      <span className="mt-0.5 block text-2xs text-gray-400">
-        富文本：支持加粗/斜体/列表/对齐/链接/颜色，写入 HTML
-      </span>
+      {/* 原来这里有一句常驻说明「富文本：支持加粗/斜体/列表/对齐/链接/颜色，写入 HTML」——
+          工具条上 11 颗按钮各自已有 data-tip-text，这句属于重复（D16 审计 2026-09-30）→ 删掉。 */}
     </div>
   );
 }

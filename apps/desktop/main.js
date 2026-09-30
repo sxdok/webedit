@@ -739,6 +739,12 @@ function registerIpc() {
     return r ?? null;
   });
   ipcMain.handle('desktop:open-download', () => runtime.updater?.openDownload() ?? { ok: false, error: '更新器未初始化' });
+  /* 文件 → 退出（2026-09-30 按"常见软件排版"补的入口；preload 暴露成 desktopApi().quit()）。
+     走 app.quit() 而不是 window.close()：App 自己的 before-quit 里要做 MCP 子进程收尾。 */
+  ipcMain.handle('desktop:quit', () => {
+    setImmediate(() => app.quit());
+    return { ok: true };
+  });
   ipcMain.handle('desktop:open-external', (_e, url) => openExternal(String(url)));
   ipcMain.handle('desktop:open-log-dir', () => openPath(runtime.layout?.logDir));
   ipcMain.handle('desktop:open-data-dir', () => openPath(runtime.layout?.dataRoot));

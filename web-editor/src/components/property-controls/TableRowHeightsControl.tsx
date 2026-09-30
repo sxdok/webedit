@@ -9,7 +9,6 @@
 import { Rows3, Trash2 } from 'lucide-react';
 import { findNode, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
-import { asString } from '../../utils/id';
 import { parseTableData, parseRowHeights } from '../../registry/components/common/tableKit';
 import { btnCls } from './controlStyles';
 import type { ControlProps } from './index';
@@ -66,15 +65,18 @@ export function TableRowHeightsControl({ value, nodeId }: ControlProps) {
       <button
         type="button"
         data-row-heights-clear-all="1"
+        data-tip-text="清掉所有「单独改过的行高」，全部回到「行高」属性里的整表默认值"
         className={`${btnCls} ml-auto shrink-0`}
         onClick={() => write({})}
       >
         全部清除
       </button>
-      <span className="w-full text-2xs text-gray-400">
-        整表默认行高在「行高」属性里；这里只列被单独改过的行（共 {entries.length} 行
-        {rows.length ? ` / 全表 ${rows.length} 行` : ''}）
-        {asString(node?.props.rowHeight) ? `；未列出的行用默认 ${asString(node?.props.rowHeight)}` : ''}
+      {/* 行内只留读数；"整表默认在「行高」属性里 / 未列出的行用默认 X"这类解释挂到「全部清除」的气泡上 */}
+      <span
+        className="w-full text-2xs text-gray-400"
+        data-tip-text="整表默认行高在「行高」属性里；这里只列被单独改过的行"
+      >
+        共 {entries.length} 行{rows.length ? ` / 全表 ${rows.length} 行` : ''}
       </span>
     </div>
   );

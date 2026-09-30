@@ -25,7 +25,8 @@ export function EdgeControl({ value, onChange }: ControlProps) {
             key={k}
             type="number"
             data-edge={k}
-            data-tip-text={k}
+            /* 气泡写中文（原来直接把内部 key 当提示：top/right/bottom/left） */
+            data-tip-text={({ top: '上边距', right: '右边距', bottom: '下边距', left: '左边距' } as Record<string, string>)[k] ?? k}
             className="h-7 w-full min-w-0 rounded-md border border-line bg-white px-1 text-center text-xs tabular-nums outline-none focus:border-primary"
             value={asNumber(v[k])}
             onChange={(e) => set(k, Number(e.target.value))}

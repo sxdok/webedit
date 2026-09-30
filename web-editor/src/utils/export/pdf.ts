@@ -7,7 +7,7 @@
  *   · `preferCSSPageSize: true` + `printBackground: true` 由主进程设置（见 apps/desktop/main.js）；
  *   · 浏览器里拿不到"写文件"的能力 → 明确说清"已打开打印对话框，请选另存为 PDF"，不假装成功。
  *
- * 单一来源：菜单「文件 → 导出 → 导出 PDF（免费）」与 MCP 的 `export.pdf`（Live）都调这里。
+ * 单一来源：菜单「文件 → 导出 → 导出 PDF」与 MCP 的 `export.pdf`（Live）都调这里。
  */
 import { desktopApi } from '../desktopChrome';
 import { log } from '../logger';

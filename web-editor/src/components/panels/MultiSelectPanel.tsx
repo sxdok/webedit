@@ -46,8 +46,11 @@ export function MultiSelectPanel() {
 
   return (
     <div className="px-2.5 py-1.5" data-multi-select="1">
-      <div className="mb-2 rounded border border-line bg-primary/5 px-2 py-1 text-2xs text-primary">
-        已选中 <b>{ids.length}</b> 个组件 —— 这里只显示可**批量修改**的属性
+      <div
+        className="mb-2 rounded border border-line bg-primary/5 px-2 py-1 text-2xs text-primary"
+        data-tip-text="多选时只显示可批量修改的属性（每个抽屉会一次性作用到所有选中组件）"
+      >
+        已选中 <b>{ids.length}</b> 个组件
       </div>
 
       <PropertyDrawer name="位置与尺寸" open={open['位置与尺寸'] !== false} onToggle={() => setOpen((s) => ({ ...s, 位置与尺寸: s['位置与尺寸'] === false }))} hint="一次性作用到所有选中的组件（Web 模式）。">

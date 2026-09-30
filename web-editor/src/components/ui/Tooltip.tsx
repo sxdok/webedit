@@ -26,6 +26,20 @@ export interface TipContent {
   detail?: string[];
 }
 
+/**
+ * 气泡/提示条里的**极简富文本**：只认 `**加粗**`。
+ *
+ * 为什么需要：说明文案里常写 `**不会**`／`**第 N 行**` 来强调，但气泡是纯文本渲染，
+ * 于是星号**原样显示**（审计出 9 处：TableOverlay、TableSortControl、TableCellsControl、
+ * input 组件 description、tableKit、MarkdownDialog、MultiSelectPanel、MenuBar…）。
+ * 与其逐处删星号，不如让气泡认这一种标记 —— 故意**不做**通用 Markdown（那是另一个坑）。
+ */
+export function richText(text: string): ReactNode {
+  return String(text)
+    .split(/(\*\*[^*]+\*\*)/g)
+    .map((part, i) => (part.startsWith('**') && part.endsWith('**') && part.length > 4 ? <b key={i}>{part.slice(2, -2)}</b> : part));
+}
+
 interface Pos {
   x: number;
   y: number;
@@ -122,7 +136,7 @@ export function Tooltip({
           {content.keyText && <span className="block font-mono text-[10px] opacity-80">{content.keyText}</span>}
           {(content.detail ?? []).map((d, i) => (
             <span key={i} className="block opacity-95">
-              {d}
+              {richText(d)}
             </span>
           ))}
         </span>
@@ -262,7 +276,7 @@ export function TooltipLayer() {
     >
       {state.lines.map((d, i) => (
         <span key={i} className={i === 0 ? 'block font-semibold' : 'block opacity-95'}>
-          {d}
+          {richText(d)}
         </span>
       ))}
     </span>

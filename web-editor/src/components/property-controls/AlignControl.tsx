@@ -22,7 +22,8 @@ export function AlignControl({ value, onChange }: ControlProps) {
           key={v}
           type="button"
           data-align={v}
-          data-tip-text={v}
+          /* 气泡写中文（原来直接把内部 key 当提示，与 TableCellsControl 的「水平对齐：左」口径不一致） */
+          data-tip-text={({ left: '左对齐', center: '居中', right: '右对齐', justify: '两端对齐' } as Record<string, string>)[v] ?? v}
           onClick={() => onChange(v)}
           className={`${smallBtnCls} ${cur === v ? 'border-primary bg-primary/10 text-primary' : ''}`}
         >

@@ -465,8 +465,8 @@ export function PaperCanvas({
       <div className="no-print py-2 text-center text-2xs text-gray-400">
         纸张 {page.width}×{page.height}mm · {Math.round(w)}×{Math.round(h)}px @96DPI ·{' '}
         {page.orientation === 'portrait' ? '纵向' : '横向'} · 共 {slices.length} 页（拖动块可调整顺序）
-        <br />
-        打印设置：A4、缩放 100%、边距「无/默认」、勾选「背景图形」
+        {/* 原来这里还有一行「打印设置：A4、缩放 100%、边距「无/默认」、勾选「背景图形」」——
+            那是操作指引不是读数，已移进菜单「文件 → 打印…」的气泡（D16 审计 2026-09-30）。 */}
       </div>
     </div>
   );

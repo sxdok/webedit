@@ -19,7 +19,7 @@
   },
   "update": {
     "enabled": true,
-    "baseUrl": "https://updates.example.com/visual-editor/",
+    "baseUrl": "https://github.com/sxdok/webedit/releases/latest/download/",
     "manifest": "latest.json",
     "channel": "stable",
     "allowPrerelease": false,

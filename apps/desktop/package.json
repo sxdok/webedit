@@ -23,8 +23,9 @@
     "config:verify": "node ../../tools/secure-config/secure-config.mjs verify config/app-config.enc",
     "config:decrypt": "node ../../tools/secure-config/secure-config.mjs decrypt config/app-config.enc",
     "embed-key": "node scripts/embed-key.mjs",
-    "dist": "npm run bundle:mcp && electron-builder --win",
+    "dist": "npm run bundle:mcp && electron-builder --win && npm run update:manifest",
     "dist:dir": "npm run bundle:mcp && electron-builder --win --dir",
+    "update:manifest": "node scripts/make-update-manifest.mjs",
     "check:userdata": "node scripts/userdata-migration-check.mjs"
   },
   "devDependencies": {

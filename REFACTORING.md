@@ -2614,6 +2614,58 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 **顺带**：`tools/cdp/eval.mjs` 的 `--moves` 现在支持用**选择器**声明路径（`@selector±dx,±dy`），
 真实指针复现"从 A 划到 B 会经过什么"；新探针 `tools/cdp/probes/menu-submenu.js` 已登记进 `tools/cdp/README.md`。
 
+### 15.36 文件菜单重排 + 全界面提示收进气泡 + 更新通道接到 GitHub Release（用户 2026-09-30）
+
+**用户要求（四件事）**：① 在 GitHub 发布 release 并把更新链接到发布；② 整体检查菜单/属性/各界面提示是否都收进气泡；
+③ 去掉菜单里无意义的描述（例：`导出 PDF（免费）`）；④ 文件菜单按常见排版重排（新建/打开项目/最近打开 · 另存为/导入组件 · 打印/退出）；
+并问了一个语义问题：**"打开 HTML（导入成组件）"是完整项目还是单个组件？**
+
+**① 先回答那个问题（有代码为证）**：**是整份文档，不是单个组件**。`MenuBar.openHtmlFile()` → `importHtmlText()` →
+`utils/importDocument.importHtmlIntoEditor()` → `htmlImport.importHtmlToDocument()` 产出**一整份 `EditorDocument`**
+（含标题、模式判定、顶层组件/总组件数统计），再 `loadDocument(doc)` 载入编辑器。
+所以老标签「打开 HTML（导入成组件）」是**误导**：已改名 **「从本地 HTML 导入…」**，说明进气泡；真正的"导入组件"是组件包（`.json`）。
+
+**② 菜单与文案**（`MenuBar.tsx` 重写 `fileMenu`，175 → 240 行）
+
+| 分组 | 项 |
+|---|---|
+| 新建 / 打开 | `新建…`(Ctrl+N) · `打开项目…`(Ctrl+O) · `最近打开 ▸` |
+| 另存为 / 导入 | `另存为 ▸`（HTML 文件 Ctrl+S / 工程文件 .editor.json Ctrl+Shift+S）· `导入组件 ▸`（从本地 HTML / 从 URL / 导入组件包…） |
+| 输出 / 退出 | `导出 ▸`（HTML / PDF / Word(.docx) / React / 组件与属性说明清单 / 组件包）· `打印…`(Ctrl+P) · `退出` |
+
+- **标签只留动作名**：`导出 PDF（免费）`→`导出 PDF`、`导出 JSON…（可再编辑的工程文件）`→`另存为 ▸ 工程文件（.editor.json）`、
+  `导出组件包（当前 N 个外部组件）`→`导出组件包`；解释统一搬进 `MenuItem.tip`
+- **新增 `MenuItem.tip`**（`ui/Menu.tsx`），三处（顶层项 / 子菜单触发器 / 子项）渲染成 `data-tip-text` 气泡；
+  注释里写明一个坑：**`disabled` 的项不触发 hover**，所以"为什么点不了"必须留在标签里（最近打开里那条就是）
+- **新增「退出」**：桌面壳补 `desktop:quit` IPC（preload → `desktopApi().quit()` → `app.quit()`，走 before-quit 收 MCP）；
+  浏览器里同一项给一句说明
+
+**③ 提示收进气泡（按只读审计清单执行）**：审计结论"原生 `title` = **0 处**（达标）；另有 15 处该收进气泡"。本轮改了：
+首选项底部（与 ⓘ 重复的长句）、`TableSortControl`（按钮气泡与外层 Tooltip **双弹**）、`NewDocDialog`（创建说明 / 页边距单位）、
+`FindReplaceDialog`（替换与全部替换的说明）、`TableRowHeightsControl`、`RichTextControl`（与 11 颗按钮气泡重复）、
+`MultiSelectPanel`、`PaperCanvas` 的打印设置行（移进「打印…」气泡）、`AlignControl`/`EdgeControl` 的英文 key 气泡改中文；
+`MenuBar` 提示弹窗下**常驻**的"包格式…"脚注收进标题气泡。
+**顺带修一个跨面 bug**：气泡是纯文本渲染，`**加粗**` 会原样露星号（审计出 9 处）→ `Tooltip.tsx` 新增 `richText()`，
+只认 `**` 一种标记（故意不做通用 Markdown），React 版气泡与委托层都走它。
+
+**④ 更新通道 → GitHub Release**
+- `update.baseUrl` 改为 `https://github.com/sxdok/webedit/releases/latest/download/`（`app-config.example.json` + `secureConfig.js` 默认值），
+  用 `node scripts/embed-key.mjs` 重新加密 `config/app-config.enc`（用 `var/keys/config.key` 复用同一密钥），`decrypt` 复核过
+- 新增 `apps/desktop/scripts/make-update-manifest.mjs`：生成 `release/latest.json`（`version/publishedAt/notes/mandatory/minVersion/
+  download{url,sizeBytes,sha256}` + `portable`），已接进 `dist`（`electron-builder --win && npm run update:manifest`）
+- 新增 `tools/gh-release.mjs`：一条命令建 release + 传 3 个资产（幂等：已存在则复用、同名资产先删再传）；
+  token 从 `GITHUB_TOKEN` 或 `var/.gh-token` 读（**不打印**）；`--dry-run` 可先看要传什么
+- `release/notes-0.3.0.md`：本版的 release 正文
+
+**质量闸门**：页面自检 **329/329**（+3 条：文件菜单分组顺序、文案不含解释性括号、另存为 ▸ 子菜单）；
+根 `npm run verify` **97/97**；打包版 `--selftest` 见 §15.34 口径。
+
+**★本轮又踩到一个坑（值得记）**：`npm run dist` 报 `app-builder.exe process failed ERR_ELECTRON_BUILDER_CANNOT_EXECUTE`，
+日志里其实是 Go panic，真因是 **`remove release\win-unpacked\chrome_100_percent.pak: Access is denied`** ——
+我先前跑的 `webedit.exe --selftest` 留了 **5 个僵尸 `webedit.exe` 占着 `release/win-unpacked`**。
+**处理**：只针对 `release/` 目录下的 webedit 进程 `Stop-Process`（绝不动用户进程），再打包即成功。
+下次遇到 `ERR_ELECTRON_BUILDER_CANNOT_EXECUTE` 先看日志里有没有 `Access is denied` 与占用的进程。
+
 ---
 
 ## 第 16 章 数据迁移指南
