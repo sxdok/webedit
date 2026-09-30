@@ -2666,6 +2666,71 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 **处理**：只针对 `release/` 目录下的 webedit 进程 `Stop-Process`（绝不动用户进程），再打包即成功。
 下次遇到 `ERR_ELECTRON_BUILDER_CANNOT_EXECUTE` 先看日志里有没有 `Access is denied` 与占用的进程。
 
+### 15.37 修 Web 模式换父级的坐标错位（用户：卡片内容器「复制→拖动→调整目录树」后跑到卡片外）
+
+**用户报告**（附 `D:\Desktop\web.json`）：Web 模式下选中**卡片内的容器** → 复制 → 拖动 → **调整目录树** → 容器的位置偏移到卡片外。
+
+**复现用的真实结构**（用户那份工程）：
+`container con_8f94aa5798(96,24,688,416) > card car_e7f02fc782(352,32,320,200) > container n_99d313f778(16,56,136,96)`，
+另有根级 `card(120,56,320,200)`。容器 A 的世界坐标 = 96+352+16, 24+32+56 = **(464,112)**。
+
+**两个根因（同一类错误的两处）**：Web 模式子组件的 `frame` 是**相对父容器**的局部坐标。
+① `ComponentTree.handleDrop` 的「拖进容器」`S.reparentComponent(dragId, target.id)` —— **只改树、不换算 frame**；
+   before/after 落点也可能换父级（`parentId = findParentId(target)`），同样没换算。
+   （画布拖拽那条路**早就做了换算**，`useCanvasInteraction` 里还有注释警告"只改树结构的话它会按原画布坐标跑到容器外" —— 目录树这条路漏了。）
+② `store.pasteClipboard`（Ctrl+V）：frame 用的是**老父级的局部坐标**（+24），却把节点插到**画布根**
+   （`insertNode(forest, copy, null, …)`）→ 卡片里的容器 (16,56) 被当成画布坐标，直接出卡片。
+   用户说的"复制"很可能就是这一步。
+
+**修法（把这段数学收敛成一处，任何入口都不会再漏）**：
+- `store/treeUtils.ts`：
+  · `absoluteFrame()` **从 `components/canvas/WebCanvas.tsx` 下沉过来**（store 也要用它，反向 import 组件目录会破坏分层）；
+  · 新增 `frameOnReparent(forest, id, newParentId)` —— 返回"**绝对坐标不变**"的新局部 frame（并夹在父容器内；
+    移到画布根时局部坐标＝画布坐标）。
+- `store.moveComponent`：**父级变了**就套用 `frameOnReparent`（覆盖目录树 before/after 跨父级、画布重排等所有入口）。
+- `store.reparentComponent`：调用方给了 frame 就照用（画布路径带夹取后的坐标），**没给就自己算**（目录树「拖进容器」）。
+- `store.pasteClipboard`：粘到**源节点原父级**（与「原地复制」一致），frame 保持局部的 +24；
+  源已不存在（剪切后粘贴）才退化为画布根。
+- `useCanvasInteraction`：画布那条路也改调 `frameOnReparent`，两条路共用同一函数。
+- 顺手清理：`duplicateComponent` 里那句 `forest.filter((n) => n.id === id).length ? forest : forest`（**永远返回 forest 的空操作**）
+  与只为一处服务的 `findParentIdOf` 死代码 → 改成统一的"同父级、插在源节点后面"。
+- `ComponentTree` 行上加 `data-tree-node={node.id}`（自检要能"按节点"找行来模拟拖拽）。
+
+**新增 5 条自检断言**（页自检 329 → **334/334**；都同时用 **store 绝对坐标** 与 **渲染出来的 DOM 框**两把尺子）：
+① 目录树「拖进容器」到**覆盖原位置**的容器 → 绝对坐标 ±1 不变 + DOM 框在容器内；
+② 拖进**装不下原位置**的容器 → 允许夹取，但 **DOM 框必须仍在容器内**（用户看到的现象就是这个的反面）；
+③ before/after 跨父级 → 世界坐标可达时同样不变 + 在容器内；
+④ **Ctrl+C/Ctrl+V** 粘嵌套节点 → 粘在同一父级 + DOM 框在父容器内（修前粘到画布根 → 出卡片）；
+⑤ 原地复制 → 复制件同父级 + 在父容器内。
+断言里的目录树拖拽是**合成 DragEvent 走 `ComponentTree.handleDrop` 真实路径**（dragstart → dragover 定 zone → drop）。
+
+### 15.38 图片组件六项优化 + 行排版模式（用户 2026-09-30）
+
+**用户要求**：① 加行的 ＋ **保持位置不动**；② 点出 − 后 **− 排在 ＋ 前面**；③ **快速连点 ＋ 能快速加行**；
+④ **多选图片**（有几行就能选几张，自动填充到新加行）；⑤ 图片信息**显示图片名称**；
+⑥ 鼠标悬停弹**气泡显示完整名称**；⑦ 排版增加**行排版模式**（现在只有"列超过边距自动增加行"）。"之前没完成的继续"。
+
+**实现**（三处，数据格式向后兼容）：
+
+| 文件 | 改动 |
+|---|---|
+| `components/property-controls/pickImageFile.ts` | 新增 `pickImages()`（`multiple`）→ 按**用户选择顺序**回传 `{name, dataUrl}[]`（FileReader 异步，用 `Promise.all` 保序）；老的 `pickImageDataUrl()` 保留 |
+| `components/property-controls/ImageRowsControl.tsx` | ① 操作列改**固定宽 52px**（`[−][＋]`，行数 1 时 − 仍占位 `invisible`）→ 连点 ＋ 时位置不动；② **− 排在 ＋ 前**（DOM 顺序 + x 坐标）；③ 写操作走 `rowsRef`（不再依赖本次渲染闭包）→ **同步连点 3 次 = 加 3 行**；④ ▩ 改多选，新增**纯函数** `fillRowsWithPicks()`（先填空行 → 不够按需补行到 5 → 超出丢弃）；⑤ 行内显示**文件名**（截断）；⑥ 该名称挂 `data-tip-text` → 悬停气泡显示完整名称；⑦ 新增 `props.imageNames`（一行一个、与 `images` 行对齐，和 `imageRotations` 同一套路） |
+| `registry/components/common/image.tsx` | 新增 `props.imageLayout`（`flow` 默认 / `grid`），schema 里是 select「排版模式（多张）」；渲染：`flow` = 老行为（按列、自身比例、自动换行），**`grid` = 行排版**（每格 `aspect-ratio: 4/3` + `object-fit: cover` → **每行等高等宽、超出裁切**）；多图容器加 `data-gallery-layout`；`alt` 优先用文件名 |
+
+**数据格式**：`props.images` 保持"多行文本"不变（MCP / HTML 导入 / 老文档零影响）；新增的按行字段遵循
+"一行一个、与行号对齐"（`imageRotations` 已有、`imageNames` 新增）。旧文档没有这两个字段 → 空值，行为同前。
+
+**新增 6 条自检断言**（都用**可观测的量**：DOM 顺序、x 坐标、行数、渲染 style、纯函数返回值）：
+① − 在 ＋ 前（DOM 顺序 + `left` 比较）；② 同步连点 ＋ 3 次 → 行数 +3（不丢点击）；
+③ 连点后 **＋ 的 `left/top` 不变**（±1px，"位置不动"）；④ `fillRowsWithPicks` 纯函数：3 行+3 张按序填满、
+1 行+3 张自动补到 3 行、3 行+6 张补到 5 行且丢弃 1 张；⑤ 名称显示 + `data-tip-text` = 完整名称；
+⑥ schema 有 `imageLayout`，切 `grid` 后 `data-gallery-layout="grid"` 且 `img` 的 style 含 `aspect-ratio: 4 / 3` + `object-fit: cover`。
+另把"图片行排版"那条既有断言更新为：**− 只是占位（`invisible`）**而不是"不渲染"。
+
+**未覆盖（如实记）**：HTML 导入（`utils/htmlImport`）不还原 `imageLayout`/`imageNames`（导入后按默认 flow 渲染）；
+需要的话下一轮补（导入时按 `data-gallery-layout` 读回即可）。
+
 ---
 
 ## 第 16 章 数据迁移指南

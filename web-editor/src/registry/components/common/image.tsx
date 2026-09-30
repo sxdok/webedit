@@ -39,6 +39,8 @@ export interface ImageItem {
   caption: string;
   /** 这张图的旋转角度（0/90/180/270…，顺时针；用户 2026-09-24：每行图片单独可旋转） */
   rot?: number;
+  /** 文件名（2026-09-30：面板显示 + 悬停气泡；也用作渲染时的 alt） */
+  name?: string;
 }
 
 /**
@@ -59,8 +61,12 @@ export function parseImageRotations(raw: unknown): number[] {
  * ★顺序不能反：`imageRotations` 是按"面板里的行号"存的，必须先在**行**上配对，再和 `images` 一起丢掉空行，
  *   否则中间空一行就会把后面所有图的角度错位一格。
  */
-export function parseImageItems(images: unknown, rotations: unknown): ImageItem[] {
+export function parseImageItems(images: unknown, rotations: unknown, names?: unknown): ImageItem[] {
   const rots = parseImageRotations(rotations);
+  /* 文件名同样"按行对齐"（与 imageRotations 一个口径）：先按行号配对，再丢掉空行 */
+  const nameList = String(names ?? '')
+    .split(/\r?\n/)
+    .map((l) => l.trim());
   const out: ImageItem[] = [];
   String(images ?? '')
     .split(/\r?\n/)
@@ -70,7 +76,7 @@ export function parseImageItems(images: unknown, rotations: unknown): ImageItem[
       const j = l.indexOf('|');
       const src = (j < 0 ? l : l.slice(0, j)).trim();
       if (src === '') return;
-      out.push({ src, caption: j < 0 ? '' : l.slice(j + 1).trim(), rot: rots[i] ?? 0 });
+      out.push({ src, caption: j < 0 ? '' : l.slice(j + 1).trim(), rot: rots[i] ?? 0, name: nameList[i] || '' });
     });
   return out;
 }
@@ -104,6 +110,8 @@ export function renderImageGallery(
     columns: number;
     gap: number;
     widthPct?: number;
+    /** 多图排版模式：`flow`=按列自适应换行（默认，老行为）；`grid`=行排版（每行等高等宽、超出裁切） */
+    layout?: 'flow' | 'grid';
     /** 单图模式的 mm 宽度（文档模式）与 px 宽度（Web 模式） */
     singleWidthMm: number;
     singleWidthPx: number;
@@ -170,13 +178,19 @@ export function renderImageGallery(
     );
   }
 
-  /* ── 多图（网格）── */
+  /* ── 多图 ──
+     `imageLayout`：
+       · `flow`（默认，沿用老行为）：按列数排，每张按**自身比例**，列超过边距自动换行；
+       · `grid`（用户 2026-09-30 要的"行排版模式"）：每行 `cols` 张、**每张等宽等高**（统一 4:3、超出裁切），
+         行与行对齐成整齐图集 —— 与 flow 的差别就在"高度一致 + 裁切填满"这两点上。 */
   const cols = Math.min(Math.max(1, Math.round(opts.columns)), 5);
+  const grid = opts.layout === 'grid';
   return (
     <div data-width-box="1" style={{ width: `${opts.widthPct ?? 100}%`, boxSizing: 'border-box' }}>
       <div
         data-image-gallery="1"
         data-gallery-columns={cols}
+        data-gallery-layout={grid ? 'grid' : 'flow'}
         style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: opts.gap }}
       >
         {items.map((it, i) => (
@@ -188,14 +202,16 @@ export function renderImageGallery(
             {it.src ? (
               <img
                 src={it.src}
-                alt={it.caption || ''}
+                alt={(it.name || it.caption || '').trim()}
                 style={{
                   width: '100%',
                   display: 'block',
                   borderRadius: opts.radius,
                   border,
-                  height: opts.heightAuto ? 'auto' : opts.height,
-                  objectFit: 'contain',
+                  /* 行排版：统一 4:3 + cover（高度一致）→ 每行对齐；否则按老行为（自身比例 / 指定高度 + contain） */
+                  ...(grid
+                    ? { aspectRatio: '4 / 3', height: 'auto', objectFit: 'cover' as const }
+                    : { height: opts.heightAuto ? 'auto' : opts.height, objectFit: 'contain' as const }),
                   ...rotateStyle(it.rot),
                 }}
               />
@@ -220,9 +236,14 @@ export function renderImageGallery(
 }
 
 function ImageBody(props: ComponentProps, ctx: RenderContext) {
-  const gallery = parseImageItems(props.images, props.imageRotations);
+  const gallery = parseImageItems(props.images, props.imageRotations, props.imageNames);
   const single: ImageItem[] = [
-    { src: asString(props.src), caption: asString(props.caption), rot: parseImageRotations(props.imageRotations)[0] ?? 0 },
+    {
+      src: asString(props.src),
+      caption: asString(props.caption),
+      rot: parseImageRotations(props.imageRotations)[0] ?? 0,
+      name: String(props.imageNames ?? '').split(/\r?\n/)[0]?.trim() || '',
+    },
   ];
   const items = gallery.length ? gallery : single;
   return renderImageGallery(items, {
@@ -230,6 +251,7 @@ function ImageBody(props: ComponentProps, ctx: RenderContext) {
     columns: asNumber(props.columns, 2),
     gap: asNumber(props.gap, 10),
     widthPct: asNumber(props.galleryWidth, 100),
+    layout: asString(props.imageLayout, 'flow') === 'grid' ? 'grid' : 'flow',
     singleWidthMm: asNumber(props.width, 84),
     singleWidthPx: asNumber(props.width, 320),
     heightAuto: asBool(props.heightAuto, true),
@@ -259,10 +281,14 @@ export const imageComponent: ComponentDefinition = {
     images: '',
     /** 每行图片的旋转角度（一行一个，与 images 的行一一对齐；由面板里每行的 ◌ 按钮写） */
     imageRotations: '',
+    /** 每行图片的**文件名**（一行一个，与 images 的行一一对齐；选文件时记下，面板显示 + 悬停气泡 + alt） */
+    imageNames: '',
     /** ↓ 老字段：只作老文档/老 MCP 调用的兜底，面板不再显示；`caption` 在多张时是"整组图题" */
     src: '',
     caption: '',
     columns: 2,
+    /** 多图排版模式：flow=按列自适应换行（默认，老行为）；grid=行排版（每行等高等宽、超出裁切） */
+    imageLayout: 'flow',
     gap: 10,
     galleryWidth: 100,
     alt: '',
@@ -282,10 +308,22 @@ export const imageComponent: ComponentDefinition = {
        老文档里的 `src`/`caption` 仍在渲染端兜底，并在面板里当作第 1 行显示（见 ImageRowsControl）。 */
     {
       key: 'images',
-      label: '图片（一行一张，最多 5 张；＋ 加行 / − 减行）',
+      label: '图片（一行一张，最多 5 张；＋ 加行 / − 减行；▩ 可一次多选）',
       control: 'imageRows',
       group: '内容',
       defaultValue: '',
+    },
+    {
+      /* 2026-09-30 用户要的"行排版模式"：与"按列自适应换行"并列成一个可选模式 */
+      key: 'imageLayout',
+      label: '排版模式（多张）',
+      control: 'select',
+      group: '排版',
+      defaultValue: 'flow',
+      options: [
+        { value: 'flow', label: '按列自适应换行（默认）' },
+        { value: 'grid', label: '行排版：每行等高等宽' },
+      ],
     },
     { key: 'columns', label: '列数（多张时生效，最多 5 列）', control: 'number', group: '尺寸', defaultValue: 2, min: 1, max: 5 },
     { key: 'gap', label: '图间距 px（多张）', control: 'number', group: '尺寸', defaultValue: 10, min: 0, max: 80 },

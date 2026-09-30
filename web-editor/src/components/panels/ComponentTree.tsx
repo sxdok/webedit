@@ -86,6 +86,8 @@ export function ComponentTree() {
             <div
               key={node.id}
               data-tree-row="1"
+              /* 行上带节点 id：自检要能"按节点"找到行来模拟拖拽（原来只能按顺序猜） */
+              data-tree-node={node.id}
               draggable
               onDragStart={(e) => {
                 setDragId(node.id);

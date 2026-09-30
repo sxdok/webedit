@@ -8,8 +8,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import type { ComponentNode, Frame } from '../../registry/types';
 import { getComponent } from '../../registry';
 import { useEditorStore } from '../../store/editorStore';
-import { findNode, findParentId, getForest } from '../../store/treeUtils';
-import { absoluteFrame } from './WebCanvas';
+import { findNode, findParentId, frameOnReparent, getForest } from '../../store/treeUtils';
 import type { HandleDir } from './ResizeHandles';
 import { DRAG_MIME } from '../panels/ComponentPanel';
 
@@ -448,26 +447,15 @@ export function useCanvasInteraction(opts: CanvasInteractionOptions): CanvasInte
         if (s.moved) {
           // Web 模式：拖到容器上方 → 落入容器（成为子元素）
           const target = containerAt(e.clientX, e.clientY);
-          const parentId = findParentId(getForest(store.doc), s.primaryId);
+          const forest = getForest(store.doc);
+          const parentId = findParentId(forest, s.primaryId);
           if (target && target !== parentId && !s.frames.has(target)) {
-            /* ★换父级必须同时把坐标换算成"相对新容器"的，并夹在容器内：
-               子组件坐标是相对父容器的，只改树结构的话它会按原画布坐标跑到容器外
-               （容器裁剪后直接看不见）。这里用绝对框相减得到新局部坐标，一次提交。 */
-            const forest = getForest(store.doc);
-            const childAbs = absoluteFrame(forest, s.primaryId);
-            const parentAbs = absoluteFrame(forest, target);
-            const parentFrame = findNode(forest, target)?.frame;
-            if (childAbs && parentAbs && parentFrame) {
-              const frame = {
-                x: Math.round(clampTo(childAbs.x - parentAbs.x, parentFrame.w - childAbs.w)),
-                y: Math.round(clampTo(childAbs.y - parentAbs.y, parentFrame.h - childAbs.h)),
-                w: childAbs.w,
-                h: childAbs.h,
-              };
-              store.reparentComponent(s.primaryId, target, frame);
-            } else {
-              store.reparentComponent(s.primaryId, target);
-            }
+            /* ★换父级必须同时把坐标换算成"相对新容器"的（子组件坐标是相对父容器的，
+               只改树结构的话它会按原画布坐标跑到容器外、被容器裁剪后直接看不见）。
+               2026-09-30：这段数学已收敛到 `frameOnReparent()` —— 目录树那条路原来漏了它（用户报的偏移 bug），
+               现在两条路共用同一个纯函数，不会再漂移。算不出来（无 frame）时交给 store 自己算。 */
+            const frame = frameOnReparent(forest, s.primaryId, target) ?? undefined;
+            store.reparentComponent(s.primaryId, target, frame);
           }
         }
       }

@@ -169,6 +169,13 @@ const send = (method, params = {}) =>
 
 await send('Page.enable');
 await send('Runtime.enable');
+/* ★页面必须被当成"前台可见"（2026-09-30 实测）：
+   无头 Edge 里 `document.visibilityState` 会是 `hidden`，而 Chrome 对**后台标签**会节流定时器/暂停
+   `requestAnimationFrame` —— 编辑器里有依赖 rAF 的渲染与自检报告的增量刷新（见 selfCheck 的 finish 两段式），
+   于是出现"页面明明在跑、探针却只看到阶段性结果 / 超时"的假象（排查了很久）。
+   这里显式把页面提到前台 + 打开焦点模拟，让 rAF 与定时器按正常节奏跑。 */
+await send('Page.bringToFront');
+await send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined);
 
 /* ── 等"真的就绪"：不再盲等固定秒数（那既慢又不稳） ── */
 const readyExpr = `(document.readyState === 'complete') && !!document.querySelector('#root') && document.querySelector('#root').children.length > 0`;

@@ -24,10 +24,14 @@ import {
 } from '../registry/types';
 import { getComponent } from '../registry';
 import {
+  absoluteFrame,
   applyLayer,
+  clampFrameIntoParent,
   cloneSubtreeWithNewIds,
   createNode,
   findNode,
+  findParentId,
+  frameOnReparent,
   getForest,
   moveNode,
   normalizeDoc,
@@ -564,21 +568,37 @@ export const useEditorStore = create<EditorStore>()(
 
       moveComponent: (id, newParentId, index) => {
         log.action('moveComponent', { id, newParentId, index });
-        commit(set, get, (doc) => setForest(doc, moveNode(getForest(doc), id, newParentId, index)))
+        commit(set, get, (doc) => {
+          const forest = getForest(doc);
+          /* ★换父级（含拖到根）必须同时把 frame 换算成"相对新父级"，否则会按老父级的局部坐标跑偏
+             —— 目录树的 before/after 落点会跨容器，这条路径原来漏了换算（用户 2026-09-30 的偏移 bug）。 */
+          const parentChanged = findParentId(forest, id) !== newParentId;
+          const frame = parentChanged ? frameOnReparent(forest, id, newParentId) : null;
+          const moved = setForest(doc, moveNode(forest, id, newParentId, index));
+          if (!frame) return moved;
+          return setForest(
+            moved,
+            updateNode(getForest(moved), id, (n) => ({ ...n, frame: { ...(n.frame ?? { x: 0, y: 0, w: 100, h: 40 }), ...frame } })),
+          );
+        })
       },
 
       reparentComponent: (id, newParentId, frame) => {
         log.action('reparentComponent', { id, newParentId, frame: frame ?? null });
         commit(set, get, (doc) => {
-          const parent = newParentId ? findNode(getForest(doc), newParentId) : null;
+          const forest = getForest(doc);
+          const parent = newParentId ? findNode(forest, newParentId) : null;
           const index = parent?.children?.length ?? 0;
-          const moved = setForest(doc, moveNode(getForest(doc), id, newParentId, index));
-          if (!frame) return moved;
+          /* frame 由调用方给了就照用（画布拖拽会带上夹取后的坐标）；没给就**自己算保世界坐标的那份**
+             —— 目录树「拖进容器」走的就是这条（原来什么都不做，节点直接跑偏）。 */
+          const next = frame ?? frameOnReparent(forest, id, newParentId) ?? undefined;
+          const moved = setForest(doc, moveNode(forest, id, newParentId, index));
+          if (!next) return moved;
           return setForest(
             moved,
             updateNode(getForest(moved), id, (n) => ({
               ...n,
-              frame: { x: 0, y: 0, w: 100, h: 40, ...n.frame, ...frame },
+              frame: { x: 0, y: 0, w: 100, h: 40, ...n.frame, ...next },
             })),
           );
         });
@@ -591,18 +611,16 @@ export const useEditorStore = create<EditorStore>()(
           const src = findNode(forest, id);
           if (!src) return doc;
           const copy = cloneSubtreeWithNewIds(src);
-          if (copy.frame) copy.frame = { ...copy.frame, x: copy.frame.x + 16, y: copy.frame.y + 16 };
-          const siblings = forest.filter((n) => n.id === id).length ? forest : forest;
-          const idx = siblings.findIndex((n) => n.id === id);
-          const next =
-            idx >= 0
-              ? insertNode(forest, copy, null, idx + 1)
-              : (() => {
-                  const parentId = findParentIdOf(forest, id);
-                  const list = parentId ? (findNode(forest, parentId)?.children ?? []) : forest;
-                  const i = list.findIndex((n) => n.id === id);
-                  return insertNode(forest, copy, parentId, i + 1);
-                })();
+          /* 偏移 +16（"复制品错开一点"）+ **夹回父容器**：源节点贴着容器边缘时，偏移会把复制件顶出容器 */
+          const dupParent = findParentId(forest, id);
+          if (copy.frame) {
+            copy.frame = clampFrameIntoParent(forest, dupParent, { ...copy.frame, x: copy.frame.x + 16, y: copy.frame.y + 16 });
+          }
+          /* 复制件插在**源节点的同级后面**（顶层与嵌套一视同仁）。
+             原来这里是 `forest.filter(...)` 的一句空操作 + 顶层索引，读起来像"只对顶层生效"；已简化。 */
+          const list = dupParent ? (findNode(forest, dupParent)?.children ?? []) : forest;
+          const at = list.findIndex((n) => n.id === id);
+          const next = insertNode(forest, copy, dupParent, at + 1);
           return { ...setForest(doc, next), selectedIds: [copy.id] };
         })
       },
@@ -708,10 +726,23 @@ commit(set, get, (doc) => layer(doc, id, 'back'))
         const clip = get().clipboard;
         if (!clip) return;
         const copy = cloneSubtreeWithNewIds(clip);
-        if (copy.frame) copy.frame = { ...copy.frame, x: copy.frame.x + 24, y: copy.frame.y + 24 };
         commit(set, get, (doc) => {
           const forest = getForest(doc);
-          const next = insertNode(forest, copy, null, forest.length);
+          /* ★粘贴必须落在**源节点原来的父级**里（与「原地复制」一致）。
+             原来这里写死 `insertNode(..., null, ...)` 粘到**画布根**，而 frame 又是"相对老父级"的局部坐标
+             —— 卡片里的容器 Ctrl+V 之后，(16,56) 被当成画布坐标，直接跑到卡片外（用户 2026-09-30 报的现象）。
+             源已不在文档里（剪切后粘贴）时退化为粘到画布根，此时把坐标换成画布坐标（绝对框）避免同样的错位。 */
+          const srcExists = !!findNode(forest, clip.id);
+          const parentId = srcExists ? findParentId(forest, clip.id) : null;
+          if (copy.frame) {
+            const base = srcExists ? copy.frame : (absoluteFrame(forest, clip.id) ?? copy.frame);
+            /* 偏移 +24（"粘出来的错开一点"）+ **夹回父容器**（同 duplicateComponent，别顶出容器） */
+            copy.frame = clampFrameIntoParent(forest, parentId, { ...base, x: base.x + 24, y: base.y + 24, w: copy.frame.w, h: copy.frame.h });
+          }
+          const list = parentId ? (findNode(forest, parentId)?.children ?? []) : forest;
+          const at = srcExists ? list.findIndex((n) => n.id === clip.id) : -1;
+          const index = at >= 0 ? at + 1 : list.length;
+          const next = insertNode(forest, copy, parentId, index);
           return { ...setForest(doc, next), selectedIds: [copy.id] };
         });
       },
@@ -1034,18 +1065,6 @@ function layer(doc: EditorDocument, id: string, op: LayerOp): EditorDocument {
   const forest = getForest(doc);
   const next = applyLayer(forest, id, op);
   return next === forest ? doc : setForest(doc, next);
-}
-
-function findParentIdOf(forest: ComponentNode[], id: string): string | null {
-  let parent: string | null = null;
-  const rec = (nodes: ComponentNode[], pid: string | null): void => {
-    nodes.forEach((n) => {
-      if (n.id === id) parent = pid;
-      if (n.children?.length) rec(n.children, n.id);
-    });
-  };
-  rec(forest, null);
-  return parent;
 }
 
 /* ══════════════ 选择器（供组件订阅，避免全量重渲染） ══════════════ */

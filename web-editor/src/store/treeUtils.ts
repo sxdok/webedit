@@ -59,6 +59,92 @@ export function findParentId(forest: ComponentNode[], id: string): string | null
   return parent;
 }
 
+/**
+ * 节点在**画布坐标系**里的绝对框（容器内子元素要把各级父级偏移累加）。
+ * ★原来住在 `components/canvas/WebCanvas.tsx` 里；2026-09-30 下沉到本模块 ——
+ * 因为 store（换父级换算坐标）也要用它，从组件目录反向 import 会破坏分层。
+ */
+export function absoluteFrame(forest: ComponentNode[], id: string): Frame | null {
+  const chain: ComponentNode[] = [];
+  const trace = (list: ComponentNode[], trail: ComponentNode[]): boolean => {
+    for (const n of list) {
+      const next = [...trail, n];
+      if (n.id === id) {
+        chain.push(...next);
+        return true;
+      }
+      if (n.children?.length && trace(n.children, next)) return true;
+    }
+    return false;
+  };
+  if (!trace(forest, [])) return null;
+  let x = 0;
+  let y = 0;
+  let frame: Frame | null = null;
+  for (const n of chain) {
+    if (!n.frame) continue;
+    x += n.frame.x;
+    y += n.frame.y;
+    frame = n.frame;
+  }
+  if (!frame) return null;
+  return { ...frame, x, y };
+}
+
+/** 把 v 夹到 [0, max]（父容器装不下子元素时 max 可能为负 → 退化成 0） */
+const clampTo = (v: number, max: number): number => Math.max(0, Math.min(v, Math.max(0, max)));
+
+/**
+ * 把**局部 frame** 夹进它的父容器（父级为画布根 / 父无 frame → 原样返回）。
+ *
+ * 用在"复制/粘贴时 +16/+24 偏移"之后：源节点若正好贴着容器边缘，偏移一下就顶出容器了
+ * （2026-09-30 自检实测：A 被夹在容器下边缘 → 原地复制的 +16 让复制件超出容器 24px）。
+ * 与 `frameOnReparent` 一样，目的是"任何自动改坐标的地方都别把节点弄到容器外"。
+ */
+export function clampFrameIntoParent(forest: ComponentNode[], parentId: string | null, frame: Frame): Frame {
+  if (!parentId) return frame;
+  const parentFrame = findNode(forest, parentId)?.frame;
+  if (!parentFrame) return frame;
+  return {
+    ...frame,
+    x: Math.round(clampTo(frame.x, parentFrame.w - frame.w)),
+    y: Math.round(clampTo(frame.y, parentFrame.h - frame.h)),
+  };
+}
+
+/**
+ * ★换父级时算出"**绝对位置不变**"的新局部 frame（超出父容器就贴边）。
+ *
+ * 为什么必须有它：Web 模式子组件的 `frame` 是**相对父容器**的。只改树结构、不动 frame，
+ * 节点就会带着"老父级下的局部坐标"出现在新父级里 —— 表现为**位置偏移、甚至跑到容器/卡片外**。
+ * 2026-09-30 用户报的"卡片内容器 → 复制 → 拖动 → 调整目录树后跑到卡片外"就是这个：
+ * 画布拖拽那条路原先算了坐标，**目录树那条路漏了**。现在把这段数学收敛到本函数，
+ * store 的 `moveComponent` / `reparentComponent` 都走它，任何入口换父级都不会再漏。
+ *
+ * @returns 新局部 frame（含 clamp）；算不出来（节点无 frame / 找不到）返回 null，调用方按原样处理
+ */
+export function frameOnReparent(
+  forest: ComponentNode[],
+  id: string,
+  newParentId: string | null,
+): Partial<Frame> | null {
+  const childAbs = absoluteFrame(forest, id);
+  if (!childAbs) return null;
+  if (!newParentId) {
+    /* 移到画布根：局部坐标就是画布坐标 */
+    return { x: Math.round(childAbs.x), y: Math.round(childAbs.y), w: childAbs.w, h: childAbs.h };
+  }
+  const parentAbs = absoluteFrame(forest, newParentId);
+  const parentFrame = findNode(forest, newParentId)?.frame;
+  if (!parentAbs || !parentFrame) return null;
+  return {
+    x: Math.round(clampTo(childAbs.x - parentAbs.x, parentFrame.w - childAbs.w)),
+    y: Math.round(clampTo(childAbs.y - parentAbs.y, parentFrame.h - childAbs.h)),
+    w: childAbs.w,
+    h: childAbs.h,
+  };
+}
+
 /** 扁平化，带深度与父 id，供组件树面板与状态栏使用 */
 export function flatten(
   forest: ComponentNode[],

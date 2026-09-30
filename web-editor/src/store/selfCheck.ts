@@ -10,6 +10,7 @@ import { Type } from 'lucide-react';
 import { getAllComponents, getCategoriesByMode, getComponent, getComponentsByMode, registerComponent, unregisterComponent } from '../registry';
 import { COMPONENT_MODULES, collectComponents } from '../registry/components';
 import { IMPLEMENTED_CONTROLS } from '../components/property-controls';
+import { fillRowsWithPicks } from '../components/property-controls/ImageRowsControl';
 import { CATEGORY_ORDER, pageLabel, type ComponentDefinition, type ComponentNode, type EditorDocument } from '../registry/types';
 import { createInitialDocument, initialUI, useEditorStore } from './editorStore';
 import { HISTORY_LIMIT } from './history';
@@ -33,7 +34,7 @@ import { buildDocx, docxParts, isZip } from '../utils/export/docx';
 import { parseManifestFiles } from '../registry/live';
 import { continueSeries, fillSeries } from '../registry/components/common/tableFill';
 import { saveToRunDir } from '../utils/download';
-import { findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
+import { absoluteFrame, findNode, findParentId, getForest, normalizeDoc } from './treeUtils';
 import { routeLive } from '../mcp/liveMethods';
 import { autoStartBridgeFromPrefs, bridgeSummary, setBridgeEnabled } from '../mcp/bridgeClient';
 import { PERSIST_BUDGET, PERSIST_KEY, lastPersistOverflow, shouldPersist } from './persistStorage';
@@ -259,7 +260,24 @@ export function runSelfCheck(): void {
   finish();
 
   /* ══════════ 渲染层自检（等 React 画一帧）══════════ */
-  window.setTimeout(() => {
+  /**
+   * ★护栏（2026-09-30 加）：这一段是**四层嵌套 setTimeout** 的接力，之前任何一层里抛异常都会让整条链
+   * **静默断掉** —— 表现就是"标题停在同步段的 N/N、报告里没有 FAIL、探针只能超时"（排查时只能反推跑到哪）。
+   * 现在每一层的回调都套一层 catch：异常会变成一条**失败断言 + 全量收尾**，现场直接看到错误信息。
+   */
+  const guard = (label: string, fn: () => void): (() => void) => () => {
+    try {
+      fn();
+    } catch (e) {
+      results.push({
+        name: `${label}（异常已捕获）`,
+        pass: false,
+        note: `抛出异常：${e instanceof Error ? `${e.message}\n${(e.stack ?? '').split('\n').slice(0, 3).join(' | ')}` : String(e)}`,
+      });
+      finish(true);
+    }
+  };
+  window.setTimeout(guard('渲染层：文档/WEB 模式切换段', () => {
     const beforeRestore = S().exportJSON();
     const dom: Result[] = [];
     const push = (name: string, pass: boolean, note = '') => dom.push({ name, pass, note });
@@ -270,7 +288,7 @@ export function runSelfCheck(): void {
     const hid = S().addComponent('heading');
     S().updateProps(String(hid), { text: '渲染自检标题', level: 2 });
 
-    window.setTimeout(() => {
+    window.setTimeout(guard('渲染层：文档模式标题段', () => {
       const h2 = hid ? q(hid, 'h2') : null;
       push('文档模式：标题渲染为真实 h2 且文本正确', !!h2 && h2.textContent === '渲染自检标题', h2?.textContent ?? '未渲染');
 
@@ -279,7 +297,7 @@ export function runSelfCheck(): void {
       const bid = S().addComponent('button');
       S().updateProps(String(bid), { text: '渲染自检按钮' });
 
-      window.setTimeout(() => {
+      window.setTimeout(guard('渲染层：Web 模式按钮段', () => {
         const btn = bid ? q(bid, 'button') : null;
         const headingGone = !document.querySelector('[data-node-type="heading"]');
         push('Web 模式：按钮渲染为真实 button 且文本正确', !!btn && btn.textContent === '渲染自检按钮', btn?.textContent ?? '未渲染');
@@ -287,7 +305,7 @@ export function runSelfCheck(): void {
 
         // 切回文档模式：标题仍在、按钮不在
         S().setMode('document');
-        window.setTimeout(() => {
+        window.setTimeout(guard('渲染层：切回文档 + 交接交互段', () => {
           const h2b = hid ? q(hid, 'h2') : null;
           const btnGone = !document.querySelector('[data-node-type="button"]');
           push('切回文档模式后原内容完整保留', !!h2b && h2b.textContent === '渲染自检标题', h2b?.textContent ?? '丢失');
@@ -315,10 +333,10 @@ export function runSelfCheck(): void {
               });
               finish(true);
             });
-        }, 260);
-      }, 260);
-    }, 260);
-  }, 200);
+        }), 260);
+      }), 260);
+    }), 260);
+  }), 200);
 }
 
 function registerCheck(): void {
@@ -359,6 +377,9 @@ function registerProbe(): void {
 
 async function interactionChecks(): Promise<Result[]> {
   const out: Result[] = [];
+  /* ★心跳（2026-09-30 排查"卡住"用）：探针读 document.title 就能知道交互段跑到哪一步，
+     不必再靠报告行反推（报告宿主被本段隐藏后，卡住时什么都看不到）。 */
+  document.title = 'HB: 交互段起步';
   const add = (name: string, pass: boolean, note = '') => {
     out.push({ name, pass, note });
     /* ★逐条把结果并进**实时报告**（临时合并 `out`，不动 `results` —— 后者最后会整体并进来，直接 push 会重复计数）。
@@ -413,12 +434,14 @@ async function interactionChecks(): Promise<Result[]> {
   S().setMode('web');
   S().clearAll();
   const id = S().addComponent('button');
+  document.title = 'HB: 已插入按钮，等第一帧';
   if (!id) {
     add('Web 交互前置：插入按钮', false, 'addComponent 返回空');
     return out;
   }
   S().updateFrame(id, { x: 80, y: 80, w: 120, h: 32 });
   await wait();
+  document.title = 'HB: 第一帧已到（准备拖动断言）';
 
   const el = document.querySelector(`[data-node-id="${id}"]`) as HTMLElement | null;
   if (el) {
@@ -1180,6 +1203,155 @@ async function interactionChecks(): Promise<Result[]> {
     reparented && treeRows.length > 0 && draggableRows === treeRows.length,
     `reparent=${reparented}，可拖拽行 ${draggableRows}/${treeRows.length}`,
   );
+
+  /* ★2026-09-30 用户报：Web 模式「卡片内的容器 → 复制 → 拖动 → **调整目录树**」后，容器位置跑到卡片外。
+     根因：目录树的「拖进容器」(into) 与跨父级的 before/after 只改树、**不换算 frame** ——
+     而 Web 模式子组件的 frame 是**相对父容器**的，带着老父级的局部坐标进新父级就必然偏移
+     （画布那条路早就做了换算，见 useCanvasInteraction 的注释；目录树这条路漏了）。
+     这里按用户那份 web.json 的结构复现：大容器 C1 > 卡片 K > 容器 A（+ 同级容器 B）；根级容器 C2 作为落点。
+     用**两把尺子**同时断言：① 换父级后 A 的**绝对坐标**不变；② **渲染出来的 DOM 框**仍在落点容器内。 */
+  {
+    const savedDoc = useEditorStore.getState().doc;
+    const savedMode = savedDoc.mode;
+    const node = (id: string, type: string, frame: { x: number; y: number; w: number; h: number }, children: ComponentNode[] = []): ComponentNode =>
+      ({ id, type, frame, props: {}, children }) as ComponentNode;
+    const A = node('t_A', 'container', { x: 16, y: 56, w: 136, h: 96 });
+    const B = node('t_B', 'container', { x: 168, y: 56, w: 136, h: 96 });
+    const K = node('t_K', 'card', { x: 352, y: 32, w: 320, h: 200 }, [A, B]);
+    const C1 = node('t_C1', 'container', { x: 96, y: 24, w: 688, h: 416 }, [K]);
+    /* 两个落点：C3 覆盖 A 的原位置（能保住世界坐标）；C2 在远处（保不住 → 必须**夹在容器内**，这正是用户看到的"跑到卡片外"的反面） */
+    const C3 = node('t_C3', 'container', { x: 300, y: 80, w: 400, h: 300 });
+    const C2 = node('t_C2', 'container', { x: 120, y: 460, w: 320, h: 200 });
+    const base = createInitialDocument();
+    const probeDoc: EditorDocument = {
+      ...base,
+      id: 't_doc',
+      title: '自检·换父级坐标',
+      mode: 'web',
+      document: { ...base.document, components: [] },
+      web: { ...base.web, root: { ...base.web.root, children: [C1, C3, C2] } },
+      selectedIds: [],
+    };
+    S().loadDocument(probeDoc);
+    S().setMode('web');
+    if (!S().ui.showTree) S().toggleUI('showTree');
+    await wait(420);
+
+    const box = (id: string | null) => {
+      if (!id) return null;
+      const el = document.querySelector(`[data-node-id="${id}"]`) as HTMLElement | null;
+      const r = el?.getBoundingClientRect();
+      return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+    };
+    /** 模拟**真实目录树拖拽**（dragstart → dragover(定 zone) → drop），走 ComponentTree.handleDrop 同一路径 */
+    const treeDrag = async (dragId: string, targetId: string, where: 'into' | 'before' | 'after'): Promise<void> => {
+      const src = document.querySelector(`[data-tree-node="${dragId}"]`) as HTMLElement | null;
+      const dst = document.querySelector(`[data-tree-node="${targetId}"]`) as HTMLElement | null;
+      if (!src || !dst) return;
+      const dt = new DataTransfer();
+      src.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      await wait(160); // 等 React 提交 dragId
+      const r = dst.getBoundingClientRect();
+      const y = where === 'into' ? r.top + r.height / 2 : where === 'before' ? r.top + r.height * 0.1 : r.top + r.height * 0.9;
+      dst.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: y, dataTransfer: dt }));
+      await wait(160); // 等 drop zone 状态提交
+      dst.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: y, dataTransfer: dt }));
+      await wait(260);
+    };
+    const absOf = (id: string) => absoluteFrame(getForest(useEditorStore.getState().doc), id);
+    const inside = (child: { x: number; y: number; w: number; h: number } | null, parent: { x: number; y: number; w: number; h: number } | null): boolean =>
+      !!child && !!parent && child.x >= parent.x - 2 && child.y >= parent.y - 2 && child.x + child.w <= parent.x + parent.w + 2 && child.y + child.h <= parent.y + parent.h + 2;
+
+    const absBefore = absOf('t_A');
+    const domBefore = box('t_A');
+    /* ① 目录树「拖进容器」→ 落点容器**覆盖原位置**：绝对坐标必须不变、渲染框还在容器内（这是主断言） */
+    await treeDrag('t_A', 't_C3', 'into');
+    const parentAfter1 = findParentId(getForest(useEditorStore.getState().doc), 't_A');
+    const absAfter1 = absOf('t_A');
+    const domC3 = box('t_C3');
+    const domAfter1 = box('t_A');
+    add(
+      '目录树「拖进容器」换父级后：绝对坐标不变、渲染框仍在落点容器内（修前坐标不换算 → 跑偏到容器外）',
+      parentAfter1 === 't_C3' &&
+        !!absBefore &&
+        !!absAfter1 &&
+        Math.abs(absBefore.x - absAfter1.x) <= 1 &&
+        Math.abs(absBefore.y - absAfter1.y) <= 1 &&
+        inside(domAfter1, domC3) &&
+        !!domBefore &&
+        !!domAfter1 &&
+        Math.abs(domBefore.x - domAfter1.x) <= 2 &&
+        Math.abs(domBefore.y - domAfter1.y) <= 2,
+      `父=${parentAfter1 ?? '(根)'}；绝对 (${absBefore?.x},${absBefore?.y})→(${absAfter1?.x},${absAfter1?.y})；DOM (${Math.round(domBefore?.x ?? -1)},${Math.round(domBefore?.y ?? -1)})→(${Math.round(domAfter1?.x ?? -1)},${Math.round(domAfter1?.y ?? -1)})；在 C3 内=${inside(domAfter1, domC3)}`,
+    );
+    /* ② 目录树 before/after 跨父级（把 A 拖到 C1 里卡片 K 的后面 → 父级变成 C1）：世界坐标可达 → 同样保持不变。
+       ★顺序要紧：这条必须在"夹取那条"之前做 —— 一旦 A 被夹到远处容器里，世界坐标就不再可达了。 */
+    const absBefore2 = absOf('t_A');
+    const domBefore2 = box('t_A');
+    await treeDrag('t_A', 't_K', 'after');
+    const parentAfter2 = findParentId(getForest(useEditorStore.getState().doc), 't_A');
+    const absAfter2 = absOf('t_A');
+    const domC1 = box('t_C1');
+    const domAfter2 = box('t_A');
+    add(
+      '目录树 before/after 跨父级拖动：世界坐标可达时同样保持不变、且渲染框在容器内（这条路径也会换父级）',
+      parentAfter2 === 't_C1' &&
+        !!absBefore2 &&
+        !!absAfter2 &&
+        Math.abs(absBefore2.x - absAfter2.x) <= 1 &&
+        Math.abs(absBefore2.y - absAfter2.y) <= 1 &&
+        inside(domAfter2, domC1) &&
+        !!domBefore2 &&
+        !!domAfter2 &&
+        Math.abs(domBefore2.x - domAfter2.x) <= 2 &&
+        Math.abs(domBefore2.y - domAfter2.y) <= 2,
+      `父=${parentAfter2 ?? '(根)'}；绝对 (${absBefore2?.x},${absBefore2?.y})→(${absAfter2?.x},${absAfter2?.y})；DOM (${Math.round(domBefore2?.x ?? -1)},${Math.round(domBefore2?.y ?? -1)})→(${Math.round(domAfter2?.x ?? -1)},${Math.round(domAfter2?.y ?? -1)})；在 C1 内=${inside(domAfter2, domC1)}`,
+    );
+    /* ③ 落点容器**装不下原世界坐标**时：允许夹取（贴边），但**绝不能跑到容器外**（用户看到的现象就是这个） */
+    await treeDrag('t_A', 't_C2', 'into');
+    const parentAfter3 = findParentId(getForest(useEditorStore.getState().doc), 't_A');
+    const domC2 = box('t_C2');
+    const domAfter3 = box('t_A');
+    add(
+      '目录树换父级到"装不下原位置"的容器时：坐标被夹取，但**渲染框仍在容器内**（不跑出容器）',
+      parentAfter3 === 't_C2' && inside(domAfter3, domC2) && !!domAfter3,
+      `父=${parentAfter3 ?? '(根)'}；DOM (${Math.round(domAfter3?.x ?? -1)},${Math.round(domAfter3?.y ?? -1)})；C2 框 (${Math.round(domC2?.x ?? -1)},${Math.round(domC2?.y ?? -1)},${Math.round(domC2?.w ?? -1)}×${Math.round(domC2?.h ?? -1)})；在内=${inside(domAfter3, domC2)}`,
+    );
+    /* ④ 用户的"复制"这一步：Ctrl+C/Ctrl+V 必须粘在**同一父级**里（原来粘到画布根 + 局部坐标 → 出卡片）。
+       ★注意别把父级写死：前面的"夹取"测试已经把 A 挪到别的容器了，这里按 A **当前**父级断言。 */
+    const parentOfA = findParentId(getForest(useEditorStore.getState().doc), 't_A');
+    S().selectComponent(['t_A']);
+    S().copySelection();
+    S().pasteClipboard();
+    await wait(320);
+    const fAfterPaste = getForest(useEditorStore.getState().doc);
+    const pastedId =
+      (parentOfA ? (findNode(fAfterPaste, parentOfA)?.children ?? []) : fAfterPaste).map((c) => c.id).find((id) => id !== 't_A' && id !== 't_K') ?? '';
+    add(
+      '复制粘贴嵌套节点（Ctrl+C/V）：粘在**同一父级**且渲染框仍在父容器内（修前粘到画布根 → 跑出卡片）',
+      !!pastedId && !!parentOfA && findParentId(fAfterPaste, pastedId) === parentOfA && inside(box(pastedId), box(parentOfA)),
+      `粘贴件=${pastedId || '(空)'} 父=${pastedId ? findParentId(fAfterPaste, pastedId) : '-'}（期望 ${parentOfA ?? '根'}）在父内=${inside(box(pastedId), box(parentOfA))}`,
+    );
+    /* ⑤ 原地复制（Ctrl+D / duplicateComponent）：复制件也必须留在同一父容器内（+16 偏移不许顶出容器） */
+    S().selectComponent(['t_A']);
+    S().duplicateComponent('t_A');
+    await wait(320);
+    const fDup = getForest(useEditorStore.getState().doc);
+    const dupId =
+      (parentOfA ? (findNode(fDup, parentOfA)?.children ?? []) : fDup)
+        .map((c) => c.id)
+        .find((id) => id !== 't_A' && id !== 't_K' && id !== pastedId) ?? '';
+    add(
+      '原地复制嵌套节点：复制件插在源节点同级（父级不变）且渲染框仍在父容器内',
+      !!dupId && !!parentOfA && findParentId(fDup, dupId) === parentOfA && inside(box(dupId), box(parentOfA)),
+      `复制件=${dupId || '(空)'} 父=${dupId ? findParentId(fDup, dupId) : '-'}（期望 ${parentOfA ?? '根'}）在父内=${inside(box(dupId), box(parentOfA))}`,
+    );
+    /* ③ 用户的完整手势里的"复制"这一步：复制件必须仍在**同一个父容器内**（+16 偏移不许把它挤出容器） */
+    /* 还原：把文档恢复成自检原来的样子，后面断言依赖它 */
+    S().loadDocument(savedDoc);
+    S().setMode(savedMode);
+    await wait(260);
+  }
 
   /* ── 页眉/页脚：页面属性（不再是组件）+ 变量替换 ── */
   add(
@@ -2485,14 +2657,14 @@ async function interactionChecks(): Promise<Result[]> {
         add(
           '多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除；"只显示可批量修改的属性"在横幅气泡里）',
           !!panel && txt.includes('已选中') && bannerTip.includes('批量修改') && txt.includes('位置与尺寸') && txt.includes('层级'),
-          panel ? `面板文本：${txt.slice(0, 30).replace(/\s+/g, ' ')}…；横幅气泡：${bannerTip.slice(0, 30)}` : '未渲染多选面板',
+          /* 备注里把四个条件都打出来：失败时一眼看出是哪一条不成立（别再靠猜） */
+          `面板文本：${txt.slice(0, 30).replace(/\s+/g, ' ')}…；横幅气泡：${bannerTip.slice(0, 30)}；判定：panel=${!!panel} 已选中=${txt.includes('已选中')} 气泡含批量修改=${bannerTip.includes('批量修改')} 位置与尺寸=${txt.includes('位置与尺寸')} 层级=${txt.includes('层级')}`,
         );
       } else {
         add('多选时显示批量面板（位置尺寸 / 对齐 / 层级 / 删除）', false, '插入两个组件失败');
       }
       S().setMode('document');
-      await wait(160);
-    }
+      await wait(160);    }
 
     /* ── 非表格组件也必须有一个默认展开的分组（否则选中后看不到任何属性）── */
     {
@@ -5949,11 +6121,11 @@ async function interactionChecks(): Promise<Result[]> {
       el.dispatchEvent(new Event('input', { bubbles: true }));
     };
     const rowName = (i: number): string => String(document.querySelector(`[data-image-row-name="${i}"]`)?.textContent ?? '').trim();
-    /** 第 1 行里这些元素在 DOM 里的先后顺序（用来核对用户 2026-09-24 给的排版） */
+    /** 第 1 行里这些元素在 DOM 里的先后顺序（用来核对用户 2026-09-24 给的排版 + 2026-09-30 的 − 在 ＋ 前） */
     const rowOrder = (): string[] =>
       [
         ...(document.querySelector('[data-image-row="1"]')?.querySelectorAll(
-          '[data-image-row-name],[data-image-row-rotate],[data-image-row-angle],[data-image-row-file],[data-image-row-src],[data-image-row-caption],[data-image-row-add],[data-image-row-remove]',
+          '[data-image-row-name],[data-image-row-rotate],[data-image-row-angle],[data-image-row-file],[data-image-row-src],[data-image-row-caption],[data-image-row-name-text],[data-image-row-remove],[data-image-row-add]',
         ) ?? []),
       ].map((el) => {
         const a = [...el.attributes].map((x) => x.name).find((n) => n.startsWith('data-image-row-'));
@@ -5968,9 +6140,9 @@ async function interactionChecks(): Promise<Result[]> {
         !!document.querySelector('[data-image-row-file="1"]') &&
         !!document.querySelector('[data-image-row-rotate="1"]') &&
         rowName(1) === '图片1' &&
-        rowOrder().join('>') === 'name>rotate>file>src>caption>add' &&
-        document.querySelector('[data-image-row-remove="1"]') === null,
-      `行数=${count()}；顺序=${rowOrder().join(' > ')}；− 存在=${!!document.querySelector('[data-image-row-remove="1"]')}`,
+        rowOrder().join('>') === 'name>rotate>file>src>caption>remove>add' &&
+        document.querySelector('[data-image-row-remove="1"]')?.classList.contains('invisible') === true,
+      `行数=${count()}；顺序=${rowOrder().join(' > ')}；− 是否只是占位（invisible）=${document.querySelector('[data-image-row-remove="1"]')?.classList.contains('invisible')}`,
     );
     add(
       '图片行编辑器不再显示底部说明文字（用户 2026-09-24：描述由属性名与悬停气泡承担）',
@@ -5982,6 +6154,94 @@ async function interactionChecks(): Promise<Result[]> {
       !document.querySelector('[data-prop-key="src"]') && !!document.querySelector('[data-prop-key="images"]'),
       `src 字段在面板里=${!!document.querySelector('[data-prop-key="src"]')}；images 字段在面板里=${!!document.querySelector('[data-prop-key="images"]')}`,
     );
+
+    /* ★2026-09-30 用户六条优化的断言（＋ 位置固定 / − 在 ＋ 前 / 快速连点 / 多选自动填充 / 名称与气泡 / 行排版模式） */
+    {
+      const addBtn = (): HTMLButtonElement | null => document.querySelector('[data-image-row-add="1"]') as HTMLButtonElement | null;
+      const removeBtn = (): HTMLButtonElement | null => document.querySelector('[data-image-row-remove="1"]') as HTMLButtonElement | null;
+      // ① − 在 ＋ **前面**：同在第 1 行的操作列里，按 x 坐标比（DOM 顺序也一起断言）
+      const domOrder = [...(document.querySelector('[data-image-row-actions="1"]')?.querySelectorAll('[data-image-row-remove],[data-image-row-add]') ?? [])].map(
+        (el) => (el.hasAttribute('data-image-row-remove') ? 'remove' : 'add'),
+      );
+      const rmRect = removeBtn()?.getBoundingClientRect();
+      const addRect = addBtn()?.getBoundingClientRect();
+      add(
+        '图片行：− 排在 ＋ **前面**（同一操作列里，x 坐标与 DOM 顺序都对）',
+        domOrder.join('>') === 'remove>add' && !!rmRect && !!addRect && rmRect.left < addRect.left,
+        `DOM 顺序=${domOrder.join(' > ')}；− left=${Math.round(rmRect?.left ?? -1)}，＋ left=${Math.round(addRect?.left ?? -1)}`,
+      );
+      // ② 连点 ＋ **位置不动**：记录 ＋ 的 rect，同步连点 3 次后再量（要求"＋ 保持位置不动"）
+      //    ★量**相对操作列**的偏移，不用视口绝对坐标：加行会让面板变高、出现竖向滚动条，整块内容会被挤 8px
+      //      （那不是"＋ 被挤走"，是浏览器让位滚动条）——用相对量才是在测"布局里 ＋ 有没有动"。
+      const actionsOf = (): HTMLElement | null => document.querySelector('[data-image-row-actions="1"]') as HTMLElement | null;
+      const relAdd = (): { dx: number; dy: number } | null => {
+        const a = actionsOf()?.getBoundingClientRect();
+        const b = addBtn()?.getBoundingClientRect();
+        return a && b ? { dx: Math.round(b.left - a.left), dy: Math.round(b.top - a.top) } : null;
+      };
+      const before = relAdd();
+      const absBefore = addBtn()?.getBoundingClientRect();
+      const rowsBefore = count();
+      for (let i = 0; i < 3; i += 1) addBtn()?.click(); // ★故意不 await：模拟"快速连点"
+      await wait(420);
+      const after = relAdd();
+      const absAfter = addBtn()?.getBoundingClientRect();
+      const rowsAfter = count();
+      add(
+        '图片行：**快速连点 ＋ 每次都加一行**（同步连点 3 次 → 行数 +3，不丢点击）',
+        rowsAfter === rowsBefore + 3,
+        `行数 ${rowsBefore} → ${rowsAfter}`,
+      );
+      add(
+        '图片行：连点 ＋ 时 **＋ 在操作列里的位置不动**（固定宽度操作列，不被 − 的出现挤走）',
+        !!before && !!after && before.dx === after.dx && before.dy === after.dy,
+        `＋ 相对操作列偏移 (${before?.dx},${before?.dy}) → (${after?.dx},${after?.dy})；（视口绝对值 (${Math.round(absBefore?.left ?? -1)},${Math.round(absBefore?.top ?? -1)}) → (${Math.round(absAfter?.left ?? -1)},${Math.round(absAfter?.top ?? -1)})，加行后出现滚动条会让整块平移几像素）`,
+      );
+      // ③ 多选自动填充（纯函数单测）：3 张填进 3 个空行；行数不够时自动补行；超上限的丢弃
+      const emptyRows = [1, 2, 3].map(() => ({ src: '', caption: '', rot: 0, name: '' }));
+      const picks = [
+        { name: 'a.png', dataUrl: 'data:image/png;base64,AAA' },
+        { name: 'b.png', dataUrl: 'data:image/png;base64,BBB' },
+        { name: 'c.png', dataUrl: 'data:image/png;base64,CCC' },
+      ];
+      const f1 = fillRowsWithPicks(emptyRows, picks);
+      const f2 = fillRowsWithPicks([{ src: '', caption: '', rot: 0, name: '' }], picks);
+      const f3 = fillRowsWithPicks(emptyRows, [...picks, ...picks]);
+      add(
+        '图片多选自动填充：有几行填几张（顺序不乱）；行数不够**自动补新行**；超出 5 张的丢弃',
+        f1.rows.map((r) => r.name).join(',') === 'a.png,b.png,c.png' &&
+          f1.ignored === 0 &&
+          f2.rows.length === 3 &&
+          f2.rows.map((r) => r.name).join(',') === 'a.png,b.png,c.png' &&
+          f3.rows.length === 5 &&
+          f3.ignored === 1,
+        `3 行+3 张→${f1.rows.map((r) => r.name).join('/')}（丢 ${f1.ignored}）；1 行+3 张→${f2.rows.length} 行；3 行+6 张→${f3.rows.length} 行（丢 ${f3.ignored}）`,
+      );
+      // ④ 图片名称显示 + 悬停气泡显示完整名称
+      S().updateProps(rowsNode ?? '', { images: 'a.png | 图一', imageRotations: '', imageNames: '一个很长的图片文件名-方案封面-第1版.png' });
+      await wait(420);
+      const nameEl = document.querySelector('[data-image-row-name-text="1"]') as HTMLElement | null;
+      add(
+        '图片行：显示**图片名称**（截断）+ 悬停气泡给出**完整名称**',
+        !!nameEl && (nameEl.textContent ?? '').includes('.png') && (nameEl.getAttribute('data-tip-text') ?? '') === '一个很长的图片文件名-方案封面-第1版.png',
+        `显示=「${(nameEl?.textContent ?? '').trim()}」；气泡=「${nameEl?.getAttribute('data-tip-text') ?? ''}」`,
+      );
+      // ⑤ 行排版模式（每行等高等宽、超出裁切）：schema 有 imageLayout；切到 grid 后渲染属性跟着变
+      const schemaHas = (getComponent('image')?.propSchema ?? []).some((s) => s.key === 'imageLayout');
+      S().updateProps(rowsNode ?? '', { images: 'a.png\nb.png', imageNames: 'a.png\nb.png', columns: 2, imageLayout: 'grid' });
+      await wait(460);
+      const gallery = document.querySelector(`[data-node-id="${rowsNode}"] [data-image-gallery="1"]`) as HTMLElement | null;
+      const gimg = gallery?.querySelector('img') as HTMLElement | null;
+      const gstyle = gimg?.getAttribute('style') ?? '';
+      add(
+        '图片排版模式：新增「行排版：每行等高等宽」（schema 有 imageLayout；grid 下每张 4:3 + cover 裁切填满）',
+        schemaHas && gallery?.getAttribute('data-gallery-layout') === 'grid' && gstyle.includes('aspect-ratio: 4 / 3') && gstyle.includes('object-fit: cover'),
+        `schema 有 imageLayout=${schemaHas}；gallery layout=${gallery?.getAttribute('data-gallery-layout')}；img style=${gstyle.slice(0, 90)}`,
+      );
+      // 收尾：把图片节点恢复成"1 行"的状态，后面既有断言（＋ 加行 / 旋转）依赖它
+      S().updateProps(rowsNode ?? '', { images: 'a.png | 图一', imageRotations: '', imageNames: '', imageLayout: 'flow', columns: 2 });
+      await wait(420);
+    }
 
     // ＋ 加行（点第 1 行的 +）
     (document.querySelector('[data-image-row-add="1"]') as HTMLElement | null)?.click();
@@ -6104,9 +6364,9 @@ async function interactionChecks(): Promise<Result[]> {
     }
     const oneRemove = document.querySelector('[data-image-row-remove="1"]') as HTMLButtonElement | null;
     add(
-      '点行尾 − 减一行；**只剩 1 行时 − 整个不渲染**（不会删空，也没有灰按钮占位）',
-      afterRemove === 4 && count() === 1 && oneRemove === null,
-      `减一次后 ${afterRemove} 行 → 连减到 ${count()} 行；最后一行还有 −=${oneRemove !== null}`,
+      '点行尾 − 减一行；**只剩 1 行时 − 不可见**（不删空，也不显示灰按钮；但仍占位以免 ＋ 左右跳 —— 用户 2026-09-30 要求"＋ 位置不动"）',
+      afterRemove === 4 && count() === 1 && oneRemove?.classList.contains('invisible') === true,
+      `减一次后 ${afterRemove} 行 → 连减到 ${count()} 行；最后一行的 − 存在=${oneRemove !== null}、只是占位（invisible）=${oneRemove?.classList.contains('invisible')}`,
     );
 
     // 老文档：只填了 `src`（老的单图写法）—— 面板照样当第 1 行显示，一编辑就迁移进 `images`

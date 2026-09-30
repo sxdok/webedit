@@ -3,8 +3,8 @@
  *       并承载阶段三交互：拖动移动、8 向缩放/旋转手柄、吸附辅助线、框选、容器落点高亮。
  */
 import { useMemo } from 'react';
-import type { ComponentNode, Frame, RenderContext, WebCanvasConfig } from '../../registry/types';
-import { getForest } from '../../store/treeUtils';
+import type { ComponentNode, RenderContext, WebCanvasConfig } from '../../registry/types';
+import { absoluteFrame, getForest } from '../../store/treeUtils';
 import { useEditorStore } from '../../store/editorStore';
 import { NodeView } from './NodeView';
 import { GridOverlay } from './GridOverlay';
@@ -15,34 +15,7 @@ import { TableOverlay } from './TableOverlay';
 import { useTableCellSelect } from './useTableCellSelect';
 import type { CanvasInteractionApi } from './useCanvasInteraction';
 
-/** 计算节点在画布坐标系里的绝对框（容器内子元素要累加父级偏移） */
-export function absoluteFrame(forest: ComponentNode[], id: string): Frame | null {
-  const chain: ComponentNode[] = [];
-  const walk = (list: ComponentNode[], trail: ComponentNode[]): boolean => {
-    for (const n of list) {
-      const next = [...trail, n];
-      if (n.id === id) {
-        chain.push(...next);
-        return true;
-      }
-      if (n.children?.length && walk(n.children, next)) return true;
-    }
-    return false;
-  };
-  if (!walk(forest, [])) return null;
-  let x = 0;
-  let y = 0;
-  let frame: Frame | null = null;
-  for (const n of chain) {
-    if (!n.frame) continue;
-    x += n.frame.x;
-    y += n.frame.y;
-    frame = n.frame;
-  }
-  if (!frame) return null;
-  const base: Frame = frame;
-  return { ...base, x, y };
-}
+/* `absoluteFrame` 2026-09-30 已下沉到 `store/treeUtils.ts`（store 换父级时也要用它）——此处从那里 import。 */
 
 export function WebCanvas({
   nodes,
