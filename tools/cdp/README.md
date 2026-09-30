@@ -18,6 +18,10 @@
 
 ## 典型用法
 
+> ★**人看的验证走可见窗口**（用户 2026-09-30 要求）：`eval.mjs` 加 `--headful`（别名 `--visible`）就开一个**真实可见的浏览器窗口**
+> 跑同一套探针；`--keep-open` 跑完不关窗口。无头（默认）只留给无人值守的批处理。
+> 图省事直接用一体化脚本：`node tools/check-ui.mjs`（起启动器 + 可见窗口跑全量自检；`--probe/--query/--port/--keep-open` 可选）。
+
 ```powershell
 # 1) 先把编辑器跑起来（任选其一）
 D:\Python313\python.exe web-editor\启动编辑器.py -q -p 5179        # 降级备用启动器
@@ -26,8 +30,8 @@ D:\Python313\python.exe web-editor\启动编辑器.py -q -p 5179        # 降级
 # 2) 体检：页面有没有真的渲染出来
 node tools/cdp/eval.mjs "http://127.0.0.1:5179/?demo=1" tools/cdp/probes/summary.js
 
-# 3) 完整自检（约 3 分钟；结论与 check:page 一致）
-node tools/cdp/eval.mjs "http://127.0.0.1:5179/?check=1" tools/cdp/probes/selfcheck.js
+# 3) 完整自检（约 3 分钟；结论与 check:page 一致）—— 推荐用**可见窗口**跑
+node tools/check-ui.mjs
 
 # 4) 交互后截图（先点开图片属性面板的 3 行，再拍）
 node tools/cdp/shot.mjs "http://127.0.0.1:5179/?demo=1&select=image" var/shots/image-rows.png `

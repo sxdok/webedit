@@ -77,7 +77,8 @@ const exprArg = argAfter('--expr');
 if (!url || (!fileArg && !exprArg)) {
   console.error(
     '用法: node tools/cdp/eval.mjs <url> (<jsFile> | --expr "<js>") [--reload <秒> <jsFile2>] ' +
-      '[--resize WxH [jsFile]] [--window WxH [jsFile]] [--shot [路径]] [--wait-ready <毫秒>] [--settle <毫秒>]',
+      '[--resize WxH [jsFile]] [--window WxH [jsFile]] [--shot [路径]] [--wait-ready <毫秒>] [--settle <毫秒>] ' +
+      '[--headful|--visible] [--keep-open]',
   );
   process.exit(2);
 }
@@ -85,6 +86,15 @@ const shotArg = args.includes('--shot') ? argAfter('--shot') : null;
 const wantShot = args.includes('--shot');
 const waitReady = Number(argAfter('--wait-ready') ?? 20000);
 const settle = Number(argAfter('--settle') ?? 800);
+/**
+ * ★可见窗口模式（用户 2026-09-30 要求"测试不要走无头模式"）：
+ *   `--headful`（别名 `--visible`）= 开一个**真实可见的浏览器窗口**跑同样的探针 ——
+ *   自检报告、气泡、布局这些"看起来对不对"的问题，人眼能直接看着它跑完。
+ *   `--keep-open` = 探针跑完**不关窗口**（留在桌面给你手动点；此时也不删临时 profile）。
+ * 无头（默认）只用来跑批量/CI 类校验；人看的验证请用 --headful。
+ */
+const headful = args.includes('--headful') || args.includes('--visible') || args.includes('--keep-open');
+const keepOpen = args.includes('--keep-open');
 
 const BROWSER = findBrowser();
 const PORT = process.env.CDP_PORT ? Number(process.env.CDP_PORT) : (await freePort()) + (Number(process.env.CDP_PORT_OFFSET) || 0);
@@ -93,20 +103,25 @@ const profile = join(tmpdir(), `webedit-cdp-${Date.now()}`);
 const child = spawn(
   BROWSER,
   [
-    '--headless=new',
-    '--disable-gpu',
+    ...(headful ? [] : ['--headless=new', '--disable-gpu']),
     '--no-first-run',
     '--no-default-browser-check',
     `--remote-debugging-port=${PORT}`,
     `--user-data-dir=${profile}`,
     '--window-size=1680,1050',
+    ...(headful ? ['--window-position=60,40'] : []),
     url,
   ],
   { stdio: 'ignore' },
 );
 
-/** 清理：关浏览器、删临时 profile（探针不该在磁盘上留垃圾） */
+/** 清理：关浏览器、删临时 profile（探针不该在磁盘上留垃圾）。
+ *  `--keep-open` 时不关窗口（给人工看），同时**保留** profile 目录并把路径打出来。 */
 function cleanup(code = 0) {
+  if (keepOpen) {
+    console.error(`ℹ --keep-open：窗口保留在桌面（临时 profile：${profile}）；看完自己关掉即可。`);
+    process.exit(code);
+  }
   try {
     child.kill();
   } catch {
@@ -120,6 +135,7 @@ function cleanup(code = 0) {
   process.exit(code);
 }
 process.on('exit', () => {
+  if (keepOpen) return;
   try {
     child.kill();
   } catch {
