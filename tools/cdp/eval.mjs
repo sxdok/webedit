@@ -233,6 +233,63 @@ for (let i = 0; i < args.length; i += 1) {
   if (file) out[`改窗口后 ${w}x${h}`] = await evaluate(await runFile(file), `改窗口后 ${w}x${h}`);
 }
 
+/* --moves "x,y;x,y;…" [--move-step <毫秒>]：**真**鼠标沿指定路径移动（CDP 受信任事件）。
+   用来复现"鼠标从 A 划到 B 时中间经过某块区域"这类问题（例：二级菜单 hover 断链）。
+   点可以写字面坐标 `x,y`，也可以写 **元素选择器**（自动取中心），支持偏移：
+     @[data-menu-sub="export-sub"]         → 该元素中心
+     @[data-menu-sub="export-sub"]-40,+6   → 中心往左 40、往下 6
+   与 --hover 一样，放在 --shot 之前可以拍下路径走完后的样子。 */
+const movesArg = argAfter('--moves');
+if (movesArg) {
+  const step = Number(argAfter('--move-step') ?? 60);
+  const rawPts = String(movesArg)
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const pts = [];
+  for (const raw of rawPts) {
+    if (raw.startsWith('@')) {
+      /* @选择器[±dx,±dy] —— 选择器里可能带引号，用最后一个 ']' 作为选择器结束 */
+      const close = raw.lastIndexOf(']');
+      const sel = close > 0 ? raw.slice(1, close + 1) : raw.slice(1);
+      const off = close > 0 ? raw.slice(close + 1) : '';
+      const m = /^([+-]\d+)?([+-]\d+)?$/.exec(off.replace(/[\s,]/g, ''));
+      const dx = m?.[1] ? Number(m[1]) : 0;
+      const dy = m?.[2] ? Number(m[2]) : 0;
+      const r = await send('Runtime.evaluate', {
+        expression: `(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el) return null; const b = el.getBoundingClientRect(); return JSON.stringify({ x: Math.round(b.left + b.width / 2) + (${dx}), y: Math.round(b.top + b.height / 2) + (${dy}) }); })()`,
+        returnByValue: true,
+      });
+      const v = r.result?.result?.value;
+      if (!v) {
+        console.error(`--moves: 找不到元素 ${sel}`);
+      } else {
+        pts.push(JSON.parse(v));
+      }
+    } else {
+      const [x, y] = raw.split(',').map((v) => Number(v.trim()));
+      if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y });
+    }
+  }
+  const trail = [];
+  for (const p of pts) {
+    await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: p.x, y: p.y, buttons: 0 });
+    await sleep(step);
+    // 每步记录"针尖下是哪个元素"（菜单场景看它是否还在父项/子面板里）
+    const hit = await send('Runtime.evaluate', {
+      expression: `(() => { const el = document.elementFromPoint(${p.x}, ${p.y}); if (!el) return 'null'; const mi = el.closest('[data-menu-item]'); const ms = el.closest('[data-menu-sub]'); const mp = el.closest('[data-menu-panel]'); return el.tagName.toLowerCase() + (mi ? '[item=' + mi.getAttribute('data-menu-item') + ']' : '') + (ms ? '[sub=' + ms.getAttribute('data-menu-sub') + ']' : '') + (mp ? '[panel=' + mp.getAttribute('data-menu-panel') + ']' : ''); })()`,
+      returnByValue: true,
+    });
+    trail.push({ 点: `${p.x},${p.y}`, 针尖下: hit.result?.result?.value ?? '?' });
+  }
+  await sleep(260);
+  const after = await send('Runtime.evaluate', {
+    expression: `(() => { const p = document.querySelector('[data-menu-panel="export-sub"]'); const t = document.querySelector('[data-menu-item="docx"]'); if (!t) return JSON.stringify({ 导出子面板还在: !!p }); const b = t.getBoundingClientRect(); const el = document.elementFromPoint(Math.round(b.left + b.width / 2), Math.round(b.top + b.height / 2)); return JSON.stringify({ 导出子面板还在: !!p, 目标项可点到: el === t || t.contains(el) }); })()`,
+    returnByValue: true,
+  });
+  out['鼠标路径'] = { 步长ms: step, 轨迹: trail, 走完后: after.result?.result?.value ?? '?' };
+}
+
 /* --hover <选择器> [--hover-hold <毫秒>]：**真**把鼠标移到元素中心（CDP 派发受信任事件）——
    用于验证"悬浮气泡/悬浮态"这类必须真实指针事件才出现的东西（合成 MouseEvent 委托层不认）。
    可以放在 --shot 之前，用来拍下气泡弹出的样子。 */

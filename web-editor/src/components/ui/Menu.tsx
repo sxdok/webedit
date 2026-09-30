@@ -27,20 +27,78 @@ function isSeparator(e: MenuEntry): e is { key: string; separator: true } {
 
 const SUB_PANEL_W = 260;
 
-/** 子菜单：悬停/聚焦展开，右缘不够就向左翻；点中任一项后连同父菜单一起关 */
+/**
+ * ★二级菜单**关闭宽限**（2026-09-29 用户报"鼠标放到导出上弹出正常，移到具体导出项时快速消失点不到"）：
+ * 父项包装 div 只有**一行高**，而子面板挂在它右侧（`left-full`）—— 鼠标斜着往下面几项走时，
+ * 会先经过「父行下方 + 面板左侧」那块**既不属于父项、也不属于面板**的区域（实测那里是旁边的兄弟菜单行），
+ * 于是 `mouseleave` 立刻 `setOpen(false)`：实测**离开 21ms 面板就没了**，人在 21ms 内到不了面板。
+ * 现在留 280ms 宽限：只要在这段时间内进入面板（或回到父项）就取消关闭。
+ */
+const CLOSE_DELAY_MS = 280;
+
+/**
+ * ★"被兄弟子菜单抢走"也要宽限（同一次修复的后半段）：
+ * 用户从「导出」往自己的面板斜下方走时，路径可能**掠过**兄弟子菜单行（实测：导出下面就是「组件包」）。
+ * 原来兄弟一 `show()` 就立刻把「导出」关掉（实测 21ms），于是"路过一下就把菜单弄没了"。
+ * 现在收到兄弟广播先等 160ms：这段时间内指针若回到本子菜单/面板（`show()`/`cancelClose`）就取消，
+ * 停住不动才真的切过去 —— 既不会"路过被抢"，又保留了"停在别的子菜单上就切过去"的直觉。
+ */
+const SWITCH_DELAY_MS = 240;
+
+/** 打开某个子菜单时广播，让**兄弟子菜单**在宽限后收起（见 SWITCH_DELAY_MS） */
+const SUBMENU_OPEN_EVENT = 'webedit:submenu-open';
+
+/** 子菜单：悬停/聚焦展开（带关闭宽限），右缘不够就向左翻；点中任一项后连同父菜单一起关 */
 function SubMenu({ entry, onPicked }: { entry: MenuItem; onPicked: () => void }) {
   const [open, setOpen] = useState(false);
   const [flip, setFlip] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<number | null>(null);
+
+  const cancelClose = (): void => {
+    if (closeTimer.current != null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
 
   const show = (): void => {
+    cancelClose();
     const r = ref.current?.getBoundingClientRect();
     if (r) setFlip(r.right + SUB_PANEL_W > window.innerWidth);
     setOpen(true);
+    /* 通知别的子菜单立刻收起（自己收到就忽略） */
+    window.dispatchEvent(new CustomEvent(SUBMENU_OPEN_EVENT, { detail: entry.key }));
   };
 
+  /** 离开父项**不立刻关**：留宽限让指针能斜穿到面板上（见 CLOSE_DELAY_MS 的说明） */
+  const scheduleClose = (): void => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => {
+      closeTimer.current = null;
+      setOpen(false);
+    }, CLOSE_DELAY_MS);
+  };
+
+  useEffect(() => {
+    const onOther = (e: Event): void => {
+      if ((e as CustomEvent).detail === entry.key) return;
+      /* 兄弟子菜单开了：**不立刻关**（路过也算），等 SWITCH_DELAY_MS；期间指针回来就取消 */
+      cancelClose();
+      closeTimer.current = window.setTimeout(() => {
+        closeTimer.current = null;
+        setOpen(false);
+      }, SWITCH_DELAY_MS);
+    };
+    window.addEventListener(SUBMENU_OPEN_EVENT, onOther);
+    return () => {
+      window.removeEventListener(SUBMENU_OPEN_EVENT, onOther);
+      cancelClose();
+    };
+  }, [entry.key]);
+
   return (
-    <div ref={ref} className="relative" onMouseEnter={show} onMouseLeave={() => setOpen(false)}>
+    <div ref={ref} className="relative" onMouseEnter={show} onMouseLeave={scheduleClose}>
       <button
         type="button"
         disabled={entry.disabled}
@@ -59,6 +117,8 @@ function SubMenu({ entry, onPicked }: { entry: MenuItem; onPicked: () => void })
       {open && (
         <div
           data-menu-panel={entry.key}
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
           className={`absolute top-0 z-[60] w-max min-w-[200px] max-w-[420px] rounded-md border border-line bg-white py-1 shadow-lg ${
             flip ? 'right-full' : 'left-full'
           }`}

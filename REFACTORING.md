@@ -2573,6 +2573,47 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 布局提醒（省下次找）：Web 与 MCP 产物**不在 app.asar 里**，而在
 `release/win-unpacked/resources/web-editor/dist/` 与 `…/resources/editor-mcp-bundle/`（`build.extraResources`）。
 
+### 15.35 二级菜单 hover 断链修复（用户：移到具体导出项时快速消失点不到）
+
+**现象**（用户报告 + 截图）：鼠标放到「导出」上子菜单正常弹出，往下面具体项移动时**快速消失**，点不到。
+
+**根因（量出来的，不是猜的）**：`components/ui/Menu.tsx` 的 `SubMenu` 把触发行与面板放在同一个
+`div.relative` 里，面板 `absolute top-0 left-full`（贴父行**右侧**、与父行**顶对齐**）。父行只有
+**一行高**（~30px），于是：
+
+- 指针**直接向右**进面板 → 面板是该 div 的后代，不触发 `mouseleave` ✅ 正常；
+- 指针**先往下**（进面板下半部分的自然路径）→ 会经过「父行下方 + 面板左侧」那一带 ——
+  实测那里是**兄弟菜单行**（`导出` 下面正好是子菜单行 `组件包`，`data-menu-sub="pkg-sub"`），
+  **既不属于父项、也不属于它的面板** → `onMouseLeave` 立刻 `setOpen(false)`。
+  实测（`tools/cdp/probes/menu-submenu.js`）：**离开 21ms 面板就没了** ❌
+- 更隐蔽的第二条：指针掠过**兄弟子菜单行**会触发它的 `show()`，兄弟互斥**同步**把本面板关掉。
+
+**修法**（`Menu.tsx`：两处宽限 + 一处广播）：
+1. `CLOSE_DELAY_MS = 280`：离开父项不立刻关；宽限内进入**面板**（面板上挂 `onMouseEnter={cancelClose}`）
+   或回到父项（`show()` 里 `cancelClose()`）就取消。
+2. `SWITCH_DELAY_MS = 240`：兄弟子菜单打开时广播 `webedit:submenu-open`，本子菜单**不立刻关**，
+   等 240ms；期间指针回来就取消 —— 既不会"路过被抢"，又保留"停在别的子菜单上就切过去"的直觉。
+3. 卸载时清定时器，避免卸载后 setState。
+
+**验证（真实指针路径 = 最坏情况）**：`--moves` 走「导出 → 下潜到 `组件包` 行 → 折回导出面板 → 导出 Word」，
+逐步记录针尖下的元素：
+
+| 步 | 坐标 | 针尖下 | 说明 |
+|---|---|---|---|
+| 1 | 270,295 | `span[sub=export-sub]` | 悬停「导出」 |
+| 2 | 210,335 | `span[sub=pkg-sub]` | **掠过兄弟子菜单行**（原来的致命点） |
+| 3 | 588,383 | `div[panel=pkg-sub]` | 路过（组件包面板短暂出现） |
+| 4 | 588,395 | **`span[item=docx][panel=export-sub]`** | 落在「导出 Word (.docx)」上 |
+
+走完后：**`{"导出子面板还在":true,"目标项可点到":true}`** ✅（修前第 2 步就把面板关了）。
+截图 `var/shots/menu-submenu-after.png`；合成体检"离开后多久消失"= **270ms ≥ 240ms** ✅。
+
+**新增自检断言**（页自检 325 → **326/326**）：模拟"下潜掠过 `组件包` 再折回"，要求导出面板仍在且
+`[data-menu-item="docx"]` 可命中（`elementFromPoint` 落在它自己身上）。
+
+**顺带**：`tools/cdp/eval.mjs` 的 `--moves` 现在支持用**选择器**声明路径（`@selector±dx,±dy`），
+真实指针复现"从 A 划到 B 会经过什么"；新探针 `tools/cdp/probes/menu-submenu.js` 已登记进 `tools/cdp/README.md`。
+
 ---
 
 ## 第 16 章 数据迁移指南

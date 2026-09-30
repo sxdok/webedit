@@ -14,6 +14,7 @@
 | **selfcheck** | 页面脚本：轮询 `?check=1` 报告**直到稳定**，返回好/总数/失败清单 | `node tools/cdp/eval.mjs "<url>?check=1" tools/cdp/probes/selfcheck.js` |
 | **pagetabs-geometry** | 页面脚本：连点「＋」造到 6 页，逐页量分页标签条的几何（标签行高/是否出滚动条/容器高）—— 用于"标签多到出滚动条时被压扁"这类布局 bug 的复现与回归 | `node tools/cdp/eval.mjs "<url>" tools/cdp/probes/pagetabs-geometry.js` |
 | **prefs-layout** | 页面脚本：首选项弹窗的布局体检 —— 行内提示长度（>16 字就算超标）、气泡（`data-pref-tip`）数量与是否为空、有没有原生 `title`、控件列右边缘是否对齐、以及 `data-tip-text` 气泡是否**真的弹出**（配合 `--hover` 用真实指针事件） | `node tools/cdp/eval.mjs "<url>/?prefs=1" tools/cdp/probes/prefs-layout.js`；配 `--hover "[data-pref='autoSave'] [data-pref-tip]" --shot var/shots/x.png` 可拍下气泡 |
+| **menu-submenu** | 页面脚本：二级菜单 hover 断链体检 —— 父行/面板几何、两者之间那块不属于谁的区域（死区）是谁、离开父项后多久消失（宽限是否达标）、目标项能否命中。配 `--moves` 可用**真实指针**走「导出 → 掠过兄弟子菜单行 → 折回导出面板 → Word 项」这条最坏路径 | `node tools/cdp/eval.mjs "<url>" tools/cdp/probes/menu-submenu.js` |
 
 ## 典型用法
 

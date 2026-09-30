@@ -4631,6 +4631,37 @@ async function interactionChecks(): Promise<Result[]> {
       `含 open-html=${fileItems.includes('open-html')}、load-html-url=${fileItems.includes('load-html-url')}`,
     );
 
+    /* ★2026-09-29 用户报「鼠标放到导出上弹出正常，移到具体导出项时快速消失点不到」：
+       钉住**宽限本身**（bug 的本质是"零延迟"）。合成事件只能验到这一步 ——
+       `mouseout` 的 relatedTarget 落在兄弟子菜单行上时，React 会**同时**打开那个兄弟面板并盖住目标项，
+       所以"能否点到"在合成事件下必然是 false（假象）；真实指针路径由
+       `tools/cdp/probes/menu-submenu.js --moves` 验证（走"导出→掠过组件包→折回导出面板→Word 项"，
+       实测面板仍在且目标项可点到）。修复点见 Menu.tsx 的 CLOSE_DELAY_MS / SWITCH_DELAY_MS。 */
+    {
+      await openMenu('文件');
+      const trig = document.querySelector('[data-menu-sub="export-sub"]') as HTMLElement | null;
+      trig?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await wait(240);
+      const panelBefore = !!document.querySelector('[data-menu-panel="export-sub"]');
+      const sib = document.querySelector('[data-menu-sub="pkg-sub"]') as HTMLElement | null;
+      const sibRect = sib?.getBoundingClientRect();
+      const dip = sibRect
+        ? { x: Math.round(sibRect.left + sibRect.width / 2), y: Math.round(sibRect.top + sibRect.height / 2) }
+        : { x: 0, y: 0 };
+      // 离开父项、指针落到兄弟子菜单行上（React 会同时触发它的 mouseenter → 就是原来"抢走"的那条路径）
+      trig?.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, clientX: dip.x, clientY: dip.y, relatedTarget: sib }));
+      await wait(60);
+      const stillOpenAt60 = !!document.querySelector('[data-menu-panel="export-sub"]');
+      await wait(700);
+      const closedLater = !document.querySelector('[data-menu-panel="export-sub"]');
+      await closeMenu();
+      add(
+        '菜单：二级菜单有 hover 宽限（离开父项 60ms 内面板仍在；修前 21ms 就关 → 用户点不到）',
+        panelBefore && stillOpenAt60 && closedLater,
+        `展开=${panelBefore}；60ms 时仍在=${stillOpenAt60}；之后正常收起=${closedLater}；掠过点=${dip.x},${dip.y}`,
+      );
+    }
+
     const viewItems = await openMenu('视图');
     await closeMenu();
     const editItems = await openMenu('编辑');
