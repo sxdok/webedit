@@ -1,7 +1,7 @@
 {
   "name": "webedit",
   "productName": "webedit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "可视化编辑器 桌面分发版（Electron 外壳：内置静态服务器 + editor-mcp HTTP 服务 + 预留更新接口）",
   "type": "module",
@@ -38,6 +38,7 @@
     "productName": "webedit",
     "copyright": "Copyright © 可视化编辑器",
     "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "../../release",
       "buildResources": "build"

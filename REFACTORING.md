@@ -2769,6 +2769,23 @@ mouseout/focusout/mousedown/scroll/blur 上。修后实测：加 1 次、**删 0
 名称显示在地址框且气泡是完整名称、schema 里没有 `imageLayout`（只有 `columns`）、
 纸张 `overflow === 'hidden'`、图片行控件不再出现"控件：imageRows"那条气泡。
 
+### 15.41 发版 v0.3.1（2026-09-30/10-01 跨零点）
+
+**为什么是 0.3.1 而不是 0.3.0**：0.3.0 的代码已攒在本仓库（tag 曾指向 `cc3619d`）但**从未发布**；本轮又修了图片组件 6 项 + 两批反馈（4 处）、Web 换父级坐标、气泡两处、A4 裁断，并把桌面端自检立为验收口径 —— 按用户要求**升到 0.3.1** 一次发出去。
+
+**版本号（根 `package.json` 是唯一版本源）**：改根 `0.3.0 → 0.3.1` → `npm run sync-contracts` 自动写
+`contracts/version.json`、`editor-mcp/src/version.ts`、`web-editor/src/version.ts`、`apps/desktop/src/version.js`、
+三个子包 `package.json`（桌面版那个决定更新清单里的版本）。发布正文：`release/notes-0.3.1.md`。
+
+**本次最硬的坑（经验清单 G15）**：打包报 `ENOENT: rename 'release\win-unpacked\electron.exe' -> 'webedit.exe'`。
+删 `win-unpacked` 重试无效 → 本地 `node_modules/electron/dist/electron.exe` 完好 →
+`7z t var/caches/electron/electron-v44.0.0-win32-x64.zip` 报 **`Data Error : electron.exe`**：**缓存包坏了**。
+修法：删坏缓存包 + `build.electronDist = "node_modules/electron/dist"`（改用本地已解包的 Electron，离线可打）。
+（自己踩的次生坑：第一次把说明写成 JSON 注释 —— JSON 不支持注释，已改回纯 JSON、说明挪进本文档。）
+
+**发版前自洽校验**：`latest.json` 里两个资产的 **sha256 与 sizeBytes 与磁盘实测逐一对上**
+（安装版 `1d74d271…` 115,044,631B；便携版 `af0293b3…` 114,816,804B）；打包版 `--selftest` 10/10。
+
 ---
 
 ## 第 16 章 数据迁移指南

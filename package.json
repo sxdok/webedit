@@ -1,6 +1,6 @@
 {
   "name": "webedit",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "可视化编辑器（web-editor + editor-mcp + 桌面分发）。★本 package.json 的 `version` 是**唯一版本源**：其余位置的版本由 `tools/sync-contracts.mjs` 生成，别手改。",
   "scripts": {
