@@ -110,8 +110,6 @@ export function renderImageGallery(
     columns: number;
     gap: number;
     widthPct?: number;
-    /** 多图排版模式：`flow`=按列自适应换行（默认，老行为）；`grid`=行排版（每行等高等宽、超出裁切） */
-    layout?: 'flow' | 'grid';
     /** 单图模式的 mm 宽度（文档模式）与 px 宽度（Web 模式） */
     singleWidthMm: number;
     singleWidthPx: number;
@@ -178,19 +176,15 @@ export function renderImageGallery(
     );
   }
 
-  /* ── 多图 ──
-     `imageLayout`：
-       · `flow`（默认，沿用老行为）：按列数排，每张按**自身比例**，列超过边距自动换行；
-       · `grid`（用户 2026-09-30 要的"行排版模式"）：每行 `cols` 张、**每张等宽等高**（统一 4:3、超出裁切），
-         行与行对齐成整齐图集 —— 与 flow 的差别就在"高度一致 + 裁切填满"这两点上。 */
+  /* ── 多图（网格，`cols` 列；放不下就自动换行）──
+     2026-09-30 用户："排版模式和尺寸里的列数冲突了，保留列数，去掉排版模式" ——
+     所以这里**只有一个维度**：`props.columns`（每行几张）。原来那个 `imageLayout`（行排版）已删除。 */
   const cols = Math.min(Math.max(1, Math.round(opts.columns)), 5);
-  const grid = opts.layout === 'grid';
   return (
     <div data-width-box="1" style={{ width: `${opts.widthPct ?? 100}%`, boxSizing: 'border-box' }}>
       <div
         data-image-gallery="1"
         data-gallery-columns={cols}
-        data-gallery-layout={grid ? 'grid' : 'flow'}
         style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: opts.gap }}
       >
         {items.map((it, i) => (
@@ -208,10 +202,8 @@ export function renderImageGallery(
                   display: 'block',
                   borderRadius: opts.radius,
                   border,
-                  /* 行排版：统一 4:3 + cover（高度一致）→ 每行对齐；否则按老行为（自身比例 / 指定高度 + contain） */
-                  ...(grid
-                    ? { aspectRatio: '4 / 3', height: 'auto', objectFit: 'cover' as const }
-                    : { height: opts.heightAuto ? 'auto' : opts.height, objectFit: 'contain' as const }),
+                  height: opts.heightAuto ? 'auto' : opts.height,
+                  objectFit: 'contain',
                   ...rotateStyle(it.rot),
                 }}
               />
@@ -251,7 +243,6 @@ function ImageBody(props: ComponentProps, ctx: RenderContext) {
     columns: asNumber(props.columns, 2),
     gap: asNumber(props.gap, 10),
     widthPct: asNumber(props.galleryWidth, 100),
-    layout: asString(props.imageLayout, 'flow') === 'grid' ? 'grid' : 'flow',
     singleWidthMm: asNumber(props.width, 84),
     singleWidthPx: asNumber(props.width, 320),
     heightAuto: asBool(props.heightAuto, true),
@@ -287,8 +278,6 @@ export const imageComponent: ComponentDefinition = {
     src: '',
     caption: '',
     columns: 2,
-    /** 多图排版模式：flow=按列自适应换行（默认，老行为）；grid=行排版（每行等高等宽、超出裁切） */
-    imageLayout: 'flow',
     gap: 10,
     galleryWidth: 100,
     alt: '',
@@ -314,18 +303,16 @@ export const imageComponent: ComponentDefinition = {
       defaultValue: '',
     },
     {
-      /* 2026-09-30 用户要的"行排版模式"：与"按列自适应换行"并列成一个可选模式 */
-      key: 'imageLayout',
-      label: '排版模式（多张）',
-      control: 'select',
-      group: '排版',
-      defaultValue: 'flow',
-      options: [
-        { value: 'flow', label: '按列自适应换行（默认）' },
-        { value: 'grid', label: '行排版：每行等高等宽' },
-      ],
+      /* 2026-09-30 用户："排版模式和尺寸里的列数冲突了，保留列数，去掉排版模式" →
+         原来的 `imageLayout`（行排版 select）已删除，多图布局只看「列数」。 */
+      key: 'columns',
+      label: '列数（多张时生效，最多 5 列）',
+      control: 'number',
+      group: '尺寸',
+      defaultValue: 2,
+      min: 1,
+      max: 5,
     },
-    { key: 'columns', label: '列数（多张时生效，最多 5 列）', control: 'number', group: '尺寸', defaultValue: 2, min: 1, max: 5 },
     { key: 'gap', label: '图间距 px（多张）', control: 'number', group: '尺寸', defaultValue: 10, min: 0, max: 80 },
     { key: 'galleryWidth', label: '整体宽度 %（多张）', control: 'slider', group: '尺寸', defaultValue: 100, min: 20, max: 100, step: 5 },
     { key: 'width', label: '宽度（单张；文档模式按 mm）', control: 'unit', group: '尺寸', defaultValue: 84, unit: 'mm', min: 5, max: 400 },

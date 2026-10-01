@@ -229,12 +229,20 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
             </button>
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
+            {/*
+              ★2026-09-30 用户："红框的是名称、绿框的才是我想显示名称的地方，显示的东西太密集了"：
+              选过文件的这一行，**地址框里直接显示图片名称**（data:URL 几十 KB，人看不了），
+              悬停该框出气泡给**完整名称**；想手填地址就直接在框里输入（一输入就丢掉旧名称，见 onChange）。
+              行下方不再单独占一行显示名称（原来那样把行撑高、也跟"图题"挤在一起）。
+            */}
             <input
               data-image-row-src={i + 1}
-              value={r.src}
-              onChange={(e) => patch(i, { src: e.target.value, name: '' })} // 手工改地址 → 丢掉旧文件名（避免显示过期名字）
-              placeholder={i === 0 ? '图片地址或 data:URL' : '图片地址'}
-              className={inputCls}
+              data-image-row-name-text={r.name ? i + 1 : undefined}
+              data-tip-text={r.name || undefined}
+              value={r.name || r.src}
+              onChange={(e) => patch(i, { src: e.target.value, name: '' })}
+              placeholder={i === 0 ? '图片地址或 data:URL（选过文件后这里显示名称）' : '图片地址'}
+              className={`${inputCls} ${r.name ? 'text-gray-600' : ''}`}
             />
             <input
               data-image-row-caption={i + 1}
@@ -243,16 +251,6 @@ export function ImageRowsControl({ value, onChange, allProps, onPatch }: Control
               placeholder="图题（可留空）"
               className={inputCls}
             />
-            {/* 图片信息：有文件名就显示（截断）+ 悬停气泡显示完整名称（用户 2026-09-30 要求） */}
-            {r.name !== '' && (
-              <span
-                data-image-row-name-text={i + 1}
-                data-tip-text={r.name}
-                className="block truncate text-2xs leading-none text-gray-500"
-              >
-                {r.name}
-              </span>
-            )}
           </div>
           {/* ★操作按钮列：**固定宽度**（52px = 两个 24px + 间隙）→ 连点 ＋ 时位置不动；
              顺序是 **− 在 ＋ 前面**（用户 2026-09-30 要求）；行数 1 时 − 不渲染但**占位**（invisible）。

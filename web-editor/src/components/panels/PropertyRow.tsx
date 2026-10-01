@@ -76,11 +76,24 @@ function PropertyRowInner({ item, value, wide, children }: Props) {
   const { short } = splitLabel(item.label);
   const tip = tipOf(item);
   const cls = `prop-row${flash ? ' prop-row-flash' : ''}`;
-  // 控件本体气泡（规格 §7）：控件类型 + 当前值。包装元素类名必须与原布局一致，否则会改变排版
-  const controlTip: TipContent = {
-    name: `控件：${item.control}`,
-    detail: [`当前值：${typeof value === 'object' ? JSON.stringify(value ?? null) : String(value ?? '—')}`],
-  };
+  /**
+   * 控件本体气泡（规格 §7）：控件类型 + 当前值。
+   *
+   * ★2026-09-30 用户："这个气泡不用，显示的东西太密集了" —— 指图片行编辑器（`imageRows`）上那条
+   *   `控件：imageRows / 当前值：data:image/png;base64,iVBOR…`（当前值是几 KB 的 data URL，气泡被撑满）。
+   *   规则：**当前值又长又不是人看的**（data:URL / 多行文本 / 结构化对象）就不弹这条气泡 ——
+   *   属性名自己的气泡（label + 说明 + 默认值）保留，那是解释；这条"控件+当前值"是调试信息。
+   */
+  const rawValue = typeof value === 'object' ? JSON.stringify(value ?? null) : String(value ?? '—');
+  const opaque =
+    item.control === 'imageRows' ||
+    item.control === 'tableHtml' ||
+    rawValue.length > 60 ||
+    rawValue.includes('data:') ||
+    rawValue.includes('\n');
+  const controlTip: TipContent | undefined = opaque
+    ? undefined
+    : { name: `控件：${item.control}`, detail: [`当前值：${rawValue}`] };
 
   if (wide) {
     return (

@@ -1039,28 +1039,34 @@ async function interactionChecks(): Promise<Result[]> {
        而属性面板用的是 React 版 `<Tooltip>`（`data-tip="1"`），所以这条一直没被上面那条断言发现。
        这里用**两次采样都还在**来拦：0.7s 时在、1.4s 时仍在。 */
     {
-      const tipHost = document.querySelector('[data-tip-text]') as HTMLElement | null;
+      /* ★2026-09-30 改成"自造锚点"：以前取 `document.querySelector('[data-tip-text]')` ——
+         页面里**第一个**带提示的元素是谁会随 DOM 变化而变（这次抓到的是个 button，恰好不弹 → 假失败）。
+         现在在视口左上角临时插一个锚点，专测委托层本身，不受页面结构影响，跑完移除。 */
+      const tipHost = document.createElement('span');
+      tipHost.setAttribute('data-tip-text', '自检临时锚点：气泡出现后应当保持显示');
+      tipHost.textContent = '自检锚点';
+      tipHost.style.cssText = 'position:fixed;left:120px;top:120px;z-index:1;padding:2px 6px;background:#eee';
+      document.body.appendChild(tipHost);
       let shown1 = false;
       let shown2 = false;
       let text = '';
-      if (tipHost) {
-        const b = tipHost.getBoundingClientRect();
-        const x = Math.round(b.left + b.width / 2);
-        const y = Math.round(b.top + b.height / 2);
-        tipHost.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
-        await wait(700);
-        const t1 = document.querySelector('[data-tooltip="1"]') as HTMLElement | null;
-        shown1 = !!t1;
-        text = (t1?.textContent ?? '').trim().slice(0, 40);
-        await wait(700);
-        shown2 = !!document.querySelector('[data-tooltip="1"]');
-        document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
-        await wait(160);
-      }
+      const b = tipHost.getBoundingClientRect();
+      const x = Math.round(b.left + b.width / 2);
+      const y = Math.round(b.top + b.height / 2);
+      tipHost.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
+      await wait(700);
+      const t1 = document.querySelector('[data-tooltip="1"]') as HTMLElement | null;
+      shown1 = !!t1;
+      text = (t1?.textContent ?? '').trim().slice(0, 40);
+      await wait(700);
+      shown2 = !!document.querySelector('[data-tooltip="1"]');
+      document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }));
+      await wait(160);
+      tipHost.remove();
       add(
         'data-tip-text 气泡出现后**保持显示**（修前"闪现 0ms"：effect 依赖 state，cleanup 立刻清掉）',
-        !!tipHost && shown1 && shown2,
-        `触发元素=${tipHost ? tipHost.tagName.toLowerCase() : '缺'}；0.7s 在=${shown1}、1.4s 在=${shown2}；文本=「${text}」`,
+        shown1 && shown2,
+        `自造锚点；0.7s 在=${shown1}、1.4s 在=${shown2}；文本=「${text}」`,
       );
     }
 
@@ -6277,29 +6283,46 @@ async function interactionChecks(): Promise<Result[]> {
           f3.ignored === 1,
         `3 行+3 张→${f1.rows.map((r) => r.name).join('/')}（丢 ${f1.ignored}）；1 行+3 张→${f2.rows.length} 行；3 行+6 张→${f3.rows.length} 行（丢 ${f3.ignored}）`,
       );
-      // ④ 图片名称显示 + 悬停气泡显示完整名称
+      // ④ 图片名称：按用户 2026-09-30 的要求，**显示在地址框里**（不再单独占一行），悬停给完整名称
       S().updateProps(rowsNode ?? '', { images: 'a.png | 图一', imageRotations: '', imageNames: '一个很长的图片文件名-方案封面-第1版.png' });
       await wait(420);
-      const nameEl = document.querySelector('[data-image-row-name-text="1"]') as HTMLElement | null;
+      const namedBox = document.querySelector('[data-image-row-src="1"]') as HTMLInputElement | null;
       add(
-        '图片行：显示**图片名称**（截断）+ 悬停气泡给出**完整名称**',
-        !!nameEl && (nameEl.textContent ?? '').includes('.png') && (nameEl.getAttribute('data-tip-text') ?? '') === '一个很长的图片文件名-方案封面-第1版.png',
-        `显示=「${(nameEl?.textContent ?? '').trim()}」；气泡=「${nameEl?.getAttribute('data-tip-text') ?? ''}」`,
+        '图片行：名称显示在**地址框里**（data:URL 不铺给人看）+ 悬停气泡给完整名称；不再单独占一行',
+        !!namedBox &&
+          namedBox.value === '一个很长的图片文件名-方案封面-第1版.png' &&
+          (namedBox.getAttribute('data-tip-text') ?? '') === '一个很长的图片文件名-方案封面-第1版.png' &&
+          !document.querySelector('[data-image-row-name-text="1"] span'),
+        `框内值=「${namedBox?.value ?? ''}」；气泡=「${(namedBox?.getAttribute('data-tip-text') ?? '').slice(0, 24)}…」`,
       );
-      // ⑤ 行排版模式（每行等高等宽、超出裁切）：schema 有 imageLayout；切到 grid 后渲染属性跟着变
-      const schemaHas = (getComponent('image')?.propSchema ?? []).some((s) => s.key === 'imageLayout');
-      S().updateProps(rowsNode ?? '', { images: 'a.png\nb.png', imageNames: 'a.png\nb.png', columns: 2, imageLayout: 'grid' });
+      // ⑤ 多图布局只有一个维度：列数（用户："排版模式和列数冲突，保留列数、去掉排版模式"）
+      const schemaKeys = (getComponent('image')?.propSchema ?? []).map((s) => s.key);
+      S().updateProps(rowsNode ?? '', { images: 'a.png\nb.png', imageNames: 'a.png\nb.png', columns: 2 });
       await wait(460);
       const gallery = document.querySelector(`[data-node-id="${rowsNode}"] [data-image-gallery="1"]`) as HTMLElement | null;
-      const gimg = gallery?.querySelector('img') as HTMLElement | null;
-      const gstyle = gimg?.getAttribute('style') ?? '';
       add(
-        '图片排版模式：新增「行排版：每行等高等宽」（schema 有 imageLayout；grid 下每张 4:3 + cover 裁切填满）',
-        schemaHas && gallery?.getAttribute('data-gallery-layout') === 'grid' && gstyle.includes('aspect-ratio: 4 / 3') && gstyle.includes('object-fit: cover'),
-        `schema 有 imageLayout=${schemaHas}；gallery layout=${gallery?.getAttribute('data-gallery-layout')}；img style=${gstyle.slice(0, 90)}`,
+        '图片排版只由「列数」决定（schema 里没有 imageLayout 了；不再有第二个布局维度抢语义）',
+        schemaKeys.includes('columns') && !schemaKeys.includes('imageLayout') && gallery?.getAttribute('data-gallery-columns') === '2',
+        `schema 键=${schemaKeys.filter((k) => k === 'columns' || k === 'imageLayout').join('/') || '(都没有)'}；gallery 列数=${gallery?.getAttribute('data-gallery-columns')}`,
+      );
+      /* ⑥ 用户："图片组件会超出 A4 边界，加一个裁断，超出的不显示" —— 纸张就是裁切框 */
+      const paperEl = document.querySelector('[data-paper="1"]') as HTMLElement | null;
+      const paperOverflow = paperEl ? getComputedStyle(paperEl).overflow : '';
+      add(
+        'A4 纸张会**裁断**超出内容（`overflow: hidden`；超出的图/块不再画到页外）',
+        !!paperEl && paperOverflow === 'hidden',
+        `纸张 overflow=${paperOverflow || '(未渲染)'}`,
+      );
+      /* ⑦ 属性行的"控件/当前值"气泡不该出现在值又长又不可读的控件上（用户："这个气泡不用，太密集了"） */
+      const rowsRow = document.querySelector('[data-prop-row="1"][data-prop-key="images"]') as HTMLElement | null;
+      const rowsRowTip = rowsRow?.querySelector('[data-tip="1"]')?.getAttribute('data-tip-text') ?? '';
+      add(
+        '图片行控件不再挂"控件：imageRows / 当前值：data:…"那条气泡（值是不可读的长串时不弹）',
+        !!rowsRow && !rowsRow.textContent?.includes('控件：imageRows'),
+        `该行能找到=${!!rowsRow}；行内出现"控件：imageRows"=${!!rowsRow?.textContent?.includes('控件：imageRows')}；行内 tip 属性=${rowsRowTip.slice(0, 20) || '(无)'}`,
       );
       // 收尾：把图片节点恢复成"1 行"的状态，后面既有断言（＋ 加行 / 旋转）依赖它
-      S().updateProps(rowsNode ?? '', { images: 'a.png | 图一', imageRotations: '', imageNames: '', imageLayout: 'flow', columns: 2 });
+      S().updateProps(rowsNode ?? '', { images: 'a.png | 图一', imageRotations: '', imageNames: '', columns: 2 });
       await wait(420);
     }
 

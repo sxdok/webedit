@@ -443,7 +443,11 @@ export function PaperCanvas({
               if (!(e.target as HTMLElement).closest('[data-node-id]')) onSelect('', false);
             }}
             className="paper-shadow relative mb-4 shrink-0"
-            style={{ width: w, height: h, background: page.background }}
+            /* ★2026-09-30 用户："图片组件会超出 A4 边界，加一个裁断，超出的不显示" ——
+               纸张就是 A4 的**裁切框**：超出纸张的内容（超宽图、跑出页边的块）一律看不见。
+               打印/导出那条路本来就按 @page 裁（导出 CSS 另有 `img { max-width: 100% }`），
+               这里是让**编辑视图**和打印结果一致，别让用户以为"导出也长这样"。 */
+            style={{ width: w, height: h, background: page.background, overflow: 'hidden' }}
             onPointerDownCapture={onCellPointerDownCapture}
           >
             {pageChrome(i, slices.length)}
