@@ -10,6 +10,8 @@
     "verify:full": "node tools/orchestrate.mjs verify --full",
     "dist": "node tools/orchestrate.mjs dist",
     "sync-contracts": "node tools/sync-contracts.mjs",
-    "check-contracts": "node tools/sync-contracts.mjs --check"
+    "check-contracts": "node tools/sync-contracts.mjs --check",
+    "check:desktop": "node apps/desktop/scripts/check-page.mjs",
+    "check:browser": "node tools/check-ui.mjs"
   }
 }

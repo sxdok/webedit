@@ -144,7 +144,24 @@ function readTitle(wsUrl) {
 /** 读报告浮层里的 FAIL 行（`data-check-report` 由 selfCheck.renderReport 写） */
 function readFails(wsUrl) {
   return new Promise((resolvePromise) => {
-    const expression = `JSON.stringify((window.__dshCheckResults || []).filter((r) => !r.pass).map((r) => r.name))`;
+    /* ★带上 `note`：那是断言里的**实测数字**（例如"变窄：视口 680→420、缩放 100%→适应、居中偏差 0px"）。
+       `window.__dshCheckResults` 里只有 name（没有 note），所以**直接解析报告浮层的文本** ——
+       报告里每条失败都是 `FAIL 断言名 → 备注`，与 `tools/cdp/probes/selfcheck.js` 同一口径。
+       只报断言名等于只给结果不给证据（2026-09-30 用桌面端跑出 2 条失败时，就因为没备注而无法判定
+       "是脆断言还是真 bug"，白跑了一轮）。 */
+    const expression = `(() => {
+      const host = document.querySelector('[data-check-report]');
+      const text = (host ? host.textContent : '').replace(/\\s+/g, ' ');
+      const out = [];
+      const re = /FAIL\\s+([^]{0,220}?)(?=\\s*(?:PASS|FAIL)\\s|$)/g;
+      let m;
+      while ((m = re.exec(text)) !== null && out.length < 20) {
+        const seg = m[1];
+        const i = seg.indexOf('→');
+        out.push({ name: (i < 0 ? seg : seg.slice(0, i)).trim(), note: i < 0 ? '' : seg.slice(i + 1).trim() });
+      }
+      return JSON.stringify(out);
+    })()`;
     let settled = false;
     const done = (v) => {
       if (settled) return;
@@ -308,7 +325,11 @@ if (good !== total) {
   const fails = await readFails(target.webSocketDebuggerUrl);
   console.error(`\n失败 ${total - good} 条：`);
   // 压成一行：断言名里可能带换行/HTML，直接打印会把后面的条目挤掉（排查时踩过）
-  for (const f of fails) console.error('  ✗ ' + String(f).replace(/\s+/g, ' ').slice(0, 300));
+  for (const f of fails) {
+    const name = String(f?.name ?? f ?? '').replace(/\s+/g, ' ').slice(0, 200);
+    const note = String(f?.note ?? '').replace(/\s+/g, ' ').slice(0, 300);
+    console.error('  ✗ ' + name + (note ? `\n      → ${note}` : ''));
+  }
 }
 finished = true;
 if (KEEP) {

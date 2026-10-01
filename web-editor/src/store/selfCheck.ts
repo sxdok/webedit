@@ -1591,9 +1591,18 @@ async function interactionChecks(): Promise<Result[]> {
     };
     S().setMode('document');
     const narrow0 = snap();
-    // 把左右面板都拉到最宽 → 视口比 A4 窄（走的是和"改窗口尺寸"同一条重算路径）
-    S().setPanelWidth('left', 560);
-    S().setPanelWidth('right', 560);
+    /**
+     * ★2026-09-30 改成"按目标视口宽收窄"：原来直接 `setPanelWidth(left,560)+right(560)`，
+     * 把视口压到多窄取决于**窗口有多宽** —— 桌面端窗口只有 1440（面板树还要占 220），拉满后视口只剩 **50px**，
+     * 连 10% 的最小缩放（794×0.1≈79px）都放不下，于是这条在桌面端假失败（实测备注：视口 615→50、缩放 10%适应、
+     * 纸张可见宽 79、横向滚动=true）。现在按**纸张宽的比例**算目标视口（≈0.65 张纸 ≈ 516px），
+     * 任何窗口宽度下都构造成"放不下、又救得回来"的同一场景。
+     */
+    const paperW = 794; // A4 @96DPI
+    const target = Math.max(420, Math.round(paperW * 0.65));
+    const need = Math.max(0, narrow0.视口内容宽 - target);
+    S().setPanelWidth('left', (S().ui.leftWidth ?? 240) + Math.ceil(need / 2));
+    S().setPanelWidth('right', (S().ui.rightWidth ?? 300) + Math.floor(need / 2));
     await wait(760);
     const narrow = snap();
     S().setPanelWidth('left', 240);
@@ -2358,6 +2367,26 @@ async function interactionChecks(): Promise<Result[]> {
       S().setZoom(1.5);
       await wait(240);
       const tickOf = (box: HTMLElement): HTMLElement | null => box.querySelector('[data-ruler-ticks="h"]') as HTMLElement | null;
+      /**
+       * ★2026-09-30：手动缩放**只有在"视口比纸宽"时才生效** —— `Canvas.tsx` 里
+       * `zoom = narrowFit ? max(0.1, min(uiZoom, fitZoom)) : uiZoom`：
+       * 窄视口时会被压到适应值，纸不溢出就滚不动（桌面端窗口 1440、视口 615 → 缩放到 73%，
+       * 实测备注 "实际滚动 0px"，于是这条在桌面端假失败）。
+       * 这里先把左右面板收到最窄让视口宽于纸张；小窗口仍不够宽时，**临时关掉"窄视口自动适应"**
+       * （测的是"标尺钉住 + 刻度跟随滚动"，不是自适应本身），跑完还原。
+       */
+      const vpEl = document.getElementById('canvas-viewport');
+      const fitBackup = S().ui.fitWhenNarrow;
+      S().setPanelWidth('left', 180);
+      S().setPanelWidth('right', 180);
+      await wait(420);
+      const vpW = vpEl?.clientWidth ?? 0;
+      if (vpW < 794 + 40 && fitBackup) {
+        useEditorStore.setState((s) => ({ ui: { ...s.ui, fitWhenNarrow: false } }));
+        await wait(320);
+      }
+      S().setZoom(1.5);
+      await wait(320);
       const tickBefore2 = tickOf(boxH)?.getBoundingClientRect();
       // 文档模式：横向滚动 100px（放大后才有得滚），刻度应跟着走
       anchor.scrollLeft = 100;
@@ -2405,7 +2434,11 @@ async function interactionChecks(): Promise<Result[]> {
       S().setMode('document');
       await wait(200);
       S().setPan(pan0);
-      await wait(160);
+      /* 还原临时改动：面板宽度、"窄视口自动适应"开关 */
+      S().setPanelWidth('left', 240);
+      S().setPanelWidth('right', 300);
+      if (fitBackup) useEditorStore.setState((s) => ({ ui: { ...s.ui, fitWhenNarrow: true } }));
+      await wait(240);
     } else {
       add('标尺脱离画布固定在视口顶部/左侧（文档模式：标尺不动、刻度跟着**滚动量**走）', false, '找不到标尺框/#canvas-viewport');
     }
